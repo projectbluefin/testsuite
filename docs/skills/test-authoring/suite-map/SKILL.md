@@ -143,6 +143,7 @@ Set `chunked_enabled: true` once `ghcr.io/projectbluefin/bluefin:latest` ships z
 | `@nvidia_only` | NVIDIA variant only |
 | `@flatcar_suite` | Flatcar OS only |
 | `@hardware_emulation` | Requires full-hw VM spec (TPM, audio, watchdog) |
+| `@vm_only` | Scenario drives the device under test over SSH (or asserts VM-only boot state); the smoke `environment.py` skips it in container lanes, detected via `/run/.containerenv` (`tests/shared/runtime_env.py`) |
 | `@pending` | Placeholder coverage gap; intentionally skipped until a valid harness exists |
 | `@future` | Not yet implemented or blocked on infra |
 | `@homed_migration` | systemd-homed migration scenarios; dakota lifecycle; SSH-mode; skip-safe when homed absent |
