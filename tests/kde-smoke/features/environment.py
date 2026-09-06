@@ -15,6 +15,7 @@ import shlex
 import sys
 import traceback
 
+from tests.shared.ssh_config import _first_value
 from tests.shared.ssh_steps import *  # noqa: F401,F403 — register shared SSH steps
 from tests.shared.timing import record_end, record_start
 from tests.shared.kde_faillog import collect_on_failure
@@ -30,13 +31,6 @@ SUITE_NAME = "kde-smoke"
 
 # Session environment file injected by the e2e runner.
 _SESSION_ENV_FILE = "/tmp/session.env"
-
-
-def _first_value(*values: str) -> str:
-    for value in values:
-        if value:
-            return value
-    return ""
 
 
 def _skip_scenario(context, scenario, reason: str) -> None:

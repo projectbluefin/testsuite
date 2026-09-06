@@ -29,6 +29,9 @@ TESTS_ROOT = REPO_ROOT / "tests"
 QUARANTINE_HELPER = "skip_quarantine"
 QUARANTINE_MODULE = "tests.shared.quarantine"
 
+FIRST_VALUE_HELPER = "_first_value"
+FIRST_VALUE_MODULE = "tests.shared.ssh_config"
+
 
 def _environment_modules() -> list[Path]:
     return sorted(TESTS_ROOT.glob("*/features/environment.py"))
@@ -75,6 +78,18 @@ def _imports_quarantine_helper(node: ast.AST) -> bool:
         if child.module != QUARANTINE_MODULE:
             continue
         if any(alias.name == QUARANTINE_HELPER for alias in child.names):
+            return True
+    return False
+
+
+def _imports_first_value_helper(node: ast.AST) -> bool:
+    """True when ``_first_value`` is imported from the shared module."""
+    for child in ast.walk(node):
+        if not isinstance(child, ast.ImportFrom):
+            continue
+        if child.module != FIRST_VALUE_MODULE:
+            continue
+        if any(alias.name == FIRST_VALUE_HELPER for alias in child.names):
             return True
     return False
 
@@ -135,3 +150,31 @@ def test_quarantine_helper_comes_from_the_shared_module(path: Path) -> None:
     assert _imports_quarantine_helper(tree), (
         f"{relative} does not import {QUARANTINE_HELPER} from {QUARANTINE_MODULE}"
     )
+
+
+@pytest.mark.parametrize("path", ENVIRONMENT_MODULES, ids=ENVIRONMENT_IDS)
+def test_no_suite_redefines_first_value(path: Path) -> None:
+    """``_first_value`` must have exactly one implementation, in ssh_config.
+
+    It used to be copy-pasted verbatim into ``tests/common`` and
+    ``tests/kde-smoke`` (and a third time in ``tests/shared/ssh_config.py``
+    itself). A suite-local redefinition can silently drift from the shared
+    priority order that ``resolve_ssh_details`` documents, so any suite that
+    uses the helper must import the shared implementation instead of
+    re-declaring it.
+    """
+    relative = path.relative_to(REPO_ROOT)
+    tree = _parse(path)
+
+    local_definition = _find_function(tree, FIRST_VALUE_HELPER)
+    assert local_definition is None, (
+        f"{relative} defines its own {FIRST_VALUE_HELPER}(); it must import the "
+        f"shared implementation from {FIRST_VALUE_MODULE} instead of "
+        "re-declaring it locally"
+    )
+
+    if FIRST_VALUE_HELPER in _called_names(tree):
+        assert _imports_first_value_helper(tree), (
+            f"{relative} calls {FIRST_VALUE_HELPER}() but does not import it "
+            f"from {FIRST_VALUE_MODULE}"
+        )
