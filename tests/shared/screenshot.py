@@ -56,21 +56,16 @@ def _screenshot_path(label: str, context: Any | None = None) -> str:
 
 
 def _ssh_run(cmd: str, timeout: int = 15) -> "subprocess.CompletedProcess[str]":
-    """Run a shell command on the VM via SSH (used when inside the runner container)."""
-    ssh_key = os.environ.get("SSH_KEY", "/home/bluefin-test/.ssh/id_ed25519")
-    vm_ip = os.environ.get("VM_IP", "127.0.0.1")
-    vm_user = os.environ.get("VM_USER", "bluefin-test")
-    ssh_port = os.environ.get("SSH_PORT", "22")
+    """Run a shell command on the VM via SSH (used when inside the runner container).
+
+    Resolves connection details via ``tests.shared.ssh_config.ssh_argv``, which
+    honours the bound behave context (``configure_screenshot_context``) before
+    falling back to environment variables.
+    """
+    from tests.shared.ssh_config import ssh_argv
+
     return subprocess.run(
-        [
-            "ssh", "-i", ssh_key,
-            "-o", "StrictHostKeyChecking=no",
-            "-o", "UserKnownHostsFile=/dev/null",
-            "-o", "ConnectTimeout=10",
-            "-p", ssh_port,
-            f"{vm_user}@{vm_ip}",
-            cmd,
-        ],
+        ssh_argv(_CURRENT_CONTEXT) + [cmd],
         capture_output=True, text=True, timeout=timeout,
     )
 

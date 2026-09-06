@@ -123,7 +123,7 @@ class TestAssertAnyAppPresent:
         """PR #388: gnome-files added as fallback alongside nautilus."""
         m = _import_vanilla_gnome_steps()
         checked_commands = []
-        def track_cmd(cmd):
+        def track_cmd(cmd, context=None):
             checked_commands.append(cmd)
             return cmd == "gnome-files"
         with patch.object(m, "_command_exists", side_effect=track_cmd), \

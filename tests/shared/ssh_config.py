@@ -78,23 +78,32 @@ def resolve_ssh_details(context=None) -> dict:
     }
 
 
-def ssh_argv(context=None, *, connect_timeout: int = 10) -> list[str]:
+def ssh_argv(context=None, *, connect_timeout: int = 10, quiet: bool = False) -> list[str]:
     """Return the canonical ``ssh`` argv prefix for the current run.
 
     Callers append the remote command:  ``subprocess.run(ssh_argv() + [cmd])``.
     This is the single place where SSH transport policy (host-key handling,
     connect timeout, port flag, destination) is expressed.
+
+    ``quiet=True`` adds ``LogLevel=ERROR`` so ssh's own diagnostics do not leak
+    into captured command output — set it for callers that previously built
+    that option inline instead of restating it at every call site.
     """
     details = resolve_ssh_details(context)
-    return [
+    argv = [
         "ssh",
         "-i", details["ssh_key"],
         "-o", "StrictHostKeyChecking=no",
         "-o", "UserKnownHostsFile=/dev/null",
         "-o", f"ConnectTimeout={connect_timeout}",
+    ]
+    if quiet:
+        argv += ["-o", "LogLevel=ERROR"]
+    argv += [
         "-p", str(details["ssh_port"]),
         f"{details['ssh_user']}@{details['vm_ip']}",
     ]
+    return argv
 
 
 def populate_ssh_context(context) -> None:

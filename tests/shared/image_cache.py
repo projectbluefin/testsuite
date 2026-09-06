@@ -89,20 +89,9 @@ def _ssh_returncode(context, command: str, timeout: int) -> int:
     Unlike a step, this probe leaves ``context`` untouched: it runs before the
     per-scenario state reset and must not smear command output across scenarios.
     """
-    from tests.shared.ssh_config import resolve_ssh_details
+    from tests.shared.ssh_config import ssh_argv
 
-    details = resolve_ssh_details(context)
-    argv = [
-        "ssh",
-        "-i", details["ssh_key"],
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=/dev/null",
-        "-o", "ConnectTimeout=10",
-        "-o", "LogLevel=ERROR",
-    ]
-    if details.get("ssh_port"):
-        argv += ["-p", str(details["ssh_port"])]
-    argv += [f"{details['ssh_user']}@{details['vm_ip']}", command]
+    argv = ssh_argv(context, quiet=True) + [command]
     return subprocess.run(argv, capture_output=True, text=True, timeout=timeout).returncode
 
 
