@@ -244,7 +244,9 @@ class TestAtspiSteps:
         context = _make_context(shell)
 
         mocked_open = mock_open()
-        with patch("os.makedirs") as mock_makedirs, patch("builtins.open", mocked_open):
+        with patch("os.makedirs") as mock_makedirs, \
+             patch("builtins.open", mocked_open), \
+             patch("tests.shared.gnome_shell_steps.resolve_results_dir", return_value="/tmp/results"):
             self.mod.dump_atspi_tree(context)
 
         mock_makedirs.assert_called_once_with("/tmp/results", exist_ok=True)
