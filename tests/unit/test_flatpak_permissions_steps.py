@@ -29,6 +29,10 @@ def _import_module():
 
     ssh_steps_stub = types.ModuleType("tests.shared.ssh_steps")
     ssh_steps_stub.__all__ = []
+    # A stub missing run_ssh permanently corrupts this sys.modules entry for
+    # every later test in this xdist worker (e.g. test_installer_environment.py
+    # monkeypatching ssh_steps.run_ssh), so keep the attribute present.
+    ssh_steps_stub.run_ssh = MagicMock(return_value=("", 0))
     sys.modules["tests.shared.ssh_steps"] = ssh_steps_stub
 
     # steps.py imports smoke app_support (dogtail-dependent); stub it out.

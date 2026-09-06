@@ -22,6 +22,10 @@ def _import_software_steps(in_container: bool = False):
     sys.modules["qecore.common_steps"] = qecore_common_stub
 
     ssh_steps_stub = types.ModuleType("tests.shared.ssh_steps")
+    # A stub missing run_ssh permanently corrupts this sys.modules entry for
+    # every later test in this xdist worker (e.g. test_installer_environment.py
+    # monkeypatching ssh_steps.run_ssh), so keep the attribute present.
+    ssh_steps_stub.run_ssh = MagicMock(return_value=("", 0))
     sys.modules["tests.shared"] = sys.modules.get("tests.shared", types.ModuleType("tests.shared"))
     sys.modules["tests.shared.ssh_steps"] = ssh_steps_stub
 
