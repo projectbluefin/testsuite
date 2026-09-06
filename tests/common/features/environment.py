@@ -7,6 +7,7 @@ GSettings-focused checks over SSH against a live Bluefin session.
 import os
 import shlex
 
+from tests.shared.ssh_config import _first_value
 from tests.shared.ssh_steps import *  # noqa: F401,F403
 from tests.shared.ssh_steps import run_ssh
 
@@ -18,13 +19,6 @@ except Exception:  # noqa: BLE001
 
     def record_end(context, scenario):
         return None
-
-
-def _first_value(*values: str) -> str:
-    for value in values:
-        if value:
-            return value
-    return ""
 
 
 def _is_bluefin_image(image: str) -> bool:
