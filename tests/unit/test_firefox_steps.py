@@ -217,6 +217,14 @@ class TestFirefoxWindow:
         context.firefox.instance = _FakeNode("application", children=[filler, frame])
         assert m._firefox_window(context) is frame
 
+    def test_prefers_filler_with_chrome_over_frameless_subframe(self):
+        m = _import_firefox_steps()
+        filler = _FakeNode("filler", children=[_FakeNode("entry")])
+        subframe = _FakeNode("frame", children=[_FakeNode("push button")])
+        context = MagicMock()
+        context.firefox.instance = _FakeNode("application", children=[filler, subframe])
+        assert m._firefox_window(context) is filler
+
     def test_liveness_check_accepts_empty_window(self):
         m = _import_firefox_steps()
         window = _FakeNode("filler")

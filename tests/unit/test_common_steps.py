@@ -108,9 +108,10 @@ def _import_common_environment(*, run_ssh_returncode=0):
 
 
 class _Scenario:
-    def __init__(self, tags):
+    def __init__(self, tags, name=""):
         self.tags = list(tags)
         self.effective_tags = list(tags)
+        self.name = name
         self.skip_message = None
 
     def skip(self, message=None):
@@ -268,6 +269,77 @@ class TestCommonEnvironmentRequiresBctl:
 
         assert scenario.skip_message is None
         assert context.has_bctl is True
+
+
+class TestCommonEnvironmentRequiresToggleAction:
+    def test_skips_when_recipe_lacks_action_value(self):
+        m = _import_common_environment(run_ssh_returncode=1)
+        context = _ctx(is_bluefin_image=True, has_brew=True, has_toggle_action=None)
+        scenario = _Scenario(["requires_toggle_action"])
+
+        m.before_scenario(context, scenario)
+
+        assert scenario.skip_message == "ujust toggle-updates ACTION support not present on this image"
+        assert context.has_toggle_action is False
+
+    def test_allows_when_recipe_has_action_value(self):
+        m = _import_common_environment(run_ssh_returncode=0)
+        context = _ctx(is_bluefin_image=True, has_brew=True, has_toggle_action=None)
+        scenario = _Scenario(["requires_toggle_action"])
+
+        m.before_scenario(context, scenario)
+
+        assert scenario.skip_message is None
+        assert context.has_toggle_action is True
+
+    def test_probes_recipe_definition_directly(self):
+        m = _import_common_environment(run_ssh_returncode=0)
+        calls = []
+        m.run_ssh = lambda context, cmd, **kw: (calls.append(cmd), ("", 0))[1]
+        context = _ctx(has_toggle_action=None)
+
+        result = m._has_toggle_action(context)
+
+        assert result is True
+        assert calls == ["ujust --show toggle-updates 2>/dev/null | grep -q 'ACTION_VALUE'"]
+
+
+class TestCommonEnvironmentBootcUnifiedStorage:
+    def test_restarts_service_when_result_is_not_success(self):
+        m = _import_common_environment(run_ssh_returncode=0)
+        calls = []
+
+        def _fake_run_ssh(context, cmd, **kw):
+            calls.append(cmd)
+            if "Result --value" in cmd:
+                return "signal\n", 0
+            return "", 0
+
+        m.run_ssh = _fake_run_ssh
+        context = _ctx(is_bluefin_image=True, has_brew=True)
+        scenario = _Scenario([], name="bootc unified storage service completed successfully")
+
+        m.before_scenario(context, scenario)
+
+        assert any("restart bootc-unified-storage.service" in c for c in calls)
+
+    def test_does_not_restart_when_result_is_already_success(self):
+        m = _import_common_environment(run_ssh_returncode=0)
+        calls = []
+
+        def _fake_run_ssh(context, cmd, **kw):
+            calls.append(cmd)
+            if "Result --value" in cmd:
+                return "success\n", 0
+            return "", 0
+
+        m.run_ssh = _fake_run_ssh
+        context = _ctx(is_bluefin_image=True, has_brew=True)
+        scenario = _Scenario([], name="bootc unified storage service completed successfully")
+
+        m.before_scenario(context, scenario)
+
+        assert not any("restart bootc-unified-storage.service" in c for c in calls)
 
 
 class TestCommonEnvironmentDevmodeCleanup:

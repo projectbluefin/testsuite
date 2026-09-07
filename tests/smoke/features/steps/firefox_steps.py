@@ -89,7 +89,14 @@ def launch_firefox_via_command(context) -> None:
 
 
 def _window_candidates(context):
-    return _firefox_app(context).findChildren(
+    app = _firefox_app(context)
+    top_level = [
+        c for c in getattr(app, "children", [])
+        if c.roleName in FIREFOX_WINDOW_ROLES and c.showing
+    ]
+    if top_level:
+        return top_level
+    return app.findChildren(
         lambda n: n.roleName in FIREFOX_WINDOW_ROLES and n.showing
     )
 
@@ -116,6 +123,25 @@ def _firefox_window(context, *, require_a11y_tree: bool = True):
         return candidates[0]
     # Prefer a real `frame`; fall back to any candidate with a usable subtree.
     populated = [n for n in candidates if _has_populated_a11y_tree(n)]
+    # Prefer a frame with browser chrome (entry, autocomplete, or tab list)
+    for node in populated:
+        try:
+            if node.roleName == "frame" and node.findChildren(
+                lambda n: n.roleName in {"entry", "autocomplete", "page tab list"} and n.showing
+            ):
+                return node
+        except Exception:  # noqa: BLE001
+            pass
+    # Fall back to any candidate with browser chrome (e.g. GNOME 50 filler window)
+    for node in populated:
+        try:
+            if node.findChildren(
+                lambda n: n.roleName in {"entry", "autocomplete", "page tab list"} and n.showing
+            ):
+                return node
+        except Exception:  # noqa: BLE001
+            pass
+    # Fall back to any populated frame
     for node in populated:
         if node.roleName == "frame":
             return node
@@ -126,8 +152,13 @@ def _firefox_window(context, *, require_a11y_tree: bool = True):
 
 
 def _address_bar(context):
-    bars = _firefox_window(context).findChildren(lambda n: n.roleName == "entry" and n.showing)
-    matches = [n for n in bars if "address" in (n.name or "").lower()]
+    bars = _firefox_window(context).findChildren(
+        lambda n: n.roleName in {"entry", "autocomplete"} and n.showing
+    )
+    matches = [
+        n for n in bars
+        if any(kw in (n.name or "").lower() for kw in ("address", "search", "url"))
+    ]
     assert matches or bars, "Firefox address bar not found"
     return (matches or bars)[0]
 
