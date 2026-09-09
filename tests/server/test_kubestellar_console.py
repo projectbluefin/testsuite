@@ -187,16 +187,16 @@ class TestConsoleLoginOptions:
             if "valueFrom" in item
         }
 
-        for var_name, key_name in [
-            ("GITHUB_CLIENT_ID", "client-id"),
-            ("GITHUB_CLIENT_SECRET", "client-secret"),
-            ("JWT_SECRET", "jwt-secret"),
+        for var_name, key_name, is_optional in [
+            ("GITHUB_CLIENT_ID", "client-id", True),
+            ("GITHUB_CLIENT_SECRET", "client-secret", True),
+            ("JWT_SECRET", "jwt-secret", False),
         ]:
             ref = secret_refs.get(var_name)
             assert ref is not None, f"Missing secretKeyRef for {var_name}"
             assert ref.get("name") == "kubestellar-console-github-oauth"
             assert ref.get("key") == key_name
-            assert ref.get("optional") is False
+            assert ref.get("optional") is is_optional
 
     def test_github_oauth_secret_manifest_definition(self, files_dir: Path) -> None:
         secret_path = (

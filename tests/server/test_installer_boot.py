@@ -151,7 +151,7 @@ class TestUefiFallbackBootloader:
             re.DOTALL,
         )
         assert cmdline_match is not None
-        assert cmdline_match.group(1) == "rw console=ttyS0,115200 console=tty0"
+        assert cmdline_match.group(1) == "rw console=ttyS0,115200 console=tty0 quiet loglevel=3 audit=0"
 
         # Dracut includes required storage and filesystem drivers
         assert '--add-drivers "virtio virtio_blk virtio_pci virtio_scsi nvme nvme_core xfs erofs overlay"' in content
