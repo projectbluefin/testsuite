@@ -1,6 +1,6 @@
 {
-  "id": "34301731746",
-  "timestamp": "2026-09-09T18:09:40Z",
+  "id": "34393761902",
+  "timestamp": "2026-09-09T20:07:12Z",
   "stream": "testing",
   "flavor": "bluefin",
   "suite": "vanilla-gnome",
@@ -28,83 +28,83 @@
     "passed_tests": 12,
     "failed_tests": 1,
     "skipped_tests": 0,
-    "total_duration_ms": 14615
+    "total_duration_ms": 321829
   },
   "tests": [
     {
       "name": "Vanilla GNOME baseline smoke tests > GNOME Shell process is running and accessible via AT-SPI",
       "status": "passed",
-      "duration_ms": 176,
+      "duration_ms": 178,
       "error_message": null,
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * Dump panel children to log\n[PASSED] * Dump gnome-shell AT-SPI tree to results"
     },
     {
       "name": "Vanilla GNOME baseline smoke tests > Panel is present in AT-SPI tree",
       "status": "passed",
-      "duration_ms": 941,
+      "duration_ms": 1082,
       "error_message": null,
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * Panel is present in AT-SPI tree"
     },
     {
       "name": "Vanilla GNOME baseline smoke tests > Activities toggle button is visible in panel",
       "status": "passed",
-      "duration_ms": 150,
+      "duration_ms": 190,
       "error_message": null,
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * Item \"Activities\" \"toggle button\" is \"showing\" in \"gnome-shell\""
     },
     {
       "name": "Vanilla GNOME baseline smoke tests > Super key opens Activities overview",
       "status": "passed",
-      "duration_ms": 1013,
+      "duration_ms": 998,
       "error_message": null,
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * Open Activities overview via Shell.Eval\n[PASSED] * Overview is open\n[PASSED] * Close Activities overview via Shell.Eval\n[PASSED] * Overview is closed"
     },
     {
       "name": "Vanilla GNOME baseline smoke tests > Typing in overview populates search bar",
       "status": "passed",
-      "duration_ms": 2806,
+      "duration_ms": 2994,
       "error_message": null,
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * Open Activities overview via Shell.Eval\n[PASSED] * Overview is open\n[PASSED] * Set overview search text to \"Files\" via Shell.Eval\n[PASSED] * Overview search bar contains \"Files\"\n[PASSED] * Close Activities overview via Shell.Eval"
     },
     {
       "name": "Vanilla GNOME baseline smoke tests > Clicking System menu opens Quick Settings",
       "status": "passed",
-      "duration_ms": 984,
+      "duration_ms": 952,
       "error_message": null,
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * Open Quick Settings via Shell.Eval\n[PASSED] * Quick Settings panel is open via Shell.Eval"
     },
     {
       "name": "Vanilla GNOME baseline smoke tests > Do-not-disturb toggle is accessible via Quick Settings",
       "status": "passed",
-      "duration_ms": 1314,
+      "duration_ms": 1252,
       "error_message": null,
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * Open Quick Settings via Shell.Eval\n[PASSED] * Quick Settings panel is open via Shell.Eval\n[PASSED] * Do-not-disturb toggle is present in Quick Settings\n[PASSED] * Close Quick Settings via Shell.Eval"
     },
     {
       "name": "Vanilla GNOME baseline smoke tests > Night Light toggle is present in Quick Settings",
       "status": "passed",
-      "duration_ms": 1313,
+      "duration_ms": 1298,
       "error_message": null,
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * Open Quick Settings via Shell.Eval\n[PASSED] * Quick Settings panel is open via Shell.Eval\n[PASSED] * Night Light toggle is present in Quick Settings\n[PASSED] * Close Quick Settings via Shell.Eval"
     },
     {
       "name": "Vanilla GNOME baseline smoke tests > Clicking clock opens calendar popup",
       "status": "passed",
-      "duration_ms": 909,
+      "duration_ms": 885,
       "error_message": null,
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * Open date menu via Shell.Eval\n[PASSED] * Date menu panel is open via Shell.Eval"
     },
     {
       "name": "Vanilla GNOME baseline smoke tests > Default GNOME apps are installed",
       "status": "passed",
-      "duration_ms": 2407,
+      "duration_ms": 2256,
       "error_message": null,
       "logs": "[PASSED] * GNOME Files application is installed\n[PASSED] * A web browser application is installed\n[PASSED] * A terminal application is installed"
     },
     {
       "name": "Vanilla GNOME baseline smoke tests > Screenshot tool opens via keyboard shortcut",
       "status": "passed",
-      "duration_ms": 2247,
+      "duration_ms": 309402,
       "error_message": null,
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * Screenshot tool launches via Shell.Eval\n[PASSED] * Screenshot tool window is accessible via AT-SPI\n[PASSED] * Close screenshot tool"
     },
@@ -118,7 +118,7 @@
     {
       "name": "Vanilla GNOME baseline smoke tests > Bluefin-specific extensions are absent on vanilla-gnome",
       "status": "failed",
-      "duration_ms": 355,
+      "duration_ms": 342,
       "error_message": [
         "ASSERT FAILED: Unexpected Bluefin-specific extension 'bazaar-integration' is present in vanilla-gnome: unsafe-mode@bluefin-test",
         "appindicatorsupport@rgcjonas.gmail.com",
