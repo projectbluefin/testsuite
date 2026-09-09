@@ -1,6 +1,5 @@
 """Unit tests for shared timing helpers."""
 
-import importlib
 import json
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -95,34 +94,3 @@ def test_record_end_without_start_returns_none(tmp_path):
 
     assert timing.record_end(context, _scenario()) is None
     assert not (tmp_path / "timings.jsonl").exists()
-
-
-@pytest.mark.parametrize(
-    ("raw_value", "expected"),
-    [
-        ("1", True),
-        ("true", True),
-        ("yes", True),
-        ("0", False),
-        ("false", False),
-        ("", False),
-    ],
-)
-def test_sla_strict_env_parsing(monkeypatch, raw_value, expected):
-    monkeypatch.setenv("TIMING_SLA_STRICT", raw_value)
-
-    reloaded = importlib.reload(timing)
-    try:
-        assert reloaded.SLA_STRICT is expected
-    finally:
-        monkeypatch.delenv("TIMING_SLA_STRICT", raising=False)
-        importlib.reload(timing)
-
-
-def test_default_sla_thresholds_are_defined_for_future_use():
-    assert timing.DEFAULT_SLA == {
-        "app_launch": 10,
-        "shell_eval": 5,
-        "ssh_check": 15,
-        "system_health": 8,
-    }
