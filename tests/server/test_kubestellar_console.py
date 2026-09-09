@@ -111,7 +111,7 @@ class TestKioskProxyConfiguration:
         assert nginx_conf.is_file(), f"Missing {nginx_conf}"
         content = nginx_conf.read_text(encoding="utf-8")
 
-        assert "listen 8080;" in content
+        assert "listen 8080 ssl;" in content
         assert "proxy_pass http://kubestellar-console.kubestellar-console.svc.cluster.local:8080;" in content
         assert 'proxy_set_header Accept-Encoding "";' in content
         assert "sub_filter '</head>' '<link rel=\"stylesheet\" href=\"/kiosk-gate.css\"></head>';" in content
