@@ -1,0 +1,630 @@
+{
+  "id": "34456501914",
+  "timestamp": "2026-09-10T10:07:35Z",
+  "stream": "testing",
+  "flavor": "dakota",
+  "suite": "smoke",
+  "version": "40.latest",
+  "git_commit": {
+    "sha": "db329ee6a053b0c655d335fcfd3d13e0db9d2ac1",
+    "message": "E2E test run compiled via projectbluefin/dakota",
+    "author": "KubeVirt Lab",
+    "repo_url": "https://github.com/projectbluefin/dakota"
+  },
+  "environment": {
+    "runner_id": "homelab-kubevirt-worker",
+    "kubevirt_version": "v1.2.0",
+    "k3s_version": "v1.29.3",
+    "hardware_profile": {
+      "cpu_cores": 8,
+      "memory_gb": 32,
+      "gpu": "None",
+      "disk_type": "NVMe"
+    }
+  },
+  "summary": {
+    "status": "failed",
+    "total_tests": 85,
+    "passed_tests": 7,
+    "failed_tests": 58,
+    "skipped_tests": 20,
+    "total_duration_ms": 1374700
+  },
+  "tests": [
+    {
+      "name": "GNOME regression checks > No gnome-control-center coredump after session start",
+      "status": "passed",
+      "duration_ms": 150,
+      "error_message": null,
+      "logs": "[PASSED] * No coredump entries exist on the host for \"gnome-control-center\""
+    },
+    {
+      "name": "GNOME Settings smoke tests > GNOME Settings launches and window is accessible",
+      "status": "failed",
+      "duration_ms": 123007,
+      "error_message": "ASSERT FAILED: GNOME Settings application was not found via AT-SPI after 15s: Application 'Settings' was not found in desktop.",
+      "logs": "[PASSED] * Launch Settings via command\n[FAILED] * Settings window is accessible\n\u001b[1;31m[ERROR] ASSERT FAILED: GNOME Settings application was not found via AT-SPI after 15s: Application 'Settings' was not found in desktop.\u001b[0m\n[SKIPPED] * Settings window is accessible"
+    },
+    {
+      "name": "GNOME Settings smoke tests > Settings sidebar is present with navigation items",
+      "status": "failed",
+      "duration_ms": 123165,
+      "error_message": "ASSERT FAILED: GNOME Settings application was not found via AT-SPI after 15s: Application 'Settings' was not found in desktop.",
+      "logs": "[PASSED] * Launch Settings via command\n[FAILED] * Settings window is accessible\n\u001b[1;31m[ERROR] ASSERT FAILED: GNOME Settings application was not found via AT-SPI after 15s: Application 'Settings' was not found in desktop.\u001b[0m\n[SKIPPED] * Settings sidebar is present"
+    },
+    {
+      "name": "GNOME Settings smoke tests > About page is accessible",
+      "status": "failed",
+      "duration_ms": 122965,
+      "error_message": "ASSERT FAILED: GNOME Settings application was not found via AT-SPI after 15s: Application 'Settings' was not found in desktop.",
+      "logs": "[PASSED] * Launch Settings via command\n[FAILED] * Settings window is accessible\n\u001b[1;31m[ERROR] ASSERT FAILED: GNOME Settings application was not found via AT-SPI after 15s: Application 'Settings' was not found in desktop.\u001b[0m\n[SKIPPED] * Navigate to Settings panel \"About\"\n[SKIPPED] * Settings panel \"About\" is visible"
+    },
+    {
+      "name": "GNOME Settings smoke tests > About page shows OS information",
+      "status": "failed",
+      "duration_ms": 123017,
+      "error_message": "ASSERT FAILED: GNOME Settings application was not found via AT-SPI after 15s: Application 'Settings' was not found in desktop.",
+      "logs": "[PASSED] * Launch Settings via command\n[FAILED] * Settings window is accessible\n\u001b[1;31m[ERROR] ASSERT FAILED: GNOME Settings application was not found via AT-SPI after 15s: Application 'Settings' was not found in desktop.\u001b[0m\n[SKIPPED] * Navigate to Settings panel \"About\"\n[SKIPPED] * Settings panel \"About\" is visible\n[SKIPPED] * About page shows system information"
+    },
+    {
+      "name": "GNOME Settings smoke tests > Displays settings panel is accessible",
+      "status": "failed",
+      "duration_ms": 123009,
+      "error_message": "ASSERT FAILED: GNOME Settings application was not found via AT-SPI after 15s: Application 'Settings' was not found in desktop.",
+      "logs": "[PASSED] * Launch Settings via command\n[FAILED] * Settings window is accessible\n\u001b[1;31m[ERROR] ASSERT FAILED: GNOME Settings application was not found via AT-SPI after 15s: Application 'Settings' was not found in desktop.\u001b[0m\n[SKIPPED] * Navigate to Settings panel \"Displays\"\n[SKIPPED] * Settings panel \"Displays\" is visible"
+    },
+    {
+      "name": "GNOME Settings smoke tests > Wi-Fi settings panel is accessible",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * Launch Settings via command\n[SKIPPED] * Settings window is accessible\n[SKIPPED] * Navigate to Settings panel \"Wi-Fi\"\n[SKIPPED] * Settings panel \"Wi-Fi\" is visible"
+    },
+    {
+      "name": "GNOME Settings smoke tests > Privacy settings panel is accessible",
+      "status": "failed",
+      "duration_ms": 123113,
+      "error_message": "ASSERT FAILED: GNOME Settings application was not found via AT-SPI after 15s: Application 'Settings' was not found in desktop.",
+      "logs": "[PASSED] * Launch Settings via command\n[FAILED] * Settings window is accessible\n\u001b[1;31m[ERROR] ASSERT FAILED: GNOME Settings application was not found via AT-SPI after 15s: Application 'Settings' was not found in desktop.\u001b[0m\n[SKIPPED] * Navigate to Settings panel \"Privacy & Security\"\n[SKIPPED] * Settings panel \"Privacy & Security\" is visible"
+    },
+    {
+      "name": "GNOME Settings smoke tests > Notifications settings panel is accessible",
+      "status": "failed",
+      "duration_ms": 122994,
+      "error_message": "ASSERT FAILED: GNOME Settings application was not found via AT-SPI after 15s: Application 'Settings' was not found in desktop.",
+      "logs": "[PASSED] * Launch Settings via command\n[FAILED] * Settings window is accessible\n\u001b[1;31m[ERROR] ASSERT FAILED: GNOME Settings application was not found via AT-SPI after 15s: Application 'Settings' was not found in desktop.\u001b[0m\n[SKIPPED] * Navigate to Settings panel \"Notifications\"\n[SKIPPED] * Settings panel \"Notifications\" is visible"
+    },
+    {
+      "name": "GNOME Settings smoke tests > Keyboard settings panel is accessible",
+      "status": "failed",
+      "duration_ms": 123110,
+      "error_message": "ASSERT FAILED: GNOME Settings application was not found via AT-SPI after 15s: Application 'Settings' was not found in desktop.",
+      "logs": "[PASSED] * Launch Settings via command\n[FAILED] * Settings window is accessible\n\u001b[1;31m[ERROR] ASSERT FAILED: GNOME Settings application was not found via AT-SPI after 15s: Application 'Settings' was not found in desktop.\u001b[0m\n[SKIPPED] * Navigate to Settings panel \"Keyboard\"\n[SKIPPED] * Settings panel \"Keyboard\" is visible"
+    },
+    {
+      "name": "GNOME Settings smoke tests > Power settings panel is accessible",
+      "status": "failed",
+      "duration_ms": 123022,
+      "error_message": "ASSERT FAILED: GNOME Settings application was not found via AT-SPI after 15s: Application 'Settings' was not found in desktop.",
+      "logs": "[PASSED] * Launch Settings via command\n[FAILED] * Settings window is accessible\n\u001b[1;31m[ERROR] ASSERT FAILED: GNOME Settings application was not found via AT-SPI after 15s: Application 'Settings' was not found in desktop.\u001b[0m\n[SKIPPED] * Navigate to Settings panel \"Power\"\n[SKIPPED] * Settings panel \"Power\" is visible"
+    },
+    {
+      "name": "GNOME Settings smoke tests > Accessibility settings panel is accessible",
+      "status": "failed",
+      "duration_ms": 123082,
+      "error_message": "ASSERT FAILED: GNOME Settings application was not found via AT-SPI after 15s: Application 'Settings' was not found in desktop.",
+      "logs": "[PASSED] * Launch Settings via command\n[FAILED] * Settings window is accessible\n\u001b[1;31m[ERROR] ASSERT FAILED: GNOME Settings application was not found via AT-SPI after 15s: Application 'Settings' was not found in desktop.\u001b[0m\n[SKIPPED] * Navigate to Settings panel \"Accessibility\"\n[SKIPPED] * Settings panel \"Accessibility\" is visible"
+    },
+    {
+      "name": "GNOME Settings smoke tests > Settings closes cleanly via Ctrl+Q",
+      "status": "failed",
+      "duration_ms": 123059,
+      "error_message": "ASSERT FAILED: GNOME Settings application was not found via AT-SPI after 15s: Application 'Settings' was not found in desktop.",
+      "logs": "[PASSED] * Launch Settings via command\n[FAILED] * Settings window is accessible\n\u001b[1;31m[ERROR] ASSERT FAILED: GNOME Settings application was not found via AT-SPI after 15s: Application 'Settings' was not found in desktop.\u001b[0m\n[SKIPPED] * Key combo: \"<Ctrl><Q>\" with uinput\n[SKIPPED] * Settings is no longer running"
+    },
+    {
+      "name": "GNOME Shell smoke tests > GNOME Shell process is running and accessible via AT-SPI",
+      "status": "passed",
+      "duration_ms": 106,
+      "error_message": null,
+      "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * Dump panel children to log\n[PASSED] * Dump gnome-shell AT-SPI tree to results"
+    },
+    {
+      "name": "GNOME Shell smoke tests > Panel is present in AT-SPI tree",
+      "status": "passed",
+      "duration_ms": 638,
+      "error_message": null,
+      "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * Panel is present in AT-SPI tree"
+    },
+    {
+      "name": "GNOME Shell smoke tests > Activities toggle button is visible in panel",
+      "status": "passed",
+      "duration_ms": 1279,
+      "error_message": null,
+      "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * Activities toggle button is present in gnome-shell panel"
+    },
+    {
+      "name": "GNOME Shell smoke tests > Clock toggle button is visible in panel",
+      "status": "passed",
+      "duration_ms": 1288,
+      "error_message": null,
+      "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * Clock toggle is visible in top bar"
+    },
+    {
+      "name": "GNOME Shell smoke tests > System menu toggle button is visible in panel",
+      "status": "passed",
+      "duration_ms": 1290,
+      "error_message": null,
+      "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * System menu toggle is visible in top bar"
+    },
+    {
+      "name": "GNOME Shell smoke tests > Super key opens Activities overview",
+      "status": "passed",
+      "duration_ms": 1047,
+      "error_message": null,
+      "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * Open Activities overview\n[PASSED] * Overview is open\n[PASSED] * Close Activities overview via D-Bus\n[PASSED] * Overview is closed"
+    },
+    {
+      "name": "GNOME Shell smoke tests > Typing in overview populates search bar",
+      "status": "failed",
+      "duration_ms": 15359,
+      "error_message": null,
+      "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * Open Activities overview\n[PASSED] * Overview is open\n[PASSED] * Dismiss the Bluefin welcome dialog if it appears\n[FAILED] * Type \"Files\" in overview search entry\n[SKIPPED] * Overview search bar contains \"Files\"\n[SKIPPED] * Close Activities overview via D-Bus"
+    },
+    {
+      "name": "GNOME Shell smoke tests > D-Bus closes Activities overview",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * GNOME Shell is accessible via AT-SPI\n[SKIPPED] * Open Activities overview\n[SKIPPED] * Overview is open\n[SKIPPED] * Close Activities overview via D-Bus\n[SKIPPED] * Overview is closed"
+    },
+    {
+      "name": "GNOME Shell smoke tests > Clicking System menu opens Quick Settings",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * GNOME Shell is accessible via AT-SPI\n[SKIPPED] * Open Quick Settings via Shell.Eval\n[SKIPPED] * Quick Settings panel is open via Shell.Eval"
+    },
+    {
+      "name": "GNOME Shell smoke tests > Escape closes Quick Settings",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * GNOME Shell is accessible via AT-SPI\n[SKIPPED] * Open Quick Settings via Shell.Eval\n[SKIPPED] * Quick Settings panel is open via Shell.Eval\n[SKIPPED] * Close Quick Settings via Shell.Eval\n[SKIPPED] * Quick Settings panel is closed via Shell.Eval"
+    },
+    {
+      "name": "GNOME Shell smoke tests > Night Light can be enabled and disabled",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * GNOME Shell is accessible via AT-SPI\n[SKIPPED] * Ensure Night Light starts disabled via gsettings\n[SKIPPED] * Enable Night Light via gsettings\n[SKIPPED] * Night Light is enabled via gsettings\n[SKIPPED] * Disable Night Light via gsettings\n[SKIPPED] * Night Light is disabled via gsettings"
+    },
+    {
+      "name": "GNOME Shell smoke tests > Do-Not-Disturb can be toggled via Quick Settings",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * GNOME Shell is accessible via AT-SPI\n[SKIPPED] * Open Quick Settings via Shell.Eval\n[SKIPPED] * Quick Settings panel is open via Shell.Eval\n[SKIPPED] * Enable Do-Not-Disturb via Shell.Eval toggle\n[SKIPPED] * Do-Not-Disturb is enabled via Shell.Eval\n[SKIPPED] * Disable Do-Not-Disturb via Shell.Eval toggle\n[SKIPPED] * Do-Not-Disturb is disabled via Shell.Eval\n[SKIPPED] * Close Quick Settings via Shell.Eval"
+    },
+    {
+      "name": "GNOME Shell smoke tests > Clicking clock opens calendar popup",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * GNOME Shell is accessible via AT-SPI\n[SKIPPED] * Open date menu via Shell.Eval\n[SKIPPED] * Date menu panel is open via Shell.Eval"
+    },
+    {
+      "name": "GNOME Shell smoke tests > Escape closes calendar popup",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * GNOME Shell is accessible via AT-SPI\n[SKIPPED] * Open date menu via Shell.Eval\n[SKIPPED] * Date menu panel is open via Shell.Eval\n[SKIPPED] * Close date menu via Shell.Eval\n[SKIPPED] * Date menu panel is closed via Shell.Eval"
+    },
+    {
+      "name": "GNOME Shell smoke tests > Screen lock engages without crashing GNOME Shell",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * GNOME Shell is accessible via AT-SPI\n[SKIPPED] * Lock screen via loginctl\n[SKIPPED] * Session is locked\n[SKIPPED] * Unlock screen via loginctl"
+    },
+    {
+      "name": "GNOME Shell smoke tests > Switching workspace changes the active workspace index",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * GNOME Shell is accessible via AT-SPI\n[SKIPPED] * Active workspace index is noted\n[SKIPPED] * Switch to next workspace via Shell.Eval\n[SKIPPED] * Active workspace has changed"
+    },
+    {
+      "name": "GNOME Shell smoke tests > GNOME Shell extensions do not crash shell on load (bluefin#4612)",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * GNOME Shell is accessible via AT-SPI\n[SKIPPED] * No journal entries at priority \"err..emerg\" contain \"gnome-shell\""
+    },
+    {
+      "name": "GNOME Shell smoke tests > No gnome-shell coredump after session start (bluefin#4642)",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * No coredump entries exist on the host for \"gnome-shell\""
+    },
+    {
+      "name": "GNOME Text Editor smoke tests > Text Editor launches and window is accessible",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * Launch Text Editor via command\n[SKIPPED] * Text Editor window has an editable text area"
+    },
+    {
+      "name": "GNOME Text Editor smoke tests > Text Editor accepts keyboard input",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * Launch Text Editor via command\n[SKIPPED] * Text Editor window has an editable text area\n[SKIPPED] * Type text: \"Bluefin smoke test\" with uinput\n[SKIPPED] * Text Editor buffer contains \"Bluefin smoke test\""
+    },
+    {
+      "name": "GNOME Text Editor smoke tests > New document via Ctrl+N",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * Launch Text Editor via command\n[SKIPPED] * Text Editor window has an editable text area\n[SKIPPED] * Type text: \"Previous document content\" with uinput\n[SKIPPED] * Text Editor buffer contains \"Previous document content\"\n[SKIPPED] * Key combo: \"<Ctrl><N>\" with uinput\n[SKIPPED] * Text Editor creates a new empty document buffer"
+    },
+    {
+      "name": "GNOME Text Editor smoke tests > Save dialog via Ctrl+S",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * Launch Text Editor via command\n[SKIPPED] * Text Editor window has an editable text area\n[SKIPPED] * Type text: \"Save dialog smoke test\" with uinput\n[SKIPPED] * Text Editor buffer contains \"Save dialog smoke test\"\n[SKIPPED] * Key combo: \"<Ctrl><S>\" with uinput\n[SKIPPED] * Text Editor save dialog is open"
+    },
+    {
+      "name": "GNOME Text Editor smoke tests > Closing with unsaved changes shows discard dialog",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * Launch Text Editor via command\n[SKIPPED] * Text Editor window has an editable text area\n[SKIPPED] * Type text: \"Unsaved content for discard test\" with uinput\n[SKIPPED] * Text Editor buffer contains \"Unsaved content for discard test\"\n[SKIPPED] * Key combo: \"<Ctrl><Q>\" with uinput\n[SKIPPED] * Text Editor discard dialog is open"
+    },
+    {
+      "name": "GNOME Text Editor smoke tests > Text Editor closes cleanly via Ctrl+Q",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * Launch Text Editor via command\n[SKIPPED] * Text Editor window has an editable text area\n[SKIPPED] * Key combo: \"<Ctrl><Q>\" with uinput\n[SKIPPED] * Text Editor is no longer running"
+    },
+    {
+      "name": "GNOME Text Editor smoke tests > No gnome-text-editor coredump after session start",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * Launch Text Editor via command\n[SKIPPED] * No coredump entries exist on the host for \"gnome-text-editor\""
+    },
+    {
+      "name": "Input method and keyboard layout smoke tests > IBus daemon is running in the user session",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * IBus daemon process is present\n[SKIPPED] * IBus owns org.freedesktop.IBus on the session bus"
+    },
+    {
+      "name": "Input method and keyboard layout smoke tests > Default input sources contain a usable keyboard layout",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * Input sources list contains a keyboard layout"
+    },
+    {
+      "name": "Input method and keyboard layout smoke tests > A second keyboard layout can be added and switched via gsettings",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * Current input sources are saved\n[SKIPPED] * Input sources are set to include a second layout\n[SKIPPED] * Current input source is switched to index 1\n[SKIPPED] * Input sources list contains the second layout\n[SKIPPED] * Current input source index is 1\n[SKIPPED] * Original input sources are restored"
+    },
+    {
+      "name": "Input method and keyboard layout smoke tests > localectl reports a virtual console keymap",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * localectl status reports a keymap"
+    },
+    {
+      "name": "Offline and degraded-network boot > graphical.target is active after normal boot",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * Bluefin VM is booted and reachable over SSH\n[SKIPPED] * Run SSH command: \"systemctl is-active graphical.target\"\n[SKIPPED] * SSH command return code is \"0\"\n[SKIPPED] * SSH command output \"is\" \"active\""
+    },
+    {
+      "name": "Offline and degraded-network boot > NetworkManager-wait-online does not block graphical.target",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * Bluefin VM is booted and reachable over SSH\n[SKIPPED] * Run SSH command: \"systemctl show NetworkManager-wait-online.service --property=UnitFileState,LoadState --no-pager\"\n[SKIPPED] * SSH command return code is \"0\"\n[SKIPPED] * networkmanager-wait-online is not ordered before graphical.target"
+    },
+    {
+      "name": "Offline and degraded-network boot > bootc status reads local metadata without network",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * Bluefin VM is booted and reachable over SSH\n[SKIPPED] * Run SSH command: \"out=$(sudo bootc status --format=json 2>&1); echo \\\"$out\\\" | grep -qE 'booted|opendir\\(boot\\)'\"\n[SKIPPED] * SSH command return code is \"0\""
+    },
+    {
+      "name": "Offline and degraded-network boot > Critical boot services are active without external DNS",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * Bluefin VM is booted and reachable over SSH\n[SKIPPED] * Run SSH command: \"systemctl is-active systemd-resolved.service 2>/dev/null || [ -e /run/systemd/container ] || echo inactive\"\n[SKIPPED] * SSH command return code is \"0\"\n[SKIPPED] * Run SSH command: \"systemctl is-active dbus.service\"\n[SKIPPED] * SSH command return code is \"0\"\n[SKIPPED] * SSH command output \"is\" \"active\""
+    },
+    {
+      "name": "Offline and degraded-network boot > uupd auto-updater has network failure handling",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * Bluefin VM is booted and reachable over SSH\n[SKIPPED] * Run SSH command: \"systemctl is-enabled uupd.timer 2>/dev/null || echo not-found\"\n[SKIPPED] * uupd timer is enabled or absent\n[SKIPPED] * Run SSH command: \"journalctl -u uupd -p err --no-pager -q --since 'boot' 2>/dev/null || true\"\n[SKIPPED] * No uupd error journal entries at boot"
+    },
+    {
+      "name": "Offline and degraded-network boot > graphical.target stays active after dropping default route",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * Bluefin VM is booted and reachable over SSH\n[SKIPPED] * Drop the default route on the VM\n[SKIPPED] * Run SSH command: \"systemctl is-active graphical.target\"\n[SKIPPED] * SSH command return code is \"0\"\n[SKIPPED] * SSH command output \"is\" \"active\"\n[SKIPPED] * Run SSH command: \"systemctl is-active gdm.service\"\n[SKIPPED] * SSH command return code is \"0\"\n[SKIPPED] * Restore the default route on the VM"
+    },
+    {
+      "name": "Offline and degraded-network boot > bootc status works after dropping default route",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * Bluefin VM is booted and reachable over SSH\n[SKIPPED] * Drop the default route on the VM\n[SKIPPED] * Run SSH command: \"out=$(sudo bootc status --format=json 2>&1); echo \\\"$out\\\" | grep -qE 'booted|opendir\\(boot\\)'\"\n[SKIPPED] * SSH command return code is \"0\"\n[SKIPPED] * Restore the default route on the VM"
+    },
+    {
+      "name": "Offline and degraded-network boot > systemd journal remains queryable while offline",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * Bluefin VM is booted and reachable over SSH\n[SKIPPED] * Drop the default route on the VM\n[SKIPPED] * Run SSH command: \"journalctl --no-pager -n 1 -q\"\n[SKIPPED] * SSH command return code is \"0\"\n[SKIPPED] * Restore the default route on the VM"
+    },
+    {
+      "name": "Offline and degraded-network boot > Image boots to graphical.target with all network interfaces down at grub",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * Bluefin VM is booted and reachable over SSH\n[SKIPPED] * Bluefin VM boots with all network interfaces administratively down\n[SKIPPED] * graphical.target is active\n[SKIPPED] * gdm.service is active\n[SKIPPED] * bootc status shows a valid image reference"
+    },
+    {
+      "name": "Orca screen reader > Orca and speech-dispatcher binaries are installed",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * Run command on VM: \"command -v orca && rpm -q orca speech-dispatcher\"\n[SKIPPED] * VM command return code is \"0\"\n[SKIPPED] * VM command output contains \"orca-\"\n[SKIPPED] * VM command output contains \"speech-dispatcher-\""
+    },
+    {
+      "name": "Orca screen reader > AT-SPI accessibility bus name is registered",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * Run command on VM: \"busctl --user list | grep -q org.a11y.Bus\"\n[SKIPPED] * VM command return code is \"0\""
+    },
+    {
+      "name": "Orca screen reader > Screen reader toggle starts and stops Orca",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * Screen reader enabled state toggles Orca on and off"
+    },
+    {
+      "name": "Orca screen reader > Speech Dispatcher responds to a module list request",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * Run command on VM: \"spd-say -O\"\n[SKIPPED] * VM command return code is \"0\""
+    },
+    {
+      "name": "Printing stack smoke checks > CUPS socket is enabled and active",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * cups.socket is enabled and active"
+    },
+    {
+      "name": "Printing stack smoke checks > CUPS scheduler is running",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * CUPS scheduler is running"
+    },
+    {
+      "name": "Printing stack smoke checks > GNOME Settings Printers panel is accessible",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * Launch Settings via command\n[SKIPPED] * Settings window is accessible\n[SKIPPED] * Navigate to Settings panel \"Printers\"\n[SKIPPED] * Settings panel \"Printers\" is visible"
+    },
+    {
+      "name": "Printing stack smoke checks > Virtual raw socket printer queue accepts and completes a job",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * virtual raw printer queue \"smokeprint\" accepts a test job and is removed"
+    },
+    {
+      "name": "sudo-rs execution and privilege escalation > sudo binary is setuid root with 4755 permissions",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * /usr/bin/sudo is owned by root and has setuid mode 4755"
+    },
+    {
+      "name": "sudo-rs execution and privilege escalation > sudo -n escalates privileges non-interactively for wheel users",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * sudo -n id -u returns user ID 0"
+    },
+    {
+      "name": "sudo-rs execution and privilege escalation > sudo-rs scrubs unflagged environment variables and preserves explicit flags",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * sudo --preserve-env preserves specified environment variables"
+    },
+    {
+      "name": "sudo-rs execution and privilege escalation > sudo PAM configuration uses the system-auth stack",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * sudo PAM configuration references system-auth stack"
+    },
+    {
+      "name": "sudo-rs execution and privilege escalation > sudoedit binary exists and resolves to setuid binary",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * sudoedit binary is present and operational"
+    },
+    {
+      "name": "System health smoke checks > No failed systemd units at boot",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * No failed systemd units at boot"
+    },
+    {
+      "name": "System health smoke checks > No critical journal errors at boot",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * No critical kernel errors in journal"
+    },
+    {
+      "name": "System health smoke checks > Bluefin image identity is present in /etc/os-release",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * Bluefin image identity is present in os-release"
+    },
+    {
+      "name": "System health smoke checks > bootc status shows a known image reference",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * bootc status shows a valid image reference"
+    },
+    {
+      "name": "System health smoke checks > Writable system storage has more than 15 percent free space",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * Writable system storage has at least \"15\" percent free space"
+    },
+    {
+      "name": "System health smoke checks > External DNS resolves external hosts",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * External DNS resolves external hosts"
+    },
+    {
+      "name": "System health smoke checks > ujust is available and lists at least one task",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * ujust is on PATH and returns exit 0\n[SKIPPED] * ujust --list prints at least one task"
+    },
+    {
+      "name": "System health smoke checks > ujust report confirm validation rejects invalid inputs",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * ujust is on PATH and returns exit 0\n[SKIPPED] * ujust report --confirm rejects non-integer issue number\n[SKIPPED] * ujust report --confirm without issue number prints error"
+    },
+    {
+      "name": "System health smoke checks > composefs preserves file capabilities on newuidmap and newgidmap",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * newuidmap and newgidmap retain their security.capability xattrs"
+    },
+    {
+      "name": "System health smoke checks > System boots to display manager, not emergency console",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * gdm.service is active\n[SKIPPED] * graphical.target is active"
+    },
+    {
+      "name": "System health smoke checks > tailscale is installed and daemon is running",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * tailscale is installed and daemon is running"
+    },
+    {
+      "name": "System health smoke checks > uupd auto-updater is installed and configured",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * uupd auto-updater is installed and configured"
+    },
+    {
+      "name": "System health smoke checks > fastfetch is present and operational",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * fastfetch is present and operational"
+    },
+    {
+      "name": "xdg-open MIME type handler registration > HTML files open in Firefox",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * xdg-mime query default for \"text/html\" returns \"org.mozilla.firefox.desktop\""
+    },
+    {
+      "name": "xdg-open MIME type handler registration > PDF files open in Papers (GNOME Papers)",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * xdg-mime query default for \"application/pdf\" returns a document viewer"
+    },
+    {
+      "name": "xdg-open MIME type handler registration > PNG images open in Loupe or GNOME image viewer",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * xdg-mime query default for \"image/png\" returns an image viewer"
+    },
+    {
+      "name": "xdg-open MIME type handler registration > Plain text opens in GNOME Text Editor",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * xdg-mime query default for \"text/plain\" returns a text editor"
+    },
+    {
+      "name": "xdg-open MIME type handler registration > Video files open in a video player",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * xdg-mime query default for \"video/mp4\" returns a video player"
+    },
+    {
+      "name": "XWayland smoke tests > XWayland process appears when an X11 client connects",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * X11 client glxgears is available\n[SKIPPED] * Terminate any running glxgears\n[SKIPPED] * Launch glxgears via command\n[SKIPPED] * XWayland process appears within 10 seconds\n[SKIPPED] * Terminate glxgears"
+    },
+    {
+      "name": "XWayland smoke tests > X11 client can use the XWayland display",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * X11 client glxgears is available\n[SKIPPED] * Terminate any running glxgears\n[SKIPPED] * Launch glxgears via command\n[SKIPPED] * XWayland process appears within 10 seconds\n[SKIPPED] * xprop can query the X root window\n[SKIPPED] * Terminate glxgears"
+    },
+    {
+      "name": "XWayland smoke tests > XWayland incurs no coredump after the X11 client closes",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * X11 client glxgears is available\n[SKIPPED] * Terminate any running glxgears\n[SKIPPED] * Launch glxgears via command\n[SKIPPED] * XWayland process appears within 10 seconds\n[SKIPPED] * Terminate glxgears\n[SKIPPED] * Wait 2 seconds\n[SKIPPED] * No coredump entries exist on the host for \"Xwayland\""
+    }
+  ]
+}
