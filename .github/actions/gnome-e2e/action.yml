@@ -392,81 +392,109 @@ runs:
         python3 - <<'PYEOF'
         import json, os, sys
         from pathlib import Path
+        try:
+            # Allow importing the tested, authoritative implementation from the
+            # checked-out testsuite _testsuite path used earlier in this action.
+            sys.path.insert(0, os.path.join(os.getcwd(), '_testsuite'))
+            from scripts.e2e_summary import count_scenarios, summary_icon, is_success
+        except Exception:
+            # Fallback: minimal local reimplementation mirroring previous behavior
+            def count_scenarios(report):
+                counts = {s: 0 for s in ('passed','failed','skipped','undefined','untested','other')}
+                for feature in report:
+                    for element in feature.get('elements', []) or []:
+                        if element.get('type') != 'scenario':
+                            continue
+                        status = element.get('status')
+                        if status in ('passed','failed','skipped','undefined','untested'):
+                            counts[status] += 1
+                        else:
+                            counts['other'] += 1
+                return counts
+            def is_success(counts):
+                return all(count == 0 for status, count in counts.items() if status not in ('passed','skipped'))
+            def summary_icon(counts):
+                if counts.get('failed'):
+                    return '❌'
+                return '✅' if is_success(counts) else '⚠️'
 
-        results_file = Path("results/results.json")
-        timings_file = Path("results/timings.jsonl")
-        suite        = os.environ.get("GNOME_E2E_SUITE", "smoke")
+        results_file = Path('results/results.json')
+        timings_file = Path('results/timings.jsonl')
+        suite        = os.environ.get('GNOME_E2E_SUITE', 'smoke')
 
         if not results_file.exists():
-            print("No results.json found — summary unavailable", flush=True)
+            print('No results.json found — summary unavailable', flush=True)
             sys.exit(0)
 
         data = json.loads(results_file.read_text())
 
-        passed = failed = skipped = 0
+        counts = count_scenarios(data)
+        passed = counts.get('passed', 0)
+        failed = counts.get('failed', 0)
+        skipped = counts.get('skipped', 0)
+
         failures = []
         for feature in data:
-            feature_name = feature.get("name", "unknown feature")
-            for element in feature.get("elements", []):
-                if element.get("type") == "background":
+            feature_name = feature.get('name', 'unknown feature')
+            for element in feature.get('elements', []):
+                if element.get('type') == 'background':
                     continue
-                status = element.get("status", "")
-                if status == "passed":
-                    passed += 1
-                elif status == "failed":
-                    failed += 1
-                    scenario_name = element.get("name", "")
-                    failed_step = error_msg = ""
-                    for step in element.get("steps", []):
-                        result = step.get("result", {})
-                        if result.get("status") == "failed":
-                            failed_step = step.get("name", "")
-                            error_msg  = result.get("error_message", "")
+                if element.get('status') == 'failed':
+                    scenario_name = element.get('name', '')
+                    failed_step = error_msg = ''
+                    for step in element.get('steps', []):
+                        result = step.get('result', {})
+                        if result.get('status') == 'failed':
+                            failed_step = step.get('name', '')
+                            error_msg  = result.get('error_message', '')
                             break
                     failures.append((feature_name, scenario_name, failed_step, error_msg))
-                elif status == "skipped":
-                    skipped += 1
 
         sla_violations = []
         if timings_file.exists():
             for line in timings_file.read_text().splitlines():
                 try:
                     entry = json.loads(line)
-                    if entry.get("sla_violated") and entry.get("status") != "skipped":
+                    if entry.get('sla_violated') and entry.get('status') != 'skipped':
                         sla_violations.append(entry)
                 except Exception:
                     pass
 
         # ── Compact summary in CI log ──────────────────────────────────────
-        total       = passed + failed + skipped
-        status_word = "PASSED" if failed == 0 else "FAILED"
-        sep = "=" * 64
-        print(f"\n{sep}", flush=True)
+        total = sum(counts.values())
+        status_word = 'PASSED' if is_success(counts) else 'FAILED'
+        sep = '=' * 64
+        print(f"
+{sep}", flush=True)
         print(f"E2E {status_word}: {passed} passed / {failed} failed / {skipped} skipped (total {total})", flush=True)
 
         if failures:
-            print("\nFailed scenarios:", flush=True)
+            print('
+Failed scenarios:', flush=True)
             for feat, scen, step, err in failures:
                 print(f"  ❌  [{feat}] {scen}", flush=True)
                 if step:
                     print(f"       step : {step}", flush=True)
                 if err:
-                    first_line = err.split("\n")[0][:200]
+                    first_line = err.split('
+')[0][:200]
                     print(f"       error: {first_line}", flush=True)
 
         if sla_violations:
-            print("\nSLA violations:", flush=True)
+            print('
+SLA violations:', flush=True)
             for v in sla_violations:
                 print(f"  ⚠️   {v['scenario']}: {v['elapsed_s']:.1f}s (SLA {v['sla_s']}s)", flush=True)
 
-        print(f"{sep}\n", flush=True)
+        print(f"{sep}
+", flush=True)
 
         # ── GitHub job summary ─────────────────────────────────────────────
-        summary_file = os.environ.get("GITHUB_STEP_SUMMARY", "")
+        summary_file = os.environ.get('GITHUB_STEP_SUMMARY', '')
         if not summary_file:
             sys.exit(0)
 
-        icon  = "✅" if failed == 0 else "❌"
+        icon = summary_icon(counts)
         lines = [f"## {icon} E2E Results — `{suite}`", ""]
         lines += [
             "| ✅ Passed | ❌ Failed | ⏭️ Skipped | Total |",
@@ -480,8 +508,9 @@ runs:
                       "| Feature | Scenario | Failed Step | Error |",
                       "|---------|----------|-------------|-------|"]
             for feat, scen, step, err in failures:
-                first_line = (err.split("\n")[0] if err else "")[:150]
-                first_line = first_line.replace("|", "\\|").replace("`", "'")
+                first_line = (err.split('
+')[0] if err else '')[:150]
+                first_line = first_line.replace('|', "\|").replace('`', "'")
                 lines.append(f"| {feat} | {scen} | `{step}` | {first_line} |")
             lines.append("")
 
@@ -493,6 +522,9 @@ runs:
                 lines.append(f"| {v['scenario']} | {v['elapsed_s']:.1f}s | {v['sla_s']}s |")
             lines.append("")
 
-        with open(summary_file, "a") as fh:
-            fh.write("\n".join(lines) + "\n")
+        with open(summary_file, 'a') as fh:
+            fh.write('
+'.join(lines) + '
+')
+        PYEOF
         PYEOF
