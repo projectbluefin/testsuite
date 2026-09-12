@@ -75,6 +75,7 @@ runs:
         sparse-checkout: |
           tests/${{ inputs.suite }}
           tests/shared
+          scripts
         sparse-checkout-cone-mode: true
 
     # ── Free disk space ───────────────────────────────────────────────────────
@@ -383,6 +384,13 @@ runs:
         echo "behave_rc=${BEHAVE_RC}" >> "$GITHUB_OUTPUT"
 
     # ── Summarise results to CI log + job summary ─────────────────────────────
+    # Scenario counting and the pass/fail headline come from
+    # scripts/e2e_summary.py — the copy covered by
+    # tests/unit/test_e2e_summary.py — imported from the _testsuite checkout
+    # above (its sparse checkout includes scripts/). Restating the logic here
+    # is what let an all-undefined/all-untested run render a green headline
+    # (#797), so this step must keep consuming the tested implementation.
+    # Only the SLA block below is genuinely action-specific.
     - name: Summarise results
       if: always()
       shell: bash
@@ -401,31 +409,49 @@ runs:
             print("No results.json found — summary unavailable", flush=True)
             sys.exit(0)
 
+        # Single source of truth for what "passed" means: the unit-tested
+        # scripts/e2e_summary.py, checked out into _testsuite by this action.
+        sys.path.insert(0, str(Path("_testsuite").resolve()))
+        try:
+            from scripts.e2e_summary import count_scenarios, is_success, summary_icon
+        except ImportError as exc:
+            # Fail closed rather than render a headline we cannot justify.
+            print(f"ERROR: cannot import scripts.e2e_summary: {exc}", flush=True)
+            summary_file = os.environ.get("GITHUB_STEP_SUMMARY", "")
+            if summary_file:
+                with open(summary_file, "a") as fh:
+                    fh.write(
+                        f"## ⚠️ E2E Results — `{suite}`\n\n"
+                        "Summary unavailable: `scripts/e2e_summary.py` was not "
+                        "present in the testsuite checkout.\n"
+                    )
+            sys.exit(0)
+
         data = json.loads(results_file.read_text())
 
-        passed = failed = skipped = 0
+        counts = count_scenarios(data)
+        passed = counts["passed"]
+        failed = counts["failed"]
+        skipped = counts["skipped"]
+        total = sum(counts.values())
+
         failures = []
         for feature in data:
             feature_name = feature.get("name", "unknown feature")
             for element in feature.get("elements", []):
-                if element.get("type") == "background":
+                if element.get("type") != "scenario":
                     continue
-                status = element.get("status", "")
-                if status == "passed":
-                    passed += 1
-                elif status == "failed":
-                    failed += 1
-                    scenario_name = element.get("name", "")
-                    failed_step = error_msg = ""
-                    for step in element.get("steps", []):
-                        result = step.get("result", {})
-                        if result.get("status") == "failed":
-                            failed_step = step.get("name", "")
-                            error_msg  = result.get("error_message", "")
-                            break
-                    failures.append((feature_name, scenario_name, failed_step, error_msg))
-                elif status == "skipped":
-                    skipped += 1
+                if element.get("status") != "failed":
+                    continue
+                scenario_name = element.get("name", "")
+                failed_step = error_msg = ""
+                for step in element.get("steps", []):
+                    result = step.get("result", {})
+                    if result.get("status") == "failed":
+                        failed_step = step.get("name", "")
+                        error_msg  = result.get("error_message", "")
+                        break
+                failures.append((feature_name, scenario_name, failed_step, error_msg))
 
         sla_violations = []
         if timings_file.exists():
@@ -438,11 +464,23 @@ runs:
                     pass
 
         # ── Compact summary in CI log ──────────────────────────────────────
-        total       = passed + failed + skipped
-        status_word = "PASSED" if failed == 0 else "FAILED"
+        # PASSED only when is_success holds: an undefined-only, untested-only or
+        # errored run is INCOMPLETE, never PASSED (failed == 0 is not enough).
+        if failed:
+            status_word = "FAILED"
+        elif is_success(counts):
+            status_word = "PASSED"
+        else:
+            status_word = "INCOMPLETE"
         sep = "=" * 64
         print(f"\n{sep}", flush=True)
-        print(f"E2E {status_word}: {passed} passed / {failed} failed / {skipped} skipped (total {total})", flush=True)
+        print(
+            f"E2E {status_word}: {passed} passed / {failed} failed / "
+            f"{skipped} skipped / +{counts['undefined']} undefined / "
+            f"{counts['untested']} untested / {counts['other']} error-other "
+            f"(total {total})",
+            flush=True,
+        )
 
         if failures:
             print("\nFailed scenarios:", flush=True)
@@ -466,12 +504,15 @@ runs:
         if not summary_file:
             sys.exit(0)
 
-        icon  = "✅" if failed == 0 else "❌"
+        # ✅ only on a clean run, ❌ on any failure, ⚠️ for undefined/untested/
+        # errored scenarios — the same rule as the CI-log headline above.
+        icon  = summary_icon(counts)
         lines = [f"## {icon} E2E Results — `{suite}`", ""]
         lines += [
-            "| ✅ Passed | ❌ Failed | ⏭️ Skipped | Total |",
-            "|----------|----------|-----------|-------|",
-            f"| {passed} | **{failed}** | {skipped} | {total} |",
+            "| ✅ Passed | ❌ Failed | ⏭️ Skipped | ⚠️ Undefined | ⚪ Untested | 🛑 Error/other | Total |",
+            "|----------|----------|-----------|-------------|-----------|---------------|-------|",
+            f"| {passed} | **{failed}** | {skipped} | {counts['undefined']} | "
+            f"{counts['untested']} | {counts['other']} | {total} |",
             "",
         ]
 
