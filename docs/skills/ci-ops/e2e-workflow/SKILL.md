@@ -147,7 +147,9 @@ run has zero failures but proved nothing. `summary_icon()` in
 | anything else (`undefined`, `untested`, `other`) | ⚠️ |
 
 `skipped` counts as success because `@quarantine`/`@pending`/`@future` scenarios
-are intentionally not run. The job-summary step in `e2e.yml` calls
+are intentionally not run. The job-summary step in `e2e.yml` — and the
+`Summarise results` step of the public `gnome-e2e` composite action, which
+imports the same helpers from its `_testsuite` checkout (#797) — call
 `summary_icon(counts)` rather than inlining the comparison, so the rule is unit
 tested in `tests/unit/test_e2e_summary.py` instead of living only in YAML.
 
