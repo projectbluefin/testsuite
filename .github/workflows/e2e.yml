@@ -76,6 +76,11 @@ on:
         type: string
         default: "projectbluefin/testsuite"
 
+# Deny-all default: jobs without an explicit permissions block (e.g. matrix)
+# must not inherit the caller repository's default GITHUB_TOKEN scope.
+# compose and e2e declare their own job-level permissions below.
+permissions: {}
+
 jobs:
   # Resolve comma-separated suite list into a JSON matrix
   matrix:
