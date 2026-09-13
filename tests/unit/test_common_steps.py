@@ -249,28 +249,6 @@ class TestCommonEnvironmentDakotaOnly:
         assert scenario.skip_message is None
 
 
-class TestCommonEnvironmentRequiresBctl:
-    def test_skips_requires_bctl_when_bctl_is_missing(self):
-        m = _import_common_environment(run_ssh_returncode=1)
-        context = _ctx(is_bluefin_image=True, has_brew=True, has_bctl=None)
-        scenario = _Scenario(["requires_bctl"])
-
-        m.before_scenario(context, scenario)
-
-        assert scenario.skip_message == "bluefinctl (bctl) not present on this image"
-        assert context.has_bctl is False
-
-    def test_allows_requires_bctl_when_bctl_is_present(self):
-        m = _import_common_environment(run_ssh_returncode=0)
-        context = _ctx(is_bluefin_image=True, has_brew=True, has_bctl=None)
-        scenario = _Scenario(["requires_bctl"])
-
-        m.before_scenario(context, scenario)
-
-        assert scenario.skip_message is None
-        assert context.has_bctl is True
-
-
 class TestCommonEnvironmentRequiresToggleAction:
     def test_skips_when_recipe_lacks_action_value(self):
         m = _import_common_environment(run_ssh_returncode=1)
@@ -340,57 +318,6 @@ class TestCommonEnvironmentBootcUnifiedStorage:
         m.before_scenario(context, scenario)
 
         assert not any("restart bootc-unified-storage.service" in c for c in calls)
-
-
-class TestCommonEnvironmentDevmodeCleanup:
-    def test_disables_devmode_after_a_tagged_scenario(self):
-        m = _import_common_environment(run_ssh_returncode=0)
-        calls = []
-        m.run_ssh = lambda context, cmd, **kw: (calls.append(cmd), ("", 0))[1]
-        context = _ctx()
-        scenario = _Scenario(["devmode_cleanup"])
-        scenario.status = "passed"
-
-        m.after_scenario(context, scenario)
-
-        assert calls == ["bctl devmode --disable"]
-
-    def test_skips_cleanup_for_untagged_scenarios(self):
-        m = _import_common_environment(run_ssh_returncode=0)
-        calls = []
-        m.run_ssh = lambda context, cmd, **kw: (calls.append(cmd), ("", 0))[1]
-        context = _ctx()
-        scenario = _Scenario(["requires_bctl"])
-        scenario.status = "passed"
-
-        m.after_scenario(context, scenario)
-
-        assert calls == []
-
-    def test_skips_cleanup_when_scenario_was_skipped(self):
-        m = _import_common_environment(run_ssh_returncode=0)
-        calls = []
-        m.run_ssh = lambda context, cmd, **kw: (calls.append(cmd), ("", 0))[1]
-        context = _ctx()
-        scenario = _Scenario(["devmode_cleanup"])
-        scenario.status = "skipped"
-
-        m.after_scenario(context, scenario)
-
-        assert calls == []
-
-    def test_cleanup_failure_does_not_mask_the_real_failure(self):
-        m = _import_common_environment(run_ssh_returncode=0)
-
-        def _boom(context, cmd, **kw):
-            raise RuntimeError("ssh transport died")
-
-        m.run_ssh = _boom
-        context = _ctx()
-        scenario = _Scenario(["devmode_cleanup"])
-        scenario.status = "failed"
-
-        m.after_scenario(context, scenario)  # should not raise
 
 
 # ---------------------------------------------------------------------------

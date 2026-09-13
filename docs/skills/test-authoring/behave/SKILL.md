@@ -143,8 +143,8 @@ Two recipes are worked out in detail in
 [`references/ujust-noninteractive.md`](references/ujust-noninteractive.md):
 `toggle-updates` gained a non-interactive `ACTION` entry point in
 `projectbluefin/common` and is covered by a `@requires_toggle_action` scenario
-(`projectbluefin/testsuite#499`), while `toggle-devmode` has one via
-`bctl devmode --enable/--disable` (`projectbluefin/testsuite#500`).
+(`projectbluefin/testsuite#499`), while `toggle-devmode` still has none and is
+deliberately uncovered (`projectbluefin/testsuite#500`).
 
 ### uupd conditional suppression coverage
 
@@ -489,7 +489,6 @@ non-dependent scenarios to a separate feature.
 - [When to use local subprocess instead of SSH in the smoke suite.](references/smoke-vs-ssh.md)
 - [Avoiding duplicate step phrases and AmbiguousStep errors.](references/ambiguous-steps.md)
 - [Mocking interactive CLI tools (gum, fzf, gh) in ujust coverage.](references/mocking-interactive-cli.md)
-- [Driving bluefinctl devmode non-interactively, and the assertion traps around it.](references/bctl-devmode.md)
 - [Which ujust recipes can be driven non-interactively, and why the rest stay @pending.](references/ujust-noninteractive.md)
 - [Gating scenarios on a pre-pulled OCI image with @requires_cached_image.](references/cached-image-gate.md)
 
