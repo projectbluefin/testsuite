@@ -160,13 +160,13 @@ Set `chunked_enabled: true` once `ghcr.io/projectbluefin/bluefin:latest` ships z
 
 <!-- coverage-snapshot:start -->
 
-526 scenarios across 72 feature files: 415 active, 0 quarantined, 111 `@future`/`@pending`/`@hardware_blocked`
+519 scenarios across 70 feature files: 411 active, 0 quarantined, 108 `@future`/`@pending`/`@hardware_blocked`
 
 | Suite | Scenarios | Active | Quarantined | Pending/Future | Notes |
 |---|---|---|---|---|---|
 | bazzite | 20 | 20 | 0 | 0 | Extension presence + shell behaviour |
-| common | 121 | 101 | 0 | 20 | Signing assertions `@future` pending the ublue-os→projectbluefin policy migration; flatpak model/state, dconf defaults, immutability and portal socket checks `@pending` on CI infra; Flatpak model + state; XDG portal health + integration; container runtime (podman); polkit rules; shell env + sourcing; system scripts; ujust recipes; devmode via bctl (non-interactive contract + idempotent state-check gated `@requires_bctl`, group mutation `@pending` on CI polkit); GSettings/dconf defaults; immutable OS integrity; desktop entries; signing assertions; Dakota `ujust --choose` regression guard active (`@dakota_only`); `ujust report` is `@pending` on #706 until a Dakota lab run validates the mocked submit flow |
-| developer | 23 | 7 | 0 | 16 | 6 brew + 6 ptyxis + 4 bctl now `@pending`: `brew-setup.service` masked in CI (#487) and the ptyxis AT-SPI restart issue (#368) |
+| common | 118 | 97 | 0 | 21 | Signing assertions `@future` pending the ublue-os→projectbluefin policy migration; flatpak model/state, dconf defaults, immutability and portal socket checks `@pending` on CI infra; Flatpak model + state; XDG portal health + integration; container runtime (podman); polkit rules; shell env + sourcing; system scripts; ujust recipes; GSettings/dconf defaults; immutable OS integrity; desktop entries; signing assertions; Dakota `ujust --choose` regression guard active (`@dakota_only`); `ujust report` is `@pending` on #706 until a Dakota lab run validates the mocked submit flow |
+| developer | 19 | 7 | 0 | 12 | 6 brew + 6 ptyxis now `@pending`: `brew-setup.service` masked in CI (#487) and the ptyxis AT-SPI restart issue (#368) |
 | dx | 18 | 13 | 0 | 5 | distrobox create/install/export are active behind the `@requires_cached_image` runtime gate — they skip until `fedora-toolbox:latest` is pre-pulled on the VM (#501 / projectbluefin/lab#621) and activate without a feature-file edit; distrobox enter, JupyterLab, brew, mise remain `@pending` on infra gaps |
 | flatcar | 13 | 12 | 0 | 1 | boot (7 active) + lifecycle (5 active); 1 `@future` (boot from installed target disk — needs KubeVirt boot-order support in `projectbluefin/lab`) |
 | hardware | 13 | 13 | 0 | 0 | udev rules syntax validation (ZSA, Apple SuperDrive, Framework 16, AMD s2idle, Wooting, VIIA); emulated peripherals driven by shared SSH steps |
@@ -218,8 +218,8 @@ tag precedence order: `@quarantine` > `@hardware_blocked` > `@future` > `@pendin
 | Bazaar / Flatpak management GUI | High | Bazaar CLI/config integrity coverage active; GUI navigation pending GNOME 50 AT-SPI re-validation |
 | Flatpak permission management | Low | Flatseal / per-app permissions not exercised |
 | OOBE / first-boot | Low | True GDM → GIS flow is not covered; qecore assumes autologin. The [design spike](../../../archive/spikes/oobe-first-boot.md) recommends a bounded mock-mode accessibility probe and defers a fresh-disk QEMU input lane pending maintainer approval. |
-| `ujust toggle-updates` | Medium | Blocked upstream in `projectbluefin/common`. `update.just` declares `toggle-updates ACTION="prompt":` but never reads `ACTION`. On images with `bctl` the recipe `exec`s `bctl --screen updates`, a GUI panel; only without `bctl` does it fall back to a `gum choose` prompt, which blocks non-interactive runs. Neither branch offers a non-interactive entry point. Scenario stays `@pending @wip` in `common_ujust.feature`. Next step: `projectbluefin/common` must honour `ACTION`; tracked in `projectbluefin/testsuite#499`. |
-| `ujust toggle-devmode` group mutation | Medium | Non-interactive contract now exists: `bctl devmode --enable/--disable` (bluefinctl), which `toggle-devmode` execs to when `bctl` is present. Presence + idempotent state-check are covered in `common_devmode.feature`, gated `@requires_bctl` because bluefinctl is a Homebrew preinstall and `brew-setup.service` is masked in QEMU CI (#487). The actual group-mutating branch calls `pkexec usermod`, which requires an authentication agent bound to a real login session — unavailable over plain SSH. Scenario stays `@pending @wip`. Next step: a CI/lab-side non-interactive polkit or session-agent contract for `pkexec`; tracked in `projectbluefin/testsuite#500`. |
+| `ujust toggle-updates` | Medium | Now covered. `update.just` in `projectbluefin/common` honours `toggle-updates ACTION="prompt"` and `ujust toggle-updates enable\|disable\|cancel` skips the `gum choose` prompt. The scenario in `common_ujust.feature` sits behind `@requires_toggle_action`, which probes the recipe body for `ACTION_VALUE` so it skips on images that predate the contract. Tracked in `projectbluefin/testsuite#499`. |
+| `ujust toggle-devmode` | Medium | No non-interactive entry point. `toggle-devmode` (`system_files/bluefin/usr/share/ublue-os/just/system.just` in `projectbluefin/common`) is `gum`-only: a `gum style` banner, then `gum confirm`/`gum choose`, with no headless argument. It previously delegated to a Homebrew-installed helper CLI that has since been deprecated and removed from every shipped image, so the delegated coverage in `common_devmode.feature` was deleted along with it. Next step: `projectbluefin/common` must grow an `ACTION`-style argument the way `toggle-updates` did; tracked in `projectbluefin/testsuite#500`. |
 | uupd conditional suppression | Medium | Battery and metered-network checks are not covered: uupd reads UPower and NetworkManager system-bus properties, while testsuite has no supported isolated state-injection contract. Do not use `/sys/class/power_supply` or GNOME proxy settings as substitutes. Next step: add a lab/image-owned simulation hook, then cover the upstream `/etc/uupd/config.json` contract. |
 
 ### Skipped-coverage breakdown
@@ -252,7 +252,6 @@ skipped-coverage table above.
 | Scenario | Suite | New tag | Blocked by |
 |---|---|---|---|
 | brew (×6) | developer | `@pending` | `brew-setup.service` masked in `e2e.yml` (#487) |
-| bctl (×4) | developer | `@pending` | `brew-setup.service` masked in `e2e.yml`, so bctl (installed via Homebrew) is never provisioned in CI; dedicated CI job to unmask it is design-gated (#487) |
 | ptyxis: `@brew` (×1) | developer | `@pending` | brew must be initialized first (#487) |
 | ptyxis: `@input`, `@podman`, `@regression`, `@new_tab`, `@close` (×5) | developer | `@pending` | AT-SPI restart issue in CI (#368) — ptyxis reopens between scenarios but the new process isn't reliably accessible |
 | distrobox enter (×1) | dx | `@pending` | pulls `fedora:latest`; no pre-pull in CI, times out |
