@@ -10,6 +10,7 @@ import subprocess
 from time import sleep
 
 from tests.shared.ssh_config import ssh_argv
+from tests.shared.results_dir import resolve_results_dir
 
 from behave import step
 from behave.runner import Context
@@ -113,7 +114,9 @@ def dump_panel_children(context: Context) -> None:
 
 @step("Dump gnome-shell AT-SPI tree to results")
 def dump_atspi_tree(context: Context) -> None:
-    """Write the gnome-shell AT-SPI node tree to /tmp/results/atspi_tree.txt.
+    """Write the gnome-shell AT-SPI node tree into the configured results
+    directory (``atspi_tree.txt``), following the same precedence as every
+    other artifact writer: userdata > TESTSUITE_RESULTS_DIR > /tmp/results.
 
     Called from the first smoke scenario while the session is live, so the
     Wayland session and AT-SPI bus are both active.
@@ -135,10 +138,11 @@ def dump_atspi_tree(context: Context) -> None:
                 _write_tree(gc, depth + 1, max_depth)
 
     _write_tree(shell, max_depth=4)
-    os.makedirs("/tmp/results", exist_ok=True)
-    with open("/tmp/results/atspi_tree.txt", "w") as f:
+    results_dir = resolve_results_dir(context)
+    os.makedirs(results_dir, exist_ok=True)
+    with open(os.path.join(results_dir, "atspi_tree.txt"), "w") as f:
         f.write("\n".join(lines))
-    print(f"AT-SPI tree written: {len(lines)} lines (depth=4)", flush=True)
+    print(f"AT-SPI tree written: {len(lines)} lines (depth=4) -> {results_dir}", flush=True)
 
 
 @step("GNOME Shell is accessible via AT-SPI")

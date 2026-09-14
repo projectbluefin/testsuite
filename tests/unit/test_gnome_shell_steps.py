@@ -237,18 +237,19 @@ class TestAtspiSteps:
         out = capsys.readouterr().out
         assert "dump_panel_children failed: boom" in out
 
-    def test_dump_atspi_tree_writes_expected_content(self):
+    def test_dump_atspi_tree_writes_expected_content(self, tmp_path):
         toggle = _make_node(role="toggle button", name="System")
         panel = _make_node(role="panel", name="top-bar", children=[toggle])
         shell = _make_node(role="application", name="gnome-shell", children=[panel])
         context = _make_context(shell)
+        context.config.userdata = {"results_dir": str(tmp_path)}
 
         mocked_open = mock_open()
         with patch("os.makedirs") as mock_makedirs, patch("builtins.open", mocked_open):
             self.mod.dump_atspi_tree(context)
 
-        mock_makedirs.assert_called_once_with("/tmp/results", exist_ok=True)
-        mocked_open.assert_called_once_with("/tmp/results/atspi_tree.txt", "w")
+        mock_makedirs.assert_called_once_with(str(tmp_path), exist_ok=True)
+        mocked_open.assert_called_once_with(str(tmp_path / "atspi_tree.txt"), "w")
         written = "".join(call.args[0] for call in mocked_open().write.call_args_list)
         assert "role='application'" in written
         assert "name='gnome-shell'" in written
