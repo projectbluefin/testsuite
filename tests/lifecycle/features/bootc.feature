@@ -17,12 +17,12 @@ Feature: bootc upgrade and rollback lifecycle
     * SSH command return code is "0"
     * Capture booted image digest for rollback verification
 
-  # Future: `bootc pin` races with the staged-deployment writer in a fresh QEMU
-  # install, so status can report the previous pin state. Needs a settled deployment
-  # barrier before this can run reliably.
-  @lifecycle @pin @future
+  # Settled-deployment barrier ensures the staged-deployment writer and
+  # early-boot finalization have completed before mutating pin state.
+  @lifecycle @pin
   Scenario: bootc can pin and unpin the current deployment
     * Bluefin VM is booted and reachable over SSH
+    * Deployment is settled
     * Run SSH command: "sudo bootc pin"
     * SSH command return code is "0"
     * Run SSH command: "sudo bootc status --format=json"
