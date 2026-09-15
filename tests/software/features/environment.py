@@ -8,7 +8,7 @@ import traceback
 from qecore.sandbox import TestSandbox
 from qecore.common_steps import *  # noqa: F401,F403
 
-from tests.shared.ssh_config import populate_ssh_context, resolve_ssh_details
+from tests.shared.ssh_config import populate_ssh_context, ssh_argv
 
 try:
     from tests.shared.timing import record_end, record_start
@@ -50,16 +50,7 @@ SUITE_NAME = "software"
 def _has_bazaar(context) -> bool:
     """Return True when Bazaar (io.github.kolunmi.Bazaar) is installed on the VM."""
     import subprocess
-    ssh = resolve_ssh_details(context)
-    ssh_args = [
-        'ssh',
-        '-i', ssh['ssh_key'],
-        '-o', 'StrictHostKeyChecking=no',
-        '-o', 'UserKnownHostsFile=/dev/null',
-        '-o', 'ConnectTimeout=10',
-        '-o', 'LogLevel=ERROR',
-        '-p', ssh['ssh_port'],
-        f"{ssh['ssh_user']}@{ssh['vm_ip']}",
+    ssh_args = ssh_argv(context, quiet=True) + [
         'flatpak list --app --columns=application 2>/dev/null | grep -q io.github.kolunmi.Bazaar',
     ]
     try:

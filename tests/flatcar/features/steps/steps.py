@@ -11,6 +11,7 @@ import time
 
 from behave import step
 
+from tests.shared.ssh_config import ssh_argv
 from tests.shared.ssh_steps import *  # noqa: F401,F403,F405
 from tests.shared.ssh_steps import run_ssh, ssh_output_is, ssh_return_code_is  # noqa: F401
 
@@ -102,16 +103,7 @@ def reboot_vm_from_target_disk(context) -> None:
     )
     try:
         subprocess.run(
-            [
-                "ssh",
-                "-i", context.ssh_key,
-                "-o", "StrictHostKeyChecking=no",
-                "-o", "UserKnownHostsFile=/dev/null",
-                "-o", "ConnectTimeout=10",
-                "-o", "LogLevel=ERROR",
-                f"{context.ssh_user}@{context.vm_ip}",
-                reboot_command,
-            ],
+            ssh_argv(context, quiet=True) + [reboot_command],
             capture_output=True,
             text=True,
             timeout=15,

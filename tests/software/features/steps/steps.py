@@ -11,7 +11,7 @@ try:
 except Exception:  # noqa: BLE001
     tree = None  # type: ignore[assignment]
 from qecore.common_steps import *  # noqa: F401,F403
-from tests.shared.ssh_config import resolve_ssh_details
+from tests.shared.ssh_config import ssh_argv
 from tests.shared.ssh_steps import *  # noqa: F401,F403
 from tests.smoke.features.steps.app_support import atspi_click, launch_background
 
@@ -48,16 +48,12 @@ def _flatpak(context, args: list[str], timeout: int = 10) -> subprocess.Complete
     """Run flatpak via SSH when inside the runner container.
 
     Connection details come from the same source as the shared SSH steps
-    (``tests.shared.ssh_config.resolve_ssh_details``): context attributes,
+    (``tests.shared.ssh_config.ssh_argv``): context attributes,
     then behave userdata, then environment variables.
     """
     if _IN_CONTAINER:
-        ssh = resolve_ssh_details(context)
         return subprocess.run(
-            ["ssh", "-i", ssh["ssh_key"], "-o", "StrictHostKeyChecking=no",
-             "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
-             "-p", ssh["ssh_port"], f"{ssh['ssh_user']}@{ssh['vm_ip']}",
-             " ".join(["flatpak"] + [f"'{a}'" for a in args])],
+            ssh_argv(context) + [" ".join(["flatpak"] + [f"'{a}'" for a in args])],
             capture_output=True, text=True, timeout=timeout,
         )
     return subprocess.run(
@@ -75,11 +71,8 @@ def _run_in_session(context, cmd: str, timeout: int = 15) -> subprocess.Complete
     """
     full = f"source /tmp/session.env 2>/dev/null; {cmd}"
     if _IN_CONTAINER:
-        ssh = resolve_ssh_details(context)
         return subprocess.run(
-            ["ssh", "-i", ssh["ssh_key"], "-o", "StrictHostKeyChecking=no",
-             "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10",
-             "-p", ssh["ssh_port"], f"{ssh['ssh_user']}@{ssh['vm_ip']}", full],
+            ssh_argv(context) + [full],
             capture_output=True, text=True, timeout=timeout,
         )
     return subprocess.run(

@@ -4,6 +4,7 @@ Tests run_ssh command construction (prefix injection, port handling,
 context attribute setting) using subprocess mocks. No live SSH required.
 """
 
+import types
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -25,6 +26,11 @@ def _make_context(*, ssh_key="/tmp/test.key", ssh_user="bluefin-test",
     ctx.last_command_output = ""
     ctx.ssh_rc = None
     ctx.last_ssh_result = None
+    # run_ssh resolves connection details via tests.shared.ssh_config, which
+    # reads context.config.userdata (a real dict) after context attributes —
+    # a bare MagicMock here would auto-fabricate a truthy userdata.get(...)
+    # result and corrupt resolution.
+    ctx.config = types.SimpleNamespace(userdata={})
     return ctx
 
 
@@ -154,13 +160,17 @@ class TestRunSsh:
         assert "-p" in call_args
         assert "2222" in call_args
 
-    def test_no_port_flag_when_ssh_port_is_none(self):
+    def test_default_port_used_when_ssh_port_is_none(self):
+        """ssh_argv() always emits an explicit -p; unset context.ssh_port
+        resolves to ssh_config.DEFAULT_SSH_PORT ("22"), matching the ssh
+        default rather than omitting the flag."""
         ctx = _make_context(ssh_port=None)
         proc = _make_proc(stdout="ok\n")
         with patch("subprocess.run", return_value=proc) as mock_run:
             self.mod.run_ssh(ctx, "echo ok")
         call_args = mock_run.call_args[0][0]
-        assert "-p" not in call_args
+        assert "-p" in call_args
+        assert call_args[call_args.index("-p") + 1] == "22"
 
     def test_target_host_in_command(self):
         ctx = _make_context(ssh_user="testuser", vm_ip="10.0.0.5")
