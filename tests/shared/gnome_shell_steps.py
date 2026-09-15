@@ -24,6 +24,26 @@ def _ssh_args() -> list[str]:
     """Canonical SSH argv — see tests/shared/ssh_config.py."""
     return ssh_argv()
 
+def _ssh_run(cmd: str, timeout: int = 15) -> str:
+    """Run a shell command on the VM via SSH and return its stdout.
+
+    Raises RuntimeError on non-zero exit code or timeout.
+    """
+    try:
+        result = subprocess.run(
+            _ssh_args() + [cmd],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"SSH command timed out after {timeout}s: {cmd}") from exc
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"SSH command failed with returncode {result.returncode}: {result.stderr.strip() or result.stdout.strip()}"
+        )
+    return result.stdout
+
 
 def _shell_eval(js: str, timeout: int = 5) -> str:
     """Run JS in GNOME Shell via gdbus and return raw stdout.

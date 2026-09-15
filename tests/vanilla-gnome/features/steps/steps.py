@@ -49,6 +49,47 @@ def _eval_context_bool(context, js: str, timeout: int = 10) -> bool:
     raise AssertionError(f"Could not parse boolean from Shell.Eval output: {value}")
 
 
+@step('GNOME Shell version is reported')
+def report_shell_version(context) -> None:
+    """Print the running GNOME Shell version from the org.gnome.Shell
+    ``ShellVersion`` D-Bus property.
+
+    Informational canary for GNOME 51 readiness (issue #826). This step never
+    gates the run: a missing property, a gdbus error, or an SSH failure is
+    logged as a warning so a pre-flip ``gnomeos-51`` image that reports a new
+    version still passes. It reads the static D-Bus property directly rather
+    than via ``Shell.Eval`` because ``ShellVersion`` is not a Shell JS
+    expression. Route the container-side call through the suite's SSH helper so
+    it reaches the VM session bus exactly like the other Shell steps.
+    """
+    # ponytail: informational canary — never raise, only warn, so a pre-flip
+    # gnomeos-51 image reporting a new version still passes the suite.
+    from tests.shared.gnome_shell_steps import _IN_CONTAINER, _ssh_run
+
+    gdbus_get = [
+        'gdbus', 'get', '--session',
+        '--dest', 'org.gnome.Shell',
+        '--object-path', '/org/gnome/Shell',
+        '--interface', 'org.gnome.Shell',
+        'ShellVersion',
+    ]
+    version = ""
+    try:
+        if _IN_CONTAINER:
+            raw = _ssh_run("source /tmp/session.env 2>/dev/null; " + " ".join(gdbus_get), timeout=15)
+            version = (raw or "").strip()
+        else:
+            out = subprocess.run(gdbus_get, capture_output=True, text=True, timeout=15)
+            version = (out.stdout or "").strip()
+            if out.returncode != 0:
+                detail = (out.stderr or out.stdout or "").strip()
+                print(f"WARNING: gdbus returned {out.returncode} reading ShellVersion: {detail}", flush=True)
+    except Exception as exc:
+        print(f"WARNING: could not read ShellVersion: {exc}", flush=True)
+        return
+
+    print(f"GNOME Shell ShellVersion: {version or '<unreadable>'}", flush=True)
+
 @step('No coredump entries exist for "{name}"')
 def no_coredump_entries_exist(context, name: str) -> None:
     import subprocess

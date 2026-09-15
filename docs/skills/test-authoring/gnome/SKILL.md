@@ -73,6 +73,48 @@ cmd = "source /tmp/session.env 2>/dev/null; gdbus call --session --dest org.gnom
 _run_host(cmd)
 ```
 
+## Reading a static D-Bus property (ShellVersion canary)
+
+To record the running GNOME Shell version for version-readiness tracking
+(GNOME 51, issue #826), read the static `org.gnome.Shell` property
+`ShellVersion` directly — it is **not** a Shell JS expression, so do not use
+`Shell.Eval`. Route through SSH inside the runner container like the
+`Shell.Eval` helpers:
+
+```python
+# ponytail: informational canary — never raise, only warn, so a pre-flip
+# gnomeos-51 image reporting a new version still passes the suite.
+from tests.shared.gnome_shell_steps import _IN_CONTAINER, _ssh_run
+
+gdbus_get = [
+    'gdbus', 'get', '--session',
+    '--dest', 'org.gnome.Shell',
+    '--object-path', '/org/gnome/Shell',
+    '--interface', 'org.gnome.Shell',
+    'ShellVersion',
+]
+version = ""
+try:
+    if _IN_CONTAINER:
+        raw = _ssh_run("source /tmp/session.env 2>/dev/null; " + " ".join(gdbus_get), timeout=15)
+        version = (raw or "").strip()
+    else:
+        out = subprocess.run(gdbus_get, capture_output=True, text=True, timeout=15)
+        version = (out.stdout or "").strip()
+        if out.returncode != 0:
+            detail = (out.stderr or out.stdout or "").strip()
+            print(f"WARNING: gdbus returned {out.returncode} reading ShellVersion: {detail}", flush=True)
+except Exception as exc:
+    print(f"WARNING: could not read ShellVersion: {exc}", flush=True)
+    return
+
+print(f"GNOME Shell ShellVersion: {version or '<unreadable>'}", flush=True)
+```
+
+Tag the scenario `@informational` so it runs and reports but never gates
+promotion. See `tests/vanilla-gnome/features/steps/steps.py` for the landing
+step and `gnome_core.feature` for the scenario.
+
 ## Remote session commands from the runner container
 
 Commands that access the GNOME user session, including `gsettings`, `gdbus
@@ -291,40 +333,6 @@ to the VM over SSH in that case, and `source /tmp/session.env 2>/dev/null; ...`
 preserves the GNOME user-session environment before probing Wayland or renderer
 state.
 
-## Unit-testing smoke step modules
-
-Smoke step modules drive AT-SPI, dogtail and live GNOME state, so most of their
-surface is not unit-testable. What *is* testable is the pure logic they wrap:
-command construction, output parsing, polling loops and assertion branches.
-Import them in `tests/unit/` with `behave`, `qecore`, `dogtail` and
-`app_support` stubbed via `sys.modules`, then patch the shell helper
-(`_run_host`, `_run_in_vm`) with `unittest.mock.patch.object`.
-
-Notes for the three a11y/input/XWayland modules:
-
-- `orca_steps.py` — wraps `_run_host` from `steps.steps` (the smoke steps
-  directory is only importable during a behave run, so unit tests must register
-  a `steps` package stub with a `__path__` before importing). Unit-testable:
-  the `Run command on VM` context bookkeeping, return-code/substring assertion
-  messages, the `gsettings set …screen-reader-enabled` command string,
-  `_orca_is_running()` (rc **and** non-empty stdout), `_wait_for_orca()` polling
-  and its start/stop timeout wording, and the toggle step's guarantee that the
-  screen-reader key is restored to `false` even when the start assertion fails.
-  Not unit-testable: whether Orca actually starts.
-- `input_methods_steps.py` — `_run_in_vm()` always prefixes
-  `source /tmp/session.env 2>/dev/null;` and dispatches to `_ssh_run` when
-  `_IN_CONTAINER`, else `subprocess.run(shell=True)`. `_restore_input_sources()`
-  is idempotent via a `_restored` flag so the explicit restore step and the
-  registered `context.add_cleanup` do not double-apply; the flag is latched only
-  when every `gsettings set` returned 0, so a failed restore raises and the
-  cleanup hook can retry instead of leaking state. Saved gsettings values
-  contain single quotes and are re-applied through `shlex.quote`. Not
-  unit-testable: whether IBus owns the bus name or a layout actually switches.
-- `xwayland_steps.py` — `_xwayland_display_env()` parses `pgrep -a -x Xwayland`
-  output: it takes the first line only, reads `-auth <file>` into `XAUTHORITY`
-  (omitted when absent or dangling), and picks the first `:<digits>` token as
-  `DISPLAY`, defaulting to `:0`. Not unit-testable: `xprop -root` against a real
-  X root window, or glxgears rendering.
 
 ## Per-app accessibility launch environment
 
@@ -454,36 +462,6 @@ The pattern `for _ in range(N): ... sleep(X)` that returns early already IS exit
 - [ ] `ruff check tests/ --select E,F,W --ignore E501` passes
 - [ ] `behave --dry-run tests/<suite>/features/` passes for the touched suite
 
-## Session readiness across a GDM restart
-
-
-`qecore-headless` restarts GDM, which destroys the session D-Bus socket and
-brings up a fresh autologin session. `tests/shared/wait_for_shell.py` is the
-canonical readiness helper and encodes the resulting contract:
-
-- `ServiceUnknown` (bus up, `org.gnome.Shell` unowned) and
-  `Could not connect: No such file or directory` (socket gone, GDM restarting)
-  are **both retryable**, never terminal.
-- The session bus address is **re-resolved on every attempt**
-  (`resolve_session_bus_env()`); an address or connection cached before the
-  restart points at a destroyed socket and can never recover. The address is
-  never *unset* — an empty `DBUS_SESSION_BUS_ADDRESS` sends `gdbus` down the
-  `dbus-launch --autolaunch` path instead of the real session socket.
-- Readiness must hold for two consecutive checks so a check does not latch onto
-  the outgoing session moments before GDM tears it down.
-- The loop is bounded by a 300s wall-clock deadline, and the timeout message
-  reports a per-error-class attempt breakdown plus the last error.
-- When the socket file is absent the probe short-circuits instead of spawning
-  `gdbus`, because an unreachable/empty address sends GIO down the
-  `dbus-launch --autolaunch` path, which cannot work in the test container.
-- `collect_session_diagnostics()` snapshots socket presence, `loginctl
-  list-sessions` and `systemctl status gdm` on the first failure, every 15th
-  failure, and at timeout. If the socket never returns and no user session is
-  listed, the fault is lane-side GDM provisioning, not this helper.
-
-Reuse this helper rather than writing a new `gdbus`-poll loop. See
-`docs/skills/ci-ops/ops/references/qecore-headless-restarts-gdm-bus-socket-churn.md`.
-
 ## On-demand references
 
 Load these when you hit the specific topic:
@@ -492,3 +470,5 @@ Load these when you hit the specific topic:
 - [Top-bar interactions and Shell.Eval parsing on GNOME 50+.](references/top-bar.md)
 - [MIME, display, and session configuration in containerized tests.](references/display-config.md)
 - [Deep dive: Preinstalled Flatpak desktop app launch checks](references/preinstalled-flatpak-desktop-app-launch-checks.md)
+- [Session readiness across a GDM restart in containerized tests.](references/session-readiness.md)
+- [Unit-testing smoke step modules with stubbed dependencies.](references/unit-testing-smoke-steps.md)

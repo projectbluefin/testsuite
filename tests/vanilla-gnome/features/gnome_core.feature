@@ -10,6 +10,12 @@ Feature: Vanilla GNOME baseline smoke tests
   # Runs: manual comparison, not per-PR (expensive)
   # See QA-REVIEW.md Epic E07
 
+  @informational @version-canary
+  Scenario: GNOME Shell version is reported
+    # Informational canary for GNOME 51 readiness (#826). Prints the running
+    # org.gnome.Shell ShellVersion to the run log; never gates the run.
+    * GNOME Shell version is reported
+
   @gnome_core
   Scenario: GNOME Shell process is running and accessible via AT-SPI
     * GNOME Shell is accessible via AT-SPI
