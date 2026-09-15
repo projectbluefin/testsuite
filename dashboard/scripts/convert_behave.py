@@ -5,6 +5,12 @@ import sys
 from pathlib import Path
 from datetime import datetime
 
+# The slug grammar is owned by scripts/image_slug.py at the repository root;
+# this script is invoked as `python3 dashboard/scripts/convert_behave.py`, so
+# the root is not otherwise on sys.path.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from scripts.image_slug import split_image_slug  # noqa: E402
+
 STATUS_MAP = {
     "passed": "passed",
     "failed": "failed",
@@ -25,15 +31,9 @@ def convert_behave_json(behave_json_path, *, run_id, caller_repo, slug, suite, t
         print(f"Error loading behave JSON {behave_json_path}: {e}")
         return None
 
-    # Parse slug into flavor and stream
-    # e.g. "bluefin-testing" -> flavor "bluefin", stream "testing"
-    parts = slug.split('-')
-    if len(parts) >= 2:
-        flavor = "-".join(parts[:-1])
-        stream = parts[-1]
-    else:
-        flavor = slug
-        stream = "testing"
+    # Parse slug into flavor and stream — grammar owned by scripts/image_slug.py,
+    # which also owns the forward derivation used to build the slug upstream.
+    flavor, stream = split_image_slug(slug)
 
     tests = []
     total_duration_ms = 0
