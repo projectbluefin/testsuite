@@ -78,6 +78,7 @@ Which suites run on which image. Any bootc/ostree GNOME image can run via the Gi
 | `software` | — | — | — | — | — | ✅ | — | Bazaar launch, search, config YAML validation, Flathub remote, permissions DB, Bazaar CLI presence/info/remote, and Flatpak per-app permission management active; upstream GNOME Software navigation scenarios are `@future` (#176) |
 | `common` | ✅ | ✅ | ✅ | ✅ | — | — | — | Flatpak model/state, XDG portals, container runtime, polkit, shell env/sourcing, system scripts, ujust recipes, GSettings/dconf, immutable OS integrity |
 | `lifecycle` | ✅ | — | ✅ | ✅ `@homed_migration` | — | — | — | bootc upgrade/rollback; SSH-mode; dakota: homed migration only |
+| `installer` | ✅ | — | — | ✅ | — | — | — | Post-boot assertions for installer-driven installs (UEFI, Flatpak exclusion, LUKS cmdline); SSH-mode; dispatch-only |
 | `security` | ✅ | — | ✅ | — | — | — | — | cosign + SELinux; SSH-mode |
 | `hardware` | ✅ | — | — | — | — | — | — | udev rules syntax validation + emulated peripherals; SSH-mode |
 | `dx` | — | ✅ | — | — | — | — | — | DX-only tools (VS Code, distrobox, Jupyter) |
@@ -94,7 +95,7 @@ with:
 ```
 Passing `suites: smoke` expands to `smoke-a` + `smoke-b`, and `suites: common` expands to `common-a` + `common-b`. Both cut wall time by ~50%. New `.feature` files in these suites are picked up automatically.
 
-GitHub Action suites (`smoke`, `vanilla-gnome`, `bazzite`, `developer`, `dx`, `software`, `common`, `lifecycle`) run on `ubuntu-latest`.
+GitHub Action suites (`smoke`, `vanilla-gnome`, `bazzite`, `developer`, `dx`, `software`, `common`, `lifecycle`, `installer`) run on `ubuntu-latest`.
 `security` and `hardware` (SSH-mode) are not yet in the GHA action. The original migration epics (#43, #44) are closed; the remaining gap is untracked — file a fresh issue before claiming this work.
 
 Any bootc/ostree GNOME image can plug in `smoke` and `common` as a portable health gate — no Bluefin-specific knowledge required. See `README.md` → "For other bootc image maintainers" for minimum image requirements.
@@ -160,12 +161,12 @@ Set `chunked_enabled: true` once `ghcr.io/projectbluefin/bluefin:latest` ships z
 
 <!-- coverage-snapshot:start -->
 
-526 scenarios across 72 feature files: 415 active, 0 quarantined, 111 `@future`/`@pending`/`@hardware_blocked`
+526 scenarios across 72 feature files: 413 active, 0 quarantined, 113 `@future`/`@pending`/`@hardware_blocked`
 
 | Suite | Scenarios | Active | Quarantined | Pending/Future | Notes |
 |---|---|---|---|---|---|
 | bazzite | 20 | 20 | 0 | 0 | Extension presence + shell behaviour |
-| common | 121 | 101 | 0 | 20 | Signing assertions `@future` pending the ublue-os→projectbluefin policy migration; flatpak model/state, dconf defaults, immutability and portal socket checks `@pending` on CI infra; Flatpak model + state; XDG portal health + integration; container runtime (podman); polkit rules; shell env + sourcing; system scripts; ujust recipes; devmode via bctl (non-interactive contract + idempotent state-check gated `@requires_bctl`, group mutation `@pending` on CI polkit); GSettings/dconf defaults; immutable OS integrity; desktop entries; signing assertions; Dakota `ujust --choose` regression guard active (`@dakota_only`); `ujust report` is `@pending` on #706 until a Dakota lab run validates the mocked submit flow |
+| common | 121 | 99 | 0 | 22 | Signing assertions `@future` pending the ublue-os→projectbluefin policy migration; flatpak model/state, dconf defaults, immutability and portal socket checks `@pending` on CI infra; Flatpak model + state; XDG portal health + integration; container runtime (podman); polkit rules; shell env + sourcing; system scripts; ujust recipes; devmode via bctl (non-interactive contract + idempotent state-check gated `@requires_bctl`, group mutation `@pending` on CI polkit); GSettings/dconf defaults; immutable OS integrity; desktop entries; signing assertions; Dakota `ujust --choose` regression guard active (`@dakota_only`); `ujust report` is `@pending` on #706 until a Dakota lab run validates the mocked submit flow |
 | developer | 23 | 7 | 0 | 16 | 6 brew + 6 ptyxis + 4 bctl now `@pending`: `brew-setup.service` masked in CI (#487) and the ptyxis AT-SPI restart issue (#368) |
 | dx | 18 | 13 | 0 | 5 | distrobox create/install/export are active behind the `@requires_cached_image` runtime gate — they skip until `fedora-toolbox:latest` is pre-pulled on the VM (#501 / projectbluefin/lab#621) and activate without a feature-file edit; distrobox enter, JupyterLab, brew, mise remain `@pending` on infra gaps |
 | flatcar | 13 | 12 | 0 | 1 | boot (7 active) + lifecycle (5 active); 1 `@future` (boot from installed target disk — needs KubeVirt boot-order support in `projectbluefin/lab`) |
@@ -216,7 +217,7 @@ tag precedence order: `@quarantine` > `@hardware_blocked` > `@future` > `@pendin
 | Area | Priority | Notes |
 |---|---|---|
 | Bazaar / Flatpak management GUI | High | Bazaar CLI/config integrity coverage active; GUI navigation pending GNOME 50 AT-SPI re-validation |
-| Flatpak permission management | Low | Flatseal / per-app permissions not exercised |
+| Flatpak permission management | Low | Per-app permission management is active in software suite; system-wide install audits (×39) remain `@pending` in smoke suite pending CI Flatpak seeding (`flatpak-preinstall.service` masked in `e2e.yml`) |
 | OOBE / first-boot | Low | True GDM → GIS flow is not covered; qecore assumes autologin. The [design spike](../../../archive/spikes/oobe-first-boot.md) recommends a bounded mock-mode accessibility probe and defers a fresh-disk QEMU input lane pending maintainer approval. |
 | `ujust toggle-updates` | Medium | Blocked upstream in `projectbluefin/common`. `update.just` declares `toggle-updates ACTION="prompt":` but never reads `ACTION`. On images with `bctl` the recipe `exec`s `bctl --screen updates`, a GUI panel; only without `bctl` does it fall back to a `gum choose` prompt, which blocks non-interactive runs. Neither branch offers a non-interactive entry point. Scenario stays `@pending @wip` in `common_ujust.feature`. Next step: `projectbluefin/common` must honour `ACTION`; tracked in `projectbluefin/testsuite#499`. |
 | `ujust toggle-devmode` group mutation | Medium | Non-interactive contract now exists: `bctl devmode --enable/--disable` (bluefinctl), which `toggle-devmode` execs to when `bctl` is present. Presence + idempotent state-check are covered in `common_devmode.feature`, gated `@requires_bctl` because bluefinctl is a Homebrew preinstall and `brew-setup.service` is masked in QEMU CI (#487). The actual group-mutating branch calls `pkexec usermod`, which requires an authentication agent bound to a real login session — unavailable over plain SSH. Scenario stays `@pending @wip`. Next step: a CI/lab-side non-interactive polkit or session-agent contract for `pkexec`; tracked in `projectbluefin/testsuite#500`. |
