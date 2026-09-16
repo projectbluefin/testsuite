@@ -1,9 +1,4 @@
-"""Unit tests for tests/smoke/features/steps/system_health_steps.py.
-
-Tests the pure helper functions: _has_image_reference, _running_in_vm,
-and IGNORED_FAILED_UNITS_IN_VM set membership.  No live systemd or
-subprocess calls.
-"""
+"""Behavior tests for tests/smoke/features/steps/system_health_steps.py."""
 
 from unittest.mock import patch
 
@@ -98,35 +93,34 @@ class TestAtSpiBus:
             system_health_steps.at_spi_accessibility_bus_is_reachable_from_the_gnome_session(None)
 
 
-# ---------------------------------------------------------------------------
-# IGNORED_FAILED_UNITS_IN_VM — set membership
-# ---------------------------------------------------------------------------
+class TestFailedSystemdUnits:
+    def test_ignores_tuned_timeout_inside_qemu(self):
+        output = (
+            "UNIT LOAD ACTIVE SUB DESCRIPTION\n"
+            "tuned.service loaded failed failed Dynamic System Tuning Daemon\n"
+            "1 loaded units listed."
+        )
+        with patch.object(
+            system_health_steps,
+            "_run_host",
+            side_effect=[(output, 0, ""), ("kvm", 0, "")],
+        ):
+            system_health_steps.no_failed_systemd_units_at_boot(None)
 
-class TestIgnoredFailedUnits:
-    def test_known_units_are_in_set(self):
-        expected = {
-            "mcelog.service",
-            "avahi-daemon.service",
-            "cups.service",
-            "bootloader-update.service",
-            "input-remapper.service",
-            "nvidia-persistenced.service",
-            "fwupd-refresh.service",
-            "audit-rules.service",
-            "auditd.service",
-            "systemd-resolved.service",
-            "systemd-resolved-monitor.socket",
-            "systemd-resolved-varlink.socket",
-            "foomaticrip-upgrade.service",
-        }
-        for unit in expected:
-            assert unit in system_health_steps.IGNORED_FAILED_UNITS_IN_VM, (
-                f"{unit} should be in IGNORED_FAILED_UNITS_IN_VM"
-            )
+    def test_rejects_required_service_failure(self):
+        import pytest
 
-    def test_unknown_units_are_not_in_set(self):
-        unknown = {"sshd.service", "gdm.service", "NetworkManager.service"}
-        for unit in unknown:
-            assert unit not in system_health_steps.IGNORED_FAILED_UNITS_IN_VM, (
-                f"{unit} should NOT be in IGNORED_FAILED_UNITS_IN_VM"
-            )
+        output = (
+            "UNIT LOAD ACTIVE SUB DESCRIPTION\n"
+            "gdm.service loaded failed failed GNOME Display Manager\n"
+            "1 loaded units listed."
+        )
+        with (
+            patch.object(
+                system_health_steps,
+                "_run_host",
+                side_effect=[(output, 0, ""), ("kvm", 0, "")],
+            ),
+            pytest.raises(AssertionError, match="gdm.service"),
+        ):
+            system_health_steps.no_failed_systemd_units_at_boot(None)

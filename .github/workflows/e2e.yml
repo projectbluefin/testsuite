@@ -92,7 +92,9 @@ jobs:
           parts = [s.strip() for s in sys.argv[1].split(',') if s.strip()]
           expanded = []
           for p in parts:
-              if p in {'smoke', 'common', 'kde-smoke'}:
+              if p == 'smoke':
+                  expanded.extend(['smoke-a', 'smoke-b', 'smoke-firefox'])
+              elif p in {'common', 'kde-smoke'}:
                   expanded.extend([f'{p}-a', f'{p}-b'])
               else:
                   expanded.append(p)
@@ -217,9 +219,10 @@ jobs:
             scripts/e2e_summary.py
           sparse-checkout-cone-mode: false
 
-      # smoke-a/smoke-b and common-a/common-b are parallel shards of their
-      # parent suites. SUITE_DIR is the physical directory. FEATURE_ARGS lists
-      # the specific feature files for this shard (empty = run all).
+      # smoke-a/smoke-b, common-a/common-b, and kde-smoke-a/kde-smoke-b are
+      # parallel halves of their parent suites. smoke-firefox owns the stateful
+      # Firefox feature exclusively. SUITE_DIR is the physical directory and
+      # FEATURE_ARGS lists the feature files for this shard (empty = run all).
       - name: Resolve suite shard
         id: shard
         run: |
@@ -234,8 +237,13 @@ jobs:
 
           if "-" in suite:
               base, label = suite.rsplit("-", 1)
-              if base in {"smoke", "common", "kde-smoke"} and label in {"a", "b"}:
+              if base == "smoke" and label == "firefox":
+                  suite_dir = base
+                  feature_args = "tests/smoke/features/firefox.feature"
+              elif base in {"smoke", "common", "kde-smoke"} and label in {"a", "b"}:
                   files = sorted(glob.glob(f"tests/{base}/features/*.feature"))
+                  if base == "smoke":
+                      files = [path for path in files if not path.endswith("/firefox.feature")]
                   if not files:
                       raise SystemExit(f"No feature files found for tests/{base}/features/*.feature")
                   chunk_size = math.ceil(len(files) / 2)
@@ -245,6 +253,7 @@ jobs:
                       raise SystemExit(f"Shard {suite} resolved to no feature files")
                   suite_dir = base
                   feature_args = " ".join(chunk)
+
 
           screenshot_suite = suite_dir if suite != suite_dir else suite
 
@@ -1393,6 +1402,8 @@ jobs:
               # --pid=host: qecore reads GNOME session env from /proc/<pid>/environ.
               # --privileged: AT-SPI socket access + uinput device passthrough.
               # --network host: D-Bus session bus traffic reaches ponytail daemon.
+              # Mount the VM runtime directory so libatspi can reach the
+              # session accessibility bus and any live application sockets.
               podman run --userns=keep-id --rm \
                 --pid=host \
                 --privileged \

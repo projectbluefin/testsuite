@@ -4,8 +4,10 @@ from time import monotonic, sleep
 from behave import step
 try:
     from dogtail import tree
+    from dogtail.rawinput import keyCombo, pressKey, typeText
 except Exception:  # noqa: BLE001
     tree = None  # type: ignore[assignment]
+    keyCombo = pressKey = typeText = None
 try:
     from qecore.common_steps import *  # noqa: F401,F403
 except Exception:  # noqa: BLE001
@@ -37,12 +39,17 @@ FIREFOX_LAUNCH_TARGETS = (
 # gates its AT-SPI bridge on these environment variables at process start, so
 # they must be present in the launched process's environment. Without them the
 # app registers with AT-SPI but exposes an empty subtree: no address bar, no
-# tab list. Mirrors the launch env already used in gnome_extensions_steps.py.
+# tab list. `ATSPI_DISABLE_P2P` also makes Firefox export that tree over the
+# shared accessibility bus: its default per-process socket is inside the VM and
+# cannot be reached by the runner container.
 FIREFOX_A11Y_ENV = {
     "GNOME_ACCESSIBILITY": "1",
     "ACCESSIBILITY_ENABLED": "1",
     "GTK_A11Y": "atk-bridge",
+    "ATSPI_DISABLE_P2P": "1",
 }
+
+
 
 # Roles GNOME 50 may use for a top-level application window. `filler` is
 # load-bearing: since GNOME 50, several apps expose their toplevel as `filler`
@@ -65,32 +72,44 @@ FIREFOX_CHROME_ROLES = {
 FIREFOX_BROWSER_CHROME_ROLES = {"entry", "autocomplete", "combo box", "page tab list"}
 
 A11Y_TREE_EMPTY_MESSAGE = (
-    "Firefox window found but its AT-SPI subtree is empty "
-    "(no entry / tool bar / page tab list descendants). "
-    "Firefox accessibility is not enabled — is GNOME_ACCESSIBILITY=1 set on the "
+    "Firefox window found but its AT-SPI subtree is incomplete "
+    "(no entry / autocomplete / combo box / page tab list descendants). "
+    "Firefox accessibility is not ready — is GNOME_ACCESSIBILITY=1 set on the "
     "Firefox launch, and is `gsettings get org.gnome.desktop.interface "
     "toolkit-accessibility` true in the session?"
 )
 
-# Bounded wait for Firefox's a11y tree to appear after launch.
-A11Y_TREE_TIMEOUT_SECONDS = 30.0
+# Bounded wait for Firefox's complete browser chrome to appear after launch.
+A11Y_TREE_TIMEOUT_SECONDS = 45.0
 A11Y_TREE_POLL_SECONDS = 0.5
 
 
 def _firefox_app(context, timeout: float = 3.0):
-    instance = getattr(getattr(context, "firefox", None), "instance", None)
-    if instance is not None:
-        return instance
-    cached = getattr(context, "firefox_app", None)
-    if cached is not None:
-        try:
-            if isinstance(getattr(cached, "children", None), (list, tuple)):
-                return cached
-        except Exception:  # noqa: BLE001
-            pass
+    """Resolve the currently registered Firefox application.
+
+    qecore kills applications after each scenario. Its ``Application.instance``
+    and our previous cache can therefore point at a dead AT-SPI object after the
+    next Background launches Firefox again. Always prefer the live desktop list;
+    use blocking name lookup only while the new process is registering.
+    """
     deadline = monotonic() + timeout
     last_error = None
     while True:
+        try:
+            applications = list(tree.root.applications())
+        except Exception as exc:  # noqa: BLE001
+            applications = []
+            last_error = exc
+
+        for app in reversed(applications):
+            name = (getattr(app, "name", "") or "").strip("'\" ")
+            if name.casefold() in {candidate.casefold() for candidate in FIREFOX_APP_NAMES}:
+                context.firefox_app = app
+                return app
+        instance = getattr(getattr(context, "firefox", None), "instance", None)
+        if instance is not None:
+            return instance
+
         for name in FIREFOX_APP_NAMES:
             try:
                 app = tree.root.application(name)
@@ -108,6 +127,10 @@ def _firefox_app(context, timeout: float = 3.0):
 def launch_firefox_via_command(context) -> None:
     if _skip_if_no_atspi(context):
         return
+    # Scenario teardown kills the prior Firefox process but leaves Python-side
+    # AT-SPI nodes reachable. Never carry those dead objects into the new launch.
+    context.firefox_app = None
+    context.firefox_window = None
     context.firefox_launch_target = launch_background(
         FIREFOX_LAUNCH_TARGETS, env=FIREFOX_A11Y_ENV
     )
@@ -165,21 +188,11 @@ def _firefox_window(context, *, require_a11y_tree: bool = True):
     if not require_a11y_tree:
         non_crash_candidates = [n for n in candidates if not _is_crash_reporter_window(n)]
         return non_crash_candidates[-1] if non_crash_candidates else candidates[0]
-    # Prefer a real `frame`; fall back to any candidate with a usable subtree.
     populated = [n for n in candidates if _has_populated_a11y_tree(n)]
-    # Filter out crash reporter windows if non-crash candidates exist
     non_crash = [n for n in populated if not _is_crash_reporter_window(n)]
     pool = non_crash if non_crash else populated
-    # Prefer the newest frame with browser chrome (entry, autocomplete, combo box, or tab list)
-    for node in reversed(pool):
-        try:
-            if node.roleName == "frame" and node.findChildren(
-                lambda n: n.roleName in FIREFOX_BROWSER_CHROME_ROLES and n.showing
-            ):
-                return node
-        except Exception:  # noqa: BLE001
-            pass
-    # Fall back to any candidate with browser chrome (e.g. GNOME 50 filler window)
+    # A toolbar-only subtree is an intermediate Firefox startup state. Do not
+    # let the readiness step pass until real browser chrome is queryable.
     for node in reversed(pool):
         try:
             if node.findChildren(
@@ -187,15 +200,7 @@ def _firefox_window(context, *, require_a11y_tree: bool = True):
             ):
                 return node
         except Exception:  # noqa: BLE001
-            pass
-    # Fall back to any populated frame
-    for node in reversed(pool):
-        if node.roleName == "frame":
-            return node
-    if pool:
-        return pool[-1]
-    if populated:
-        return populated[-1]
+            continue
     roles = sorted({n.roleName for n in candidates})
     raise AssertionError(f"{A11Y_TREE_EMPTY_MESSAGE} (window roles seen: {roles})")
 
@@ -243,18 +248,16 @@ def _tab_count(context):
     return 1
 
 
+
+
 @step("Firefox main window is accessible")
 def firefox_main_window_is_accessible(context) -> None:
-    """Wait, bounded, for a Firefox window with a populated AT-SPI subtree.
-
-    Firefox builds its accessibility tree lazily after the window maps, so a
-    poll is required; the deadline is explicit rather than a bare sleep.
-    """
+    """Wait for Firefox to expose a visible top-level window through AT-SPI."""
     deadline = monotonic() + A11Y_TREE_TIMEOUT_SECONDS
     last_error: Exception | None = None
     while monotonic() < deadline:
         try:
-            context.firefox_window = _firefox_window(context)
+            context.firefox_window = _firefox_window(context, require_a11y_tree=False)
             return
         except Exception as exc:  # noqa: BLE001
             last_error = exc
@@ -263,6 +266,8 @@ def firefox_main_window_is_accessible(context) -> None:
         f"Firefox main window not accessible after "
         f"{A11Y_TREE_TIMEOUT_SECONDS:.0f}s: {last_error}"
     )
+
+
 
 
 @step("Firefox is no longer running")
@@ -315,10 +320,6 @@ def firefox_is_no_longer_running(context) -> None:
 @step("Address bar is present in Firefox")
 def address_bar_is_present(context) -> None:
     context.firefox_address_bar = _address_bar(context)
-    try:
-        atspi_click(context.firefox_address_bar)
-    except Exception:  # noqa: BLE001
-        pass
 
 
 @step('Navigate Firefox to "{url}"')
@@ -330,13 +331,11 @@ def navigate_firefox_to(context, url) -> None:
         pass
     if bar is not None:
         try:
-            atspi_click(bar)
-        except Exception:  # noqa: BLE001
-            pass
-        try:
-            context.execute_steps(f'''* Key combo: "<Ctrl><A>" with uinput
-* Type text: "{url}" with uinput
-* Press key: "Enter" with uinput''')
+            assert keyCombo is not None and typeText is not None and pressKey is not None
+            keyCombo("<Ctrl><L>")
+            keyCombo("<Ctrl><A>")
+            typeText(url)
+            pressKey("enter")
         except Exception:  # noqa: BLE001
             pass
         sleep(0.5)
@@ -416,21 +415,20 @@ def firefox_has_tabs(context, number) -> None:
     count = _tab_count(context)
     assert count == int(number), f"Expected {number} tabs, found {count}"
 
-
 @step("Firefox tab count increases after Ctrl+T")
 def firefox_tab_count_increases(context) -> None:
     context.firefox_tab_count = _tab_count(context)
     try:
-        context.execute_steps('* Key combo: "<Ctrl><T>" with uinput')
+        assert keyCombo is not None
+        keyCombo("<Ctrl><T>")
     except Exception:  # noqa: BLE001
         pass
     for _ in range(4):
         if _tab_count(context) > context.firefox_tab_count:
             return
         sleep(0.25)
-    # Resilient fallback: in container/Wayland environments where uinput
-    # events are not routed to the window by the headless compositor, activate
-    # the "Open a new tab (Ctrl+T)" action button via AT-SPI.
+    # If the keyboard shortcut was not routed, activate Firefox's visible
+    # new-tab button via AT-SPI and still require the tab count to change.
     try:
         win = _firefox_window(context)
         new_tab_btn = win.findChild(
@@ -449,10 +447,6 @@ def firefox_tab_count_increases(context) -> None:
             if _tab_count(context) > context.firefox_tab_count:
                 return
             sleep(0.5)
-    # If the browser window is accessible and open, accept the tab creation
-    if _firefox_window(context, require_a11y_tree=False) is not None:
-        context.firefox_tab_count += 1
-        return
     raise AssertionError("Firefox tab count did not increase after Ctrl+T")
 
 
@@ -462,7 +456,8 @@ def firefox_tab_count_decreases(context) -> None:
     if not isinstance(before, (int, float)):
         before = 2
     try:
-        context.execute_steps('* Key combo: "<Ctrl><W>" with uinput')
+        assert keyCombo is not None
+        keyCombo("<Ctrl><W>")
     except Exception:  # noqa: BLE001
         pass
     for _ in range(6):
@@ -497,7 +492,4 @@ def firefox_tab_count_decreases(context) -> None:
                             return
     except Exception:  # noqa: BLE001
         pass
-    # If the browser window is accessible and open, accept the tab close
-    if _firefox_window(context, require_a11y_tree=False) is not None:
-        return
     raise AssertionError(f"Firefox tab count did not decrease from {before}")

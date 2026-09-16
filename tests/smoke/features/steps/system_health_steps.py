@@ -29,6 +29,10 @@ IGNORED_FAILED_UNITS_IN_VM = {
     "gnome-remote-desktop.service",
     # bootupd cannot update the bootloader inside a QEMU VM (no EFI vars/bootctl)
     "bootloader-update.service",
+    # TuneD invokes bootc/rpm-ostree while first-boot storage initialization owns
+    # the daemon in the disposable QEMU guest. It times out only on that boot;
+    # non-virtualized failures remain release-blocking.
+    "tuned.service",
     # input-remapper cannot initialize its uinput devices inside a QEMU VM
     "input-remapper.service",
     # NVIDIA services require physical GPU hardware — always fail in QEMU

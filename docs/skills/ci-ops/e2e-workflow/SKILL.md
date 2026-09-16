@@ -189,8 +189,9 @@ The same rule applies to every other non-cone checkout in this repo, including t
 
 ## Pipeline stages
 
-
-1. **Resolve matrix** — splits `suites` CSV into a JSON array for the strategy matrix; `smoke` becomes `smoke-a,smoke-b` and `common` becomes `common-a,common-b`
+1. **Resolve matrix** — splits `suites` CSV into JSON. `common` and `kde-smoke`
+   become `-a`/`-b`; `smoke` adds `smoke-firefox`, while `smoke-a`/`smoke-b`
+   exclude the stateful `firefox.feature` journey.
 2. **Checkout testsuite** — non-cone sparse checkout of the explicitly listed paths (`flatpak-app-list.txt`, `tests`, `scripts/check_quarantine_age.py`, `scripts/install-kde-webdriver.sh`) from `inputs.test_repository` at `inputs.test_ref`; `test_repository` defaults to `<image-org>/testsuite`, while `manual.yml` passes `github.repository` so fork branches can validate themselves; always `fetch-depth: 0`
 3. **Resolve suite shard** — Python step computes `SUITE_DIR` (physical directory), `FEATURE_ARGS` (specific `.feature` files for shards), and `SCREENSHOT_SUITE` (normalized suite name for GHCR tags)
 4. **Restore/prime Flatpak download cache** — Bluefin GUI suites only; caches a runner-side user Flatpak repo keyed on `flatpak-app-list.txt` hash
