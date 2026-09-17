@@ -107,6 +107,20 @@ class TestFailedSystemdUnits:
         ):
             system_health_steps.no_failed_systemd_units_at_boot(None)
 
+    def test_ignores_nvidia_cdi_units_inside_qemu(self):
+        output = (
+            "UNIT LOAD ACTIVE SUB DESCRIPTION\n"
+            "nvidia-cdi-refresh.path loaded failed failed Trigger NVIDIA CDI refresh\n"
+            "nvidia-cdi-refresh.service loaded failed failed Refresh NVIDIA CDI spec\n"
+            "2 loaded units listed."
+        )
+        with patch.object(
+            system_health_steps,
+            "_run_host",
+            side_effect=[(output, 0, ""), ("kvm", 0, ""), ("kvm", 0, "")],
+        ):
+            system_health_steps.no_failed_systemd_units_at_boot(None)
+
     def test_rejects_required_service_failure(self):
         import pytest
 
