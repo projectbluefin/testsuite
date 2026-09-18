@@ -144,6 +144,7 @@ def _char_to_uinput_event(char: str):
     return _CHAR_TO_EVDEV.get(char)
 
 
+
 def _emit_characters_to_device(device, characters: str) -> None:
     """Emit character keystrokes to a uinput device with modifier handling."""
     from time import sleep

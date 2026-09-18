@@ -189,8 +189,9 @@ The same rule applies to every other non-cone checkout in this repo, including t
 
 ## Pipeline stages
 
-
-1. **Resolve matrix** — splits `suites` CSV into a JSON array for the strategy matrix; `smoke` becomes `smoke-a,smoke-b` and `common` becomes `common-a,common-b`
+1. **Resolve matrix** — splits `suites` CSV into JSON. `common` and `kde-smoke`
+   become `-a`/`-b`; `smoke` adds `smoke-firefox`, while `smoke-a`/`smoke-b`
+   exclude the stateful `firefox.feature` journey.
 2. **Checkout testsuite** — non-cone sparse checkout of the explicitly listed paths (`flatpak-app-list.txt`, `tests`, `scripts/check_quarantine_age.py`, `scripts/install-kde-webdriver.sh`) from `inputs.test_repository` at `inputs.test_ref`; `test_repository` defaults to `<image-org>/testsuite`, while `manual.yml` passes `github.repository` so fork branches can validate themselves; always `fetch-depth: 0`
 3. **Resolve suite shard** — Python step computes `SUITE_DIR` (physical directory), `FEATURE_ARGS` (specific `.feature` files for shards), and `SCREENSHOT_SUITE` (normalized suite name for GHCR tags)
 4. **Restore/prime Flatpak download cache** — Bluefin GUI suites only; caches a runner-side user Flatpak repo keyed on `flatpak-app-list.txt` hash
@@ -231,7 +232,7 @@ The same rule applies to every other non-cone checkout in this repo, including t
 30. **Upload results artifact** — `e2e-results-<artifact-suffix>-<suite>` (30 days); includes `results.json`, `results.txt`, `artifact-metadata.json`, and any screenshots
 31. **Upload serial log artifact** — `vm-serial-log-<artifact-suffix>-<suite>` (3 days)
 32. **Fail job if tests failed** — exits with behave's return code
-33. **Write + upload e2e metadata** — writes `meta/e2e-metadata.json` (`image`, `suite`, `conclusion`); uploaded as `e2e-metadata-<suite>` artifact (1 day)
+33. **Write + upload e2e metadata** — writes `meta/e2e-metadata.json` (`image`, `suite`, `conclusion`); uploaded as `e2e-metadata-<artifact-suffix>-<suite>` (1 day), so parallel variant invocations cannot collide
 
 Smoke-suite correctness rule: commands launched with plain `subprocess.run()` execute in the qecore runner container, not necessarily against the VM host state. In `tests/smoke/features/steps/system_health_steps.py`, host-facing probes (`systemctl`, `journalctl`, `df`, `getent hosts`, etc.) must use the VM helper (`_run_host()`). Using `_run()` for those checks only tests the runner container and can miss VM regressions.
 
@@ -255,7 +256,7 @@ The workflow injects the test user, SSH keys, autologin config, and the unsafe-m
 |----------|---------|-----------|
 | `e2e-results-<artifact-suffix>-<suite>` | `results.json` (behave JSON), `results.txt` (pretty output), `artifact-metadata.json` (image + suite metadata), screenshots, `migration-status.txt` (lifecycle only) | 30 days |
 | `vm-serial-log-<artifact-suffix>-<suite>` | QEMU serial console output | 3 days |
-| `e2e-metadata-<suite>` | `e2e-metadata.json` — `{"image":…,"suite":…,"conclusion":…}` for downstream promotion jobs | 1 day |
+| `e2e-metadata-<artifact-suffix>-<suite>` | `e2e-metadata.json` — `{"image":…,"suite":…,"conclusion":…}` for downstream promotion jobs | 1 day |
 
 `<artifact-suffix>` is derived by sanitizing the full image reference (e.g. `ghcr.io/<image-org>/bluefin:testing` → `ghcr.io-projectbluefin-bluefin-testing`), not just the image name.
 
