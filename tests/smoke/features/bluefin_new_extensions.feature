@@ -6,7 +6,10 @@ Feature: Newly enabled Bluefin GNOME extension stability
   bluefin_extensions.feature with AT-SPI interaction and crash-regression
   coverage for the highest-risk additions.
 
-  @extensions @atspi @priority-high
+  @extensions @atspi @priority-high @pending
+  # @pending: the AT-SPI popover and clipboard-row steps degrade to a printed
+  # WARNING and pass when dogtail is unavailable or the node is not presented,
+  # so this cannot be counted as active coverage until they assert hard.
   Scenario: Copyous clipboard manager is enabled and stable under clipboard stress
     * GNOME Shell is accessible via AT-SPI
     * GNOME extension "copyous@boerdereinar.dev" is enabled
@@ -25,7 +28,9 @@ Feature: Newly enabled Bluefin GNOME extension stability
     * The toggle starts and stops the Syncthing service without shell errors
     * The extension honors "start-stop-only = true"
 
-  @extensions
+  @extensions @pending
+  # @pending: 'The Bluetooth battery panel icon is rendered' soft-passes when
+  # dogtail is unavailable or gnome-shell is absent from the AT-SPI tree.
   Scenario: Bluetooth Battery Meter handles panel and missing-device states
     * GNOME Shell is accessible via AT-SPI
     * GNOME extension "Bluetooth-Battery-Meter@maniacx.github.com" is enabled
@@ -45,7 +50,9 @@ Feature: Newly enabled Bluefin GNOME extension stability
     * GNOME extension "quicksettings-audio-devices-renamer@marcinjahn.com" is enabled
     * The Quick Settings audio menu populates cleanly with configured device names applied
 
-  @extensions
+  @extensions @pending
+  # @pending: 'Window-snapping keyboard shortcuts work' soft-passes when uinput
+  # key injection is unavailable, which is the normal CI case.
   Scenario: Tiling Assistant handles snapping shortcuts and gestures
     * GNOME Shell is accessible via AT-SPI
     * GNOME extension "tiling-assistant@leleat-on-github" is enabled

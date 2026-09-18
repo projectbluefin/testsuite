@@ -19,7 +19,9 @@ Feature: Copyous clipboard manager crash-regression and stress resilience
     And no gnome-shell coredump or crash occurred
     And no fatal GJS or extension errors exist in the journal
 
-  @extensions @atspi @priority-high @stress
+  @extensions @atspi @priority-high @stress @pending
+  # @pending: the memory-growth step passes with a printed WARNING when no
+  # baseline RSS was recorded, so the bound is not actually asserted.
   Scenario: Copyous handles oversized payloads without crashing GNOME Shell or blowing memory limits
     When snapshotting GNOME Shell state and journal marker
     And copying a 1 megabyte payload to clipboard
@@ -29,7 +31,9 @@ Feature: Copyous clipboard manager crash-regression and stress resilience
     And GNOME Shell memory growth remains strictly bounded under 200 megabytes
     And no gnome-shell coredump or crash occurred
 
-  @extensions @atspi @priority-high @stress
+  @extensions @atspi @priority-high @stress @pending
+  # @pending: the popover-open step soft-passes when the Shell.Eval toggleMenu
+  # call raises, so the rest of the scenario can run against a closed popover.
   Scenario: Copyous popover rapid open close and keyboard navigation does not freeze the compositor
     When Copyous clipboard history popover is opened via keyboard shortcut or AT-SPI
     And Copyous clipboard history popover is rapidly toggled 10 times
