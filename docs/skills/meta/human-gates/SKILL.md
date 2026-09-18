@@ -25,7 +25,7 @@ Four situations require stopping and requesting human input. Never guess past th
 | **Design** | Architecture change, new test infrastructure, user-visible CI behavior change, changing what suites an image runs |
 | **Security** | Secrets in CI, cosign/signing changes, any `ublue-os/*` interaction, any KDE property interaction beyond read-only, COPR sources in runner |
 | **Breakage** | Removing or renaming a reusable workflow input that consuming repos depend on (e2e.yml inputs, action inputs) |
-| **Merge** | PR is ready — requires GHA CI green + human approval; the `ghost-lab` lab gate is a no-op, do not wait for it (see below) |
+| **Merge** | PR is ready — requires GHA CI green + human approval (see below) |
 
 ---
 
@@ -77,48 +77,30 @@ gh search code "testsuite/.github/workflows/e2e.yml" --repo projectbluefin --jso
 
 ## Merge gate
 
-**The review workflow is: submit to lab → wait for `ghost-lab` → merge on pass, fix on fail.**
-
-`ghost-lab` **is** posted on testsuite PRs and **must be green before merging**.
-It was genuinely dead for a long stretch — every testsuite lab workflow was
-rejected at Argo admission in 0s because `bluefin-qa-pipeline`'s `pipeline`
-template declared `image-digest` required with no default while `pr-poller`
-emitted it as an empty string, and Argo normalises an empty string to absent.
-`projectbluefin/lab#606` fixed that, and `#607`/`#608`/`#610`/`#611` fixed
-nested-target provisioning. Statuses have posted reliably since
-(observed on testsuite `#724`, `#726`, `#727`, `#729`). Any older doc, comment,
-or issue telling you "nothing will arrive" is stale — do not act on it.
+**The review workflow is: GHA CI green → human approval → merge queue.**
 
 **The gate to apply:**
 
 1. **GitHub Actions CI green** — `Lint & syntax`, `Behave dry-run`,
    `Quarantine age` (`pr-validate.yml`), `pytest` (`unit-tests.yml`),
-   `docs-validate` (`docs-validate.yml`). These are the required checks on the
-   `main — merge queue` **ruleset**, which also enables the merge queue, squash
-   method, and `ALLGREEN` grouping. `gh api
+   `docs-validate` (`docs-validate.yml`). Of these, the `main — merge queue`
+   **ruleset** enforces `Lint & syntax`, `Behave dry-run`, and `pytest` as
+   required status checks; it also enables the merge queue, squash method, and
+   `ALLGREEN` grouping. `gh api
    repos/projectbluefin/testsuite/branches/main/protection` returning
    `404 Branch not protected` is expected — the configuration is a ruleset, not
    legacy branch protection.
-2. **`ghost-lab` green.** The five GHA checks are **not sufficient on their own**:
-   none of them boots a VM, so GNOME Shell/AT-SPI timing, GDM state, bootc
-   upgrade/rollback, and oomd regressions are invisible to them. `ghost-lab` is
-   the only pre-merge signal that runs `smoke,common` against a real KubeVirt VM.
-   If it reports `failure`, fix the PR and let the poller re-run — do not merge
-   past it.
-3. **Human approval to merge.** Prepare the PR, then ask; do not merge on your
+2. **Human approval to merge.** Prepare the PR, then ask; do not merge on your
    own judgement.
 
-**`ghost-lab` is a commit status, not a check run.** It therefore does not
-appear in the check-runs API and is easy to miss in tooling that only reads
-check runs. Query the status API directly:
+**There is no pre-merge real-VM gate.** None of the GHA checks boots a VM, so
+GNOME Shell/AT-SPI timing, GDM state, bootc upgrade/rollback, and oomd
+regressions are not exercised before merge. When a change can affect runtime
+behaviour, say so explicitly in the PR description, and validate it with a
+manual run in [`projectbluefin/lab`](https://github.com/projectbluefin/lab)
+when the risk warrants it.
 
-```bash
-gh api repos/projectbluefin/testsuite/commits/$(gh pr view <N> \
-  --repo projectbluefin/testsuite --json headRefOid --jq .headRefOid)/status \
-  --jq '.statuses[] | {context, state}'
-```
-
-Once CI and `ghost-lab` are green and a human has approved, enqueue via:
+Once CI is green and a human has approved, enqueue via:
 ```bash
 gh pr merge <NUMBER> --repo projectbluefin/testsuite --squash --auto
 ```
@@ -131,15 +113,11 @@ PRs — only for:
 - PRs touching `AGENTS.md` (behavioral directive changes)
 - PRs touching `CODEOWNERS`
 
-Poller mechanics, dedup labels, forcing a re-run, and the `MAX_DISPATCH` cap:
-[`docs/skills/ci-ops/contributing/references/reviewing-and-merging.md`](../../ci-ops/contributing/references/reviewing-and-merging.md).
-
-**A merged fix is still not a working fix.** Three consecutive fixes to the lab
-status reporter each merged green and each left the gate posting nothing; the
-fix that actually worked was confirmed by observing statuses on four PRs, not
-by reading a diff. Verify a gate by observing a real signal end to end — the
-same failure class as a test suite that reports green while silently skipping
-every scenario.
+**A merged fix is still not a working fix.** Verify any gate, reporter, or
+check by observing a real signal end to end rather than by reading its diff —
+reporting is a leg of the pipeline that no upstream test exercises, and it can
+fail silently from the PR's point of view. The same failure class as a test
+suite that reports green while silently skipping every scenario.
 
 ---
 
@@ -191,8 +169,7 @@ single unauthorized automated write would cost more trust than any test contribu
 
 Stop if you catch yourself doing any of these:
 
-- **Waiting for a `ghost-lab` status that will never arrive.** Blocking a ready PR on the dead lab gate.
-- **Restoring a gate because its fix merged.** A merged fix is not a working fix; restore only on an observed signal.
+- Merging without the required GHA checks green, or treating a red required check as flaky without evidence.
 - Merging your own PR without an explicit human approval, or reaching for `--admin` to bypass the queue.
 - Concluding `main` is unprotected because `branches/main/protection` returns 404 — the rules live in a ruleset.
 - Copying live state (PR numbers, dates, current status) into a skill file instead of the tracking issue.
@@ -206,9 +183,7 @@ Before asking for merge approval, confirm each of these:
 ```bash
 gh pr checks <N> --repo projectbluefin/testsuite          # Lint & syntax, Behave dry-run, pytest all pass
 gh pr diff  <N> --repo projectbluefin/testsuite           # no secrets, no permissions widening, no e2e.yml input removal
-gh api repos/projectbluefin/testsuite/commits/$(gh pr view <N> --repo projectbluefin/testsuite --json headRefOid --jq .headRefOid)/status \
-  --jq '.statuses[].context'                            # empty = lab gate still dead; `ghost-lab` = restore the lab-first gate
 ```
 
-- Real-VM-affecting change? A manual lab run result is pasted in the PR, or the PR says explicitly that it has no real-VM coverage.
+- Real-VM-affecting change? The PR states explicitly that it has no pre-merge real-VM coverage, or pastes a manual lab run result.
 - Touches `e2e.yml`, `AGENTS.md`, or `CODEOWNERS`? A human `lgtm` is recorded on the PR.
