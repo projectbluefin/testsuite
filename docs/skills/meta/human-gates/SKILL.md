@@ -96,9 +96,7 @@ gh search code "testsuite/.github/workflows/e2e.yml" --repo projectbluefin --jso
 **There is no pre-merge real-VM gate.** None of the GHA checks boots a VM, so
 GNOME Shell/AT-SPI timing, GDM state, bootc upgrade/rollback, and oomd
 regressions are not exercised before merge. When a change can affect runtime
-behaviour, say so explicitly in the PR description, and validate it with a
-manual run in [`projectbluefin/lab`](https://github.com/projectbluefin/lab)
-when the risk warrants it.
+behaviour, say so explicitly in the PR description so a reviewer can weigh it.
 
 Once CI is green and a human has approved, enqueue via:
 ```bash

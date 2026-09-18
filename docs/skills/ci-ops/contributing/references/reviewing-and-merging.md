@@ -86,9 +86,7 @@ oomd kills — are invisible to all of them, and **there is no pre-merge real-VM
 gate**. A PR that is fully green has had no runtime coverage.
 
 Say so explicitly in the PR description when a change could affect runtime
-behaviour. When the risk warrants it, validate with a manual run in
-[`projectbluefin/lab`](https://github.com/projectbluefin/lab) and paste the
-result in the PR.
+behaviour, so a reviewer can weigh the risk.
 
 ### Lesson: a merged fix is not a working fix
 
