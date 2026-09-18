@@ -123,8 +123,6 @@ class _FakeSSH:
         self._patcher.stop()
 ```
 
- list):
-
 ```python
 def test_happy_path(self):
     m = _import_dx_steps()

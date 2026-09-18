@@ -24,6 +24,10 @@ This is an agent-first repo — agents MAY file issues and PRs directly. No huma
 
 Nightly CI is gone. PR gates are the only CI signal, and `smoke` is the standard gate suite for all consumer repos.
 
+Unit tests temporarily stub shared modules in `sys.modules`; the unit-test
+fixture restores the module table after each test so pytest-xdist workers do
+not leak those stubs into unrelated test modules.
+
 ## Decision: which repo?
 
 | Found in | Fix goes in |

@@ -82,6 +82,40 @@ metadata:
 - [ ] Runner container changes followed by `build-runner.yml` dispatch before test runs
 - [ ] Session-readiness helpers re-resolve `DBUS_SESSION_BUS_ADDRESS` on every attempt and require consecutive stable checks
 
+## Relaunched applications need live AT-SPI nodes
+
+`TestSandbox.after_scenario()` kills registered applications, but qecore's
+`Application.instance` and test-owned node caches can still reference the old
+process. A later scenario that launches the same application must enumerate
+`tree.root.applications()` again and clear cached window nodes. A dead cached
+node can emit a misleading `AT-SPI ... socket: No such file or directory`
+warning even while the session bus and the newly launched application are
+healthy.
+Applications whose AT-SPI objects must survive the VM/container boundary must
+be launched with `ATSPI_DISABLE_P2P=1`. The variable controls the application's
+AT-SPI bridge, not the assistive client: setting it only on the runner container
+does not stop libatspi from following the application's optional peer-to-peer
+address under `at-spi2-*/socket`. Setting it on Firefox makes the application
+export its objects over the shared accessibility bus instead of a process-local
+socket that disappears when Firefox exits.
+Firefox first-run UI can expose only a modal frame through AT-SPI, and both its
+remote action and synthetic keyboard paths can block until the outer SSH
+connection expires. The smoke contract therefore verifies the product-level
+boundary: Firefox exposes a visible desktop window, produces no coredump, and
+can be terminated cleanly. Browser-internal UI belongs in upstream Firefox tests.
+
+
+
+## TuneD first-boot timeout in QEMU
+
+On bootc images, `tuned.service` can invoke `bootc`/`rpm-ostree` while
+first-boot storage initialization still owns the daemon. In the disposable
+QEMU guest this can hold TuneD until systemd aborts it after the start timeout,
+even though the desktop and all persistent image services are healthy. Keep
+`tuned.service` in `IGNORED_FAILED_UNITS_IN_VM`; the ignore is conditional on
+`systemd-detect-virt`, so the same failure outside virtualization remains a
+release-blocking signal.
+
 ---
 
 ## On-demand references
