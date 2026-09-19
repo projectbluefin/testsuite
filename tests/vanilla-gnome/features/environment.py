@@ -13,6 +13,8 @@ qecore-headless (invoked by the Argo runner) handles:
 import sys
 import traceback
 
+from tests.shared.results_dir import resolve_results_dir
+
 from qecore.sandbox import TestSandbox
 from qecore.common_steps import *  # noqa: F401,F403 — registers all common @step definitions
 
@@ -191,7 +193,8 @@ def after_all(context) -> None:
 
     try:
         import os
-        if os.path.exists("/tmp/results/atspi_tree.txt"):
+        results_dir = resolve_results_dir(context)
+        if os.path.exists(os.path.join(results_dir, "atspi_tree.txt")):
             return  # already written by after_scenario
         shell = context.sandbox.shell
         lines = []
@@ -199,8 +202,8 @@ def after_all(context) -> None:
             lines.append(f"role={child.roleName!r:30} name={child.name!r}")
             for gc in child.children[:20]:
                 lines.append(f"  role={gc.roleName!r:30} name={gc.name!r}")
-        os.makedirs("/tmp/results", exist_ok=True)
-        with open("/tmp/results/atspi_tree.txt", "w") as f:
+        os.makedirs(results_dir, exist_ok=True)
+        with open(os.path.join(results_dir, "atspi_tree.txt"), "w") as f:
             f.write("\n".join(lines))
     except Exception:   # noqa: BLE001
         pass

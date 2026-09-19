@@ -5,9 +5,13 @@ These functions parse Shell.Eval output and drive boolean assertions in
 the smoke and vanilla-gnome suites.
 """
 
+import os
+from types import SimpleNamespace
 from unittest.mock import MagicMock, PropertyMock, mock_open, patch
 
 import pytest
+
+from tests.shared.results_dir import DEFAULT_RESULTS_DIR
 
 
 # ---------------------------------------------------------------------------
@@ -237,18 +241,47 @@ class TestAtspiSteps:
         out = capsys.readouterr().out
         assert "dump_panel_children failed: boom" in out
 
-    def test_dump_atspi_tree_writes_expected_content(self):
+    @pytest.mark.parametrize("userdata", [True, False], ids=["userdata", "default"])
+    def test_dump_atspi_tree_resolves_results_dir(
+        self, tmp_path, monkeypatch, userdata
+    ):
+        """dump_atspi_tree must route through resolve_results_dir for both the
+        userdata override and the unset-default case.
+
+        The prior test only asserted the userdata branch after PR #825 rewrote
+        it, deleting the only assertion for the default ``/tmp/results`` path —
+        the branch every real run actually takes, since CI never sets
+        ``results_dir``. Parametrising both cases (and isolating the default
+        case from any ambient ``TESTSUITE_RESULTS_DIR``) restores that guard so
+        the default branch cannot pass vacuously.
+        """
         toggle = _make_node(role="toggle button", name="System")
         panel = _make_node(role="panel", name="top-bar", children=[toggle])
         shell = _make_node(role="application", name="gnome-shell", children=[panel])
+
+        results_dir = tmp_path / "results"
         context = _make_context(shell)
+        if userdata:
+            context.config = SimpleNamespace(
+                userdata={"results_dir": str(results_dir)}
+            )
+        else:
+            # No results_dir in userdata and no ambient env var: exercise the
+            # real default. config is a real object (not a MagicMock, whose
+            # auto-created .config.userdata.get() would be a truthy mock) so the
+            # resolver falls through to /tmp/results instead of a mock path.
+            context.config = SimpleNamespace(userdata={})
+            monkeypatch.delenv("TESTSUITE_RESULTS_DIR", raising=False)
 
         mocked_open = mock_open()
         with patch("os.makedirs") as mock_makedirs, patch("builtins.open", mocked_open):
             self.mod.dump_atspi_tree(context)
 
-        mock_makedirs.assert_called_once_with("/tmp/results", exist_ok=True)
-        mocked_open.assert_called_once_with("/tmp/results/atspi_tree.txt", "w")
+        expected = str(results_dir) if userdata else DEFAULT_RESULTS_DIR
+        mock_makedirs.assert_called_once_with(expected, exist_ok=True)
+        mocked_open.assert_called_once_with(
+            os.path.join(expected, "atspi_tree.txt"), "w"
+        )
         written = "".join(call.args[0] for call in mocked_open().write.call_args_list)
         assert "role='application'" in written
         assert "name='gnome-shell'" in written
