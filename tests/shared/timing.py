@@ -1,4 +1,16 @@
-"""Scenario timing helpers — write JSONL lines to the configured results directory."""
+"""Scenario timing helpers — write JSONL lines to the configured results directory.
+
+Each ``record_end`` call appends one JSON object to ``<results_dir>/timings.jsonl``.
+That file is not a debug artifact: the "Summarise results" step of
+``.github/actions/gnome-e2e/action.yml`` reads it back and reports every entry whose
+``sla_violated`` is true and whose ``status`` is not ``skipped``. The key names in
+``record_end`` are therefore a contract with that reader, enforced by
+``tests/unit/test_timing_contract.py``.
+
+An SLA applies to a scenario only when the scenario carries an ``@sla_<n>s`` tag.
+There is deliberately no default-SLA table and no strict/failing mode: a violation is
+reported, never enforced. Add either only together with the code that acts on it.
+"""
 
 import json
 import os
@@ -7,15 +19,7 @@ import time
 
 from tests.shared.results_dir import resolve_results_dir as _results_dir
 
-DEFAULT_SLA = {
-    "app_launch": 10,
-    "shell_eval": 5,
-    "ssh_check": 15,
-    "system_health": 8,
-}
-
 SLA_TAG_PATTERN = re.compile(r"sla_(\d+)s")
-SLA_STRICT = os.environ.get("TIMING_SLA_STRICT", "").lower() in ("1", "true", "yes")
 
 
 def _scenario_sla_seconds(scenario):
