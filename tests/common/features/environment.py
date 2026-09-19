@@ -235,6 +235,13 @@ def before_scenario(context, scenario):
                 context,
                 "sudo systemctl restart bootc-unified-storage.service --no-block 2>/dev/null || true",
             )
+    if "podman user socket" in getattr(scenario, "name", "").lower():
+        user = getattr(context, "ssh_user", None) or os.environ.get("SSH_USER", "bluefin-test")
+        run_ssh(
+            context,
+            f"sudo loginctl enable-linger {shlex.quote(user)} 2>/dev/null || true; "
+            "systemctl --user start podman.socket 2>/dev/null || true",
+        )
     context.command_stdout = ""
     context.last_command_output = ""
     context.last_ssh_result = None

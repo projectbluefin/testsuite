@@ -160,12 +160,12 @@ Set `chunked_enabled: true` once `ghcr.io/projectbluefin/bluefin:latest` ships z
 
 <!-- coverage-snapshot:start -->
 
-519 scenarios across 72 feature files: 407 active, 0 quarantined, 112 `@future`/`@pending`/`@hardware_blocked`
+519 scenarios across 72 feature files: 408 active, 0 quarantined, 111 `@future`/`@pending`/`@hardware_blocked`
 
 | Suite | Scenarios | Active | Quarantined | Pending/Future | Notes |
 |---|---|---|---|---|---|
 | bazzite | 20 | 20 | 0 | 0 | Extension presence + shell behaviour |
-| common | 121 | 99 | 0 | 22 | Signing assertions `@future` pending the ublue-os→projectbluefin policy migration; flatpak model/state, dconf defaults, immutability and portal socket checks `@pending` on CI infra; Flatpak model + state; XDG portal health + integration; container runtime (podman); polkit rules; shell env + sourcing; system scripts; ujust recipes; devmode via bctl (non-interactive contract + idempotent state-check gated `@requires_bctl`, group mutation `@pending` on CI polkit); GSettings/dconf defaults; immutable OS integrity; desktop entries; signing assertions; Dakota `ujust --choose` regression guard active (`@dakota_only`); `ujust report` is `@pending` on #706 until a Dakota lab run validates the mocked submit flow |
+| common | 121 | 100 | 0 | 21 | Signing assertions `@future` pending the ublue-os→projectbluefin policy migration; flatpak model/state, dconf defaults, and immutability checks `@pending` on CI infra (#838); Flatpak model + state; XDG portal health + integration; container runtime (podman); polkit rules; shell env + sourcing; system scripts; ujust recipes; devmode via bctl (non-interactive contract + idempotent state-check gated `@requires_bctl`, group mutation `@pending` on CI polkit); GSettings/dconf defaults; immutable OS integrity; desktop entries; signing assertions; Dakota `ujust --choose` regression guard active (`@dakota_only`); `ujust report` is `@pending` on #706 until a Dakota lab run validates the mocked submit flow |
 | developer | 23 | 7 | 0 | 16 | 6 brew + 6 ptyxis + 4 bctl now `@pending`: `brew-setup.service` masked in CI (#487) and the ptyxis AT-SPI restart issue (#368) |
 | dx | 18 | 13 | 0 | 5 | distrobox create/install/export are active behind the `@requires_cached_image` runtime gate — they skip until `fedora-toolbox:latest` is pre-pulled on the VM (#501 / projectbluefin/lab#621) and activate without a feature-file edit; distrobox enter, JupyterLab, brew, mise remain `@pending` on infra gaps |
 | flatcar | 13 | 12 | 0 | 1 | boot (7 active) + lifecycle (5 active); 1 `@future` (boot from installed target disk — needs KubeVirt boot-order support in `projectbluefin/lab`) |
@@ -232,8 +232,7 @@ Why the `@pending`/`@future` scenarios above cannot run today.
 | flatpak_permissions system-wide installs (×39) | smoke | `@pending` | `flatpak-preinstall.service` masked in `e2e.yml` and `/var/lib/flatpak` never seeded |
 | common flatpak model/state (×4) | common | `@pending` | flatpak-preinstall.service masked in CI; /var not preserved from OCI build |
 | common dconf (×4) | common | `@pending` | gsettings/dconf schema defaults; Ptyxis palette is user-session state |
-| common immutable (×2) | common | `@pending` | rpm-ostree/bootc status failing in fresh QEMU bootc install |
-| common portals podman.socket (×1) | common | `@pending` | user socket not active in non-interactive CI session |
+| common immutable (×2) | common | `@pending` | rpm-ostree/bootc status failing in fresh QEMU bootc install (#838) |
 | common ujust changelogs (×1) | common | `@pending` | glow not available (brew-setup.service masked in CI, #487) |
 | common scripts ublue-update timer (×1) | common | `@pending` | ublue-update.timer not enabled in CI images |
 | common services flatpak (×2) | common | `@pending` | flatpak-preinstall.service masked; /var/lib/flatpak not seeded |
