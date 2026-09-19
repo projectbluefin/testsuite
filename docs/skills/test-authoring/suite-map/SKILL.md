@@ -160,7 +160,7 @@ Set `chunked_enabled: true` once `ghcr.io/projectbluefin/bluefin:latest` ships z
 
 <!-- coverage-snapshot:start -->
 
-519 scenarios across 72 feature files: 407 active, 0 quarantined, 112 `@future`/`@pending`/`@hardware_blocked`
+519 scenarios across 72 feature files: 408 active, 0 quarantined, 111 `@future`/`@pending`/`@hardware_blocked`
 
 | Suite | Scenarios | Active | Quarantined | Pending/Future | Notes |
 |---|---|---|---|---|---|
@@ -172,7 +172,7 @@ Set `chunked_enabled: true` once `ghcr.io/projectbluefin/bluefin:latest` ships z
 | hardware | 13 | 13 | 0 | 0 | udev rules syntax validation (ZSA, Apple SuperDrive, Framework 16, AMD s2idle, Wooting, VIIA); emulated peripherals driven by shared SSH steps |
 | installer | 3 | 3 | 0 | 0 | post-boot assertions for installer-driven installs (UEFI, Flatpak exclusion, LUKS cmdline) |
 | kde-smoke | 13 | 13 | 0 | 0 | Plasma session, D-Bus services, AT-SPI tree, KWin output, one KCM, Dolphin, Konsole, Kickoff; all `@informational` |
-| lifecycle | 33 | 29 | 0 | 4 | bootc upgrade / rollback / migration; pin + switch are `@future` (pin races the staged-deployment writer; switch needs a valid alternate image ref) |
+| lifecycle | 33 | 30 | 0 | 3 | bootc upgrade / rollback / migration; switch is `@future` (needs a valid alternate image ref; pin activated with settled-deployment barrier) |
 | nvidia | 12 | 0 | 0 | 12 | `@future` / `@hardware_blocked` until GPU passthrough exists in the lab |
 | security | 15 | 15 | 0 | 0 | cosign verify: projectbluefin (bluefin, lts, dakota) + ublue-os (latest, LTS, DX, nvidia, GTS, DX-nvidia, negative) |
 | smoke | 189 | 145 | 0 | 44 | 39 `@pending` flatpak-permission audits blocked on CI never seeding system Flatpaks; MIME handler coverage (Firefox/Papers/Loupe/Text Editor/video); GNOME accessibility (AT-SPI daemon, high-contrast toggle, a11y panel); display fractional/integer scaling via Mutter DisplayConfig; Bluefin desktop identity (Wayland, hardware accel, Dash to Dock); GNOME regression guards in gnome_regression.feature; Dakota sudo-rs privilege and PAM checks |
@@ -262,7 +262,6 @@ skipped-coverage table above.
 | GNOME Software navigation/regression/close (×6) | software | `@future` | Bluefin ships Bazaar, not GNOME Software (#176) |
 | flatpak install/uninstall round-trip (×1) | software | `@future` | gnomeos/GNOME 50 startup path unverified (#176); also slow network I/O |
 | common signing (×2) | common | `@future` | signing policy not yet enforced upstream; mid-migration ublue-os → projectbluefin |
-| bootc pin (×1) | lifecycle | `@future` | `bootc pin` races the staged-deployment writer in a fresh QEMU install |
 | bootc switch (×1) | lifecycle | `@future` | mutates VM image variant; needs cross-variant golden-disk testing |
 
 ## @future inventory

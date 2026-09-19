@@ -1,7 +1,7 @@
 ---
 name: bootc
 version: "1.0"
-last_updated: "2026-07-20"
+last_updated: "2026-09-15"
 id: bootc
 one_line_purpose: Write bootc upgrade, rollback, and migration tests.
 entry_point: docs/skills/test-authoring/bootc/SKILL.md
@@ -100,6 +100,33 @@ Step definitions in `tests/lifecycle/features/steps/steps.py`:
 ```
 
 Both use `_parse_bootc_status(context)` for validated JSON access — do not duplicate the bare `json.loads` pattern.
+
+## Settled-deployment barrier pattern
+
+In fresh QEMU installs or after deployment mutations, `bootc pin` races the
+staged-deployment writer or early-boot finalization. `bootc status` cannot
+reliably report the previous or updated pin state while staging or finalization
+is in progress.
+
+Always insert the settled-deployment barrier step before mutating or asserting
+deployment pin state:
+
+```gherkin
+* Bluefin VM is booted and reachable over SSH
+* Deployment is settled
+* Run SSH command: "sudo bootc pin"
+```
+
+The barrier step (`Deployment is settled` / `bootc deployment is settled`) polls
+`sudo bootc status --format=json` over SSH until:
+1. `sudo bootc status --format=json` returns exit code 0 with valid JSON.
+2. `.status.booted` is present and valid.
+3. `.status.staged` is `null`/absent (no staging or finalization in progress).
+
+The step enforces a bounded deadline (default 120s, 5s poll interval) and emits
+a clear diagnostic failure message if the deployment does not settle. A custom
+timeout variant is also available:
+`* Deployment is settled within 60 seconds`.
 
 
 ## Flatcar: verifying Ignition ran
