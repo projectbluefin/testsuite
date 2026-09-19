@@ -1696,7 +1696,7 @@ jobs:
           icon    = summary_icon(counts)
 
           lines = [
-            f'## {icon} E2E Results — GNOME 50 ({suite})', '',
+            f'## {icon} E2E Results ({suite})', '',
             '| Result | Count |', '|--------|-------|',
             f'| ✅ Passed  | {passed} |',
             f'| ❌ Failed  | {failed} |',
