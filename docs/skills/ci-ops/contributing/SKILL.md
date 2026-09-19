@@ -79,7 +79,7 @@ If a skill doc (`docs/skills/*.md`) is wrong or incomplete:
 
 **Do not add hard rules to individual skill docs** — rules go in `docs/SKILL.md` (single source). Skill docs hold patterns and examples only.
 
-**The skill-improvement mandate:** every PR that changes `tests/**`, `.github/workflows/**`, or `scripts/**` should include a matching skill file update. See [`docs/skills/meta/skill-improvement/SKILL.md`](../../meta/skill-improvement/SKILL.md) for what counts as a learning, which skill to update, and how to commit it together. This is a review expectation, not an automated check — no CI job enforces it.
+**The skill-improvement mandate:** every PR that changes `tests/**`, `.github/workflows/**`, `.github/actions/**`, or `scripts/**` must include a matching skill file update if the change introduces or alters a pattern, workaround, or contract. Pure refactoring, helper deduplication, and added test coverage that introduce no new conventions are exempt. If no existing skill file covers the area, update the closest matching skill or create one under `docs/skills/<area>/SKILL.md`. This is enforced as a mandatory review gate before enqueuing (there is no automated CI check). See [`docs/skills/meta/skill-improvement/SKILL.md`](../../meta/skill-improvement/SKILL.md) for what counts as a learning, which skill to update, and how to commit it together.
 
 ## On-demand references
 

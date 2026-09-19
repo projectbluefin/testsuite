@@ -21,4 +21,19 @@ Three Fedora versions appear in this repo. They are not interchangeable.
 
 **Never use F42**: no Bluefin or Bazzite image is based on Fedora 42.
 
+## GNOME 51 readiness (#826)
+
+`gnomeos-latest` tracks upstream and rolls from GNOME 50 to 51 **without any
+signal in this repo**. Before the flip, validate against a GNOME 51 tag
+(`gnomeos:51.rc` / `51.0` from `quay.io/gnome_infrastructure/gnome-build-meta`)
+via a `manual.yml` run of the `vanilla-gnome` and `software` suites, then record
+the pass/fail deltas here and in the `vanilla-gnome` suite-map Notes.
+
+The `vanilla-gnome` suite carries an informational `ShellVersion` canary step
+(`GNOME Shell version is reported`) that prints the running
+`org.gnome.Shell ShellVersion` D-Bus property to the run log. It never gates the
+run — its only job is to give signal the moment `gnomeos-latest` flips to 51 so
+failures read as a version change rather than an unexplained regression. Update
+this row's GNOME version once the flip lands.
+
 ---

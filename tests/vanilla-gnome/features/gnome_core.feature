@@ -13,6 +13,9 @@ Feature: Vanilla GNOME baseline smoke tests
   @gnome_core
   Scenario: GNOME Shell process is running and accessible via AT-SPI
     * GNOME Shell is accessible via AT-SPI
+    # Informational canary for GNOME 51 readiness (#826). Prints the running
+    # org.gnome.Shell ShellVersion to the run log; never gates the run.
+    * GNOME Shell version is reported
     * Dump panel children to log
     * Dump gnome-shell AT-SPI tree to results
 

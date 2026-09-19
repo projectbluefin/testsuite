@@ -10,10 +10,7 @@ Feature: GNOME Online Accounts smoke tests
     * Navigate to Settings panel "Online Accounts"
     * Settings panel "Online Accounts" is visible
 
-  # Pending: the provider-list check is infra-blocked when the GNOME session
-  # auto-locks during the long smoke run; AT-SPI cannot see the panel rows on the
-  # lock screen. The panel-accessibility and daemon checks remain active.
-  @settings @online_accounts @providers @sla_15s @pending
+  @settings @online_accounts @providers @sla_15s
   Scenario: Online Accounts provider list is non-empty
     * Launch Settings via command
     * Settings window is accessible

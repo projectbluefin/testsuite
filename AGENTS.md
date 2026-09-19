@@ -143,7 +143,7 @@ files there. Never write to `ublue-os/*` or any KDE property at all.
 - [ ] `python3 scripts/validate_docs.py` passes.
 - [ ] `python3 scripts/generate_skill_index.py --check` passes (regenerate with `python3 scripts/generate_skill_index.py` if you changed any skill front matter).
 - [ ] No open PR touches the same files as this one (see the disjointness rule above).
-- [ ] A matching skill file in `docs/skills/` is updated in the same PR if you changed `tests/**`, `.github/workflows/**`, `.github/actions/**`, or `scripts/**`.
+- [ ] A matching skill file in `docs/skills/` is updated in the same PR if you changed `tests/**`, `.github/workflows/**`, `.github/actions/**`, or `scripts/**` AND the change introduces or alters a pattern, workaround, or contract (pure refactoring, helper deduplication, and added coverage without new conventions are exempt). If no existing skill file covers the area, update the closest matching skill or create one under `docs/skills/<area>/SKILL.md`.
 - [ ] If scenario totals changed, run `python3 scripts/update_coverage_snapshot.py` to regenerate the suite-map coverage snapshot. **Never hand-edit the count numbers** — CI (`Coverage snapshot fresh` check) fails if the generated block is stale. Only hand-edit per-suite Notes prose in the script's `SUITE_NOTES`.
 - [ ] PR title follows Conventional Commits (`feat`, `fix`, `docs`, `ci`, `refactor`, `test`, `build`, `chore`).
 - [ ] Every AI-authored commit includes both attribution trailers:
