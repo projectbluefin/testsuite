@@ -92,6 +92,18 @@
       // Retrieve first 8 results to ensure optimal rendering
       const topResults = searchResponse.results.slice(0, 8);
       
+      // Pagefind returns page metadata verbatim (unescaped); it is derived from
+      // behave run artifacts, so escape it before it touches innerHTML. The
+      // excerpt is the one exception: Pagefind escapes its source text and adds
+      // <mark> highlighting, so it is safe to inject as HTML by design.
+      const escapeHtml = (value: unknown) =>
+        String(value)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+
       for (const result of topResults) {
         const data = await result.data();
         
@@ -107,14 +119,14 @@
 
         resultItem.innerHTML = `
           <div class="flex items-center justify-between mb-1">
-            <span class="text-sm font-semibold font-mono text-blue-400">${data.meta.title}</span>
+            <span class="text-sm font-semibold font-mono text-blue-400">${escapeHtml(data.meta.title)}</span>
             <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${badgeColor}">
-              ${status.toUpperCase()}
+              ${escapeHtml(status.toUpperCase())}
             </span>
           </div>
           <div class="text-xs text-slate-400 font-mono mb-2 flex justify-between">
-            <span>Env: ${data.meta.environment || 'N/A'}</span>
-            <span>Commit: ${data.meta.commit || 'N/A'}</span>
+            <span>Env: ${escapeHtml(data.meta.environment || 'N/A')}</span>
+            <span>Commit: ${escapeHtml(data.meta.commit || 'N/A')}</span>
           </div>
           <!-- Highlight excerpt injected dynamically by Pagefind -->
           <div class="text-sm text-slate-300 font-mono bg-slate-950 p-2 rounded border border-slate-800/80 leading-relaxed overflow-x-hidden truncate-3-lines">

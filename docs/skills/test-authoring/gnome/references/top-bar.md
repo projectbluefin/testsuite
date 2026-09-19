@@ -82,3 +82,28 @@ gsettings fallback correctly. The test in steps.py:
 def _dnd_toggle_exists_js() -> str:
     return f"({_DND_TOGGLE_JS})?.checked !== undefined"
 ```
+
+## Overview search entry
+
+**Do not** call `Main.overview._onSearchChanged()` — it was removed in GNOME 47.
+Use `clutter_text.set_text()` which emits the `text-changed` signal and
+triggers the search controller via the public signal path:
+
+```python
+_shell_eval(f'Main.overview.searchEntry.clutter_text.set_text("{text}")')
+```
+
+To read back the current search text:
+```python
+_shell_eval('Main.overview.searchEntry.clutter_text.get_text()')
+# returns: (true, 'Files')  — parse with regex on the second element
+```
+
+## Activities overview (GNOME 50 QEMU)
+
+`Main.overview.visible.toString()` consistently returns `false` in QEMU on GNOME 50
+even after `Main.overview.show()` is called. Do NOT assert `Main.overview.visible` or
+switch to `Main.overview._shown` without confirming on a live GNOME 50 QEMU run —
+the behavior is not reproducible locally without a full VM boot. Scenarios that depend
+on overview visibility must be quarantined (`@quarantine`) until the correct GNOME 50
+API is confirmed.

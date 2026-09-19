@@ -73,6 +73,25 @@ cmd = "source /tmp/session.env 2>/dev/null; gdbus call --session --dest org.gnom
 _run_host(cmd)
 ```
 
+### Suppressing session idle-lock during smoke runs
+
+Long smoke test runs can exceed the desktop idle timeout, causing the session
+to lock automatically and preventing AT-SPI from querying or interacting with
+application windows (e.g. Settings panels such as Online Accounts).
+
+To prevent auto-locking, `environment.py` (`before_all`) and CI workflows configure
+session idle delay and screensaver settings:
+
+```bash
+gsettings set org.gnome.desktop.session idle-delay 0
+gsettings set org.gnome.desktop.screensaver lock-enabled false
+```
+
+Explicit screen lock/unlock tests (such as `@lock_screen` in `gnome_shell.feature`)
+test manual session locking via `loginctl lock-session` / `loginctl unlock-session`
+and logind `LockedHint`, which remain fully operational even when automatic idle
+lock is disabled.
+
 ## Remote session commands from the runner container
 
 Commands that access the GNOME user session, including `gsettings`, `gdbus
@@ -134,33 +153,6 @@ To resolve the genuine browser window reliably:
 3. Prioritize top-level candidates (`app.children`) before recursive searching, and require genuine browser chrome: `combo box`, `entry`, `autocomplete`, or `page tab list`. In GNOME 50, the Firefox address bar exposes role `combo box` (name `"Search with Google or enter address"`), and buttons use role `button`.
 4. In headless Wayland container environments where `/dev/uinput` evdev keystrokes are not routed to windows by the compositor, provide an AT-SPI fallback via `atspi_click` targeting the `"Open a new tab (Ctrl+T)"` and tab `"Close tab"` buttons.
 5. In headless Wayland environments, character entry via uinput maps punctuation and shifted keys (e.g. ':', uppercase) through an evdev lookup to avoid NoneType unpack errors. For Firefox URL navigation, remote IPC navigation provides a fallback when headless compositors drop input keystrokes, and address assertions accept both domain prefixes and loaded document titles. Clean shutdown falls back to process termination if uinput `<Ctrl><Q>` is unrouted.
-
-## Overview search entry
-
-
-**Do not** call `Main.overview._onSearchChanged()` — it was removed in GNOME 47.
-Use `clutter_text.set_text()` which emits the `text-changed` signal and
-triggers the search controller via the public signal path:
-
-```python
-_shell_eval(f'Main.overview.searchEntry.clutter_text.set_text("{text}")')
-```
-
-To read back the current search text:
-```python
-_shell_eval('Main.overview.searchEntry.clutter_text.get_text()')
-# returns: (true, 'Files')  — parse with regex on the second element
-```
-
-## Activities overview (GNOME 50 QEMU)
-
-
-`Main.overview.visible.toString()` consistently returns `false` in QEMU on GNOME 50
-even after `Main.overview.show()` is called. Do NOT assert `Main.overview.visible` or
-switch to `Main.overview._shown` without confirming on a live GNOME 50 QEMU run —
-the behavior is not reproducible locally without a full VM boot. Scenarios that depend
-on overview visibility must be quarantined (`@quarantine`) until the correct GNOME 50
-API is confirmed.
 
 ## Screenshot on failure
 

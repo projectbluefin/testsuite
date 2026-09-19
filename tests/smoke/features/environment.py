@@ -356,6 +356,22 @@ def before_all(context) -> None:
     except Exception as exc:  # noqa: BLE001
         print(f"WARNING: unable to enable toolkit-accessibility: {exc}", flush=True)
 
+    # Suppress session idle-lock so long smoke runs do not trigger the lock screen
+    # and block AT-SPI from querying panel elements.
+    try:
+        _subprocess.run(
+            ["gsettings", "set", "org.gnome.desktop.session", "idle-delay", "0"],
+            check=False,
+            timeout=5,
+        )
+        _subprocess.run(
+            ["gsettings", "set", "org.gnome.desktop.screensaver", "lock-enabled", "false"],
+            check=False,
+            timeout=5,
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"WARNING: unable to suppress session idle-lock: {exc}", flush=True)
+
     # In container sessions without full portal backend, mask xdg-desktop-portal
     # to avoid 25s GIO portal activation timeouts on application launch.
     try:
@@ -373,6 +389,19 @@ def before_all(context) -> None:
     # When running inside the runner container, the systemd user session bus is
     # cgroup-restricted — forward the gdbus call to the VM via SSH instead.
     from steps.app_support import _IN_CONTAINER, _ssh_run
+
+    # When running inside the runner container, also forward the idle-delay and
+    # screensaver suppression settings to the host VM session via SSH.
+    if _IN_CONTAINER:
+        try:
+            _ssh_run(
+                "source /tmp/session.env 2>/dev/null; "
+                "gsettings set org.gnome.desktop.session idle-delay 0; "
+                "gsettings set org.gnome.desktop.screensaver lock-enabled false",
+                timeout=5,
+            )
+        except Exception as exc:  # noqa: BLE001
+            print(f"WARNING: unable to suppress session idle-lock via SSH: {exc}", flush=True)
 
     for attempt in range(3):
         try:

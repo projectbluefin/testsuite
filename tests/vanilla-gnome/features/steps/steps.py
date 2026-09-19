@@ -24,7 +24,7 @@ from behave import step
 from dogtail import tree
 from qecore.common_steps import *  # noqa: F401,F403
 from tests.shared.gnome_shell_steps import *  # noqa: F401,F403
-from tests.shared.gnome_shell_steps import _shell_eval, _eval_bool, _wait_eval_bool
+from tests.shared.gnome_shell_steps import _shell_eval, _eval_bool, _wait_eval_bool, _IN_CONTAINER
 
 
 # ── Shell.Eval helpers (GNOME 50: uinput Super + AT-SPI toggle click broken) ──
@@ -148,6 +148,47 @@ def _ssh_run(cmd: str, timeout: int = 15) -> subprocess.CompletedProcess:
         cmd,
     ]
     return subprocess.run(ssh_args, capture_output=True, text=True, timeout=timeout)
+
+
+@step('GNOME Shell version is reported')
+def report_shell_version(context) -> None:
+    """Print the running GNOME Shell version from the org.gnome.Shell
+    ``ShellVersion`` D-Bus property.
+
+    Informational canary for GNOME 51 readiness (issue #826). This step never
+    gates the run: a missing property, a gdbus error, or an SSH failure is
+    logged as a warning so a pre-flip ``gnomeos-51`` image that reports a new
+    version still passes. It reads the static D-Bus property directly rather
+    than via ``Shell.Eval`` because ``ShellVersion`` is not a Shell JS
+    expression. Route the container-side call through the suite's SSH helper so
+    it reaches the VM session bus exactly like the other Shell steps.
+    """
+    gdbus_get = [
+        'gdbus', 'get', '--session',
+        '--dest', 'org.gnome.Shell',
+        '--object-path', '/org/gnome/Shell',
+        '--interface', 'org.gnome.Shell',
+        'ShellVersion',
+    ]
+    version = ""
+    try:
+        if _IN_CONTAINER:
+            res = _ssh_run("source /tmp/session.env 2>/dev/null; " + " ".join(gdbus_get), timeout=15)
+            version = (res.stdout or "").strip()
+            if res.returncode != 0:
+                detail = (res.stderr or res.stdout or "").strip()
+                print(f"WARNING: gdbus via SSH returned {res.returncode} reading ShellVersion: {detail}", flush=True)
+        else:
+            out = subprocess.run(gdbus_get, capture_output=True, text=True, timeout=15)
+            version = (out.stdout or "").strip()
+            if out.returncode != 0:
+                detail = (out.stderr or out.stdout or "").strip()
+                print(f"WARNING: gdbus returned {out.returncode} reading ShellVersion: {detail}", flush=True)
+    except Exception as exc:
+        print(f"WARNING: could not read ShellVersion: {exc}", flush=True)
+        return
+
+    print(f"GNOME Shell ShellVersion: {version or '<unreadable>'}", flush=True)
 
 
 def _command_exists(command: str) -> bool:

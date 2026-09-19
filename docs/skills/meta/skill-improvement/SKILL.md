@@ -39,15 +39,16 @@ This file covers what is specific to testsuite.
 
 Run this checklist before enqueuing any PR:
 
-- [ ] Did I discover any workaround, non-obvious pattern, or convention?
-- [ ] Is there a skill file for the area I worked in?
+- [ ] Did I introduce or alter any workaround, non-obvious pattern, or contract?
+- [ ] If no — the skill-update gate is satisfied (pure refactoring, helper deduplication, and added coverage without new conventions are exempt).
+- [ ] If yes — is there a skill file for the area I worked in?
 - [ ] If yes — did I update it?
-- [ ] If no — did I create one in `docs/skills/`?
+- [ ] If no — did I create one in `docs/skills/<category>/<area>/SKILL.md` or update the closest matching skill?
 - [ ] Is the skill file committed in **this same PR**? (Not a follow-up. Same PR.)
 
-If all five are checked, you're done. If any are unchecked, finish them first.
+If applicable and all items are checked, you're done. If any required item is unchecked, finish it first.
 
-No CI job enforces this. The skill-drift check was retired in #681; the mandate is now a review expectation. Reviewers reject PRs that change `tests/**`, `.github/workflows/**`, `.github/actions/**`, or `scripts/**` without a matching skill update.
+No CI job enforces this. The skill-drift check was retired in #681; the mandate is enforced during PR review. Reviewers reject PRs that change `tests/**`, `.github/workflows/**`, `.github/actions/**`, or `scripts/**` AND introduce or alter a pattern, workaround, or contract without a matching skill update. Pure refactoring, helper deduplication, and added test coverage that introduce no new conventions are exempt.
 
 ## What Counts as a Learning Worth Writing Back
 
@@ -69,6 +70,7 @@ No CI job enforces this. The skill-drift check was retired in #681; the mandate 
 | Obvious developer knowledge | "Run git status to see changed files" |
 | Ephemeral state | "bazzite extensions are currently all in ERROR state due to upstream regression" |
 | Contradiction of another skill | Update the skill to reflect the new reality — don't add a competing note |
+| Pure refactor, dedup, or coverage | "Folded two copies of private helper into shared" or "Added unit coverage for capture path" — exempt unless introducing a new pattern or contract |
 
 ## Where to Write It
 
@@ -116,4 +118,4 @@ Assisted-by: Claude Sonnet 4.6 via GitHub Copilot
 Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
 ```
 
-Nothing in CI will catch a missing skill update — reviewers will. The path mapping above is the full contract.
+Nothing in CI will catch a missing skill update — reviewers will. Reviewers enforce this gate before enqueuing for any PR that introduces or alters a pattern, workaround, or contract (pure refactoring, helper deduplication, and added coverage without new conventions are exempt). The path mapping above is the full contract.
