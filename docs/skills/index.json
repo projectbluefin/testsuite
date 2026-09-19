@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-09",
+  "generated_at": "2026-09-19",
   "schema_version": "1.0",
   "skills": [
     {
@@ -117,11 +117,12 @@
       "tags": [
         "gnome",
         "atspi",
-        "dogtail"
+        "dogtail",
+        "gnome-51"
       ],
       "description": "How to write GNOME Shell / AT-SPI / dogtail tests for the testsuite repo. Load when editing GNOME interaction steps.",
-      "version": "1.0",
-      "last_updated": "2026-07-29",
+      "version": "1.1",
+      "last_updated": "2026-09-16",
       "doc_type": "pattern"
     },
     {
