@@ -171,3 +171,17 @@ To isolate environment tests:
 - [ ] Stubs are installed before the module under test is imported, and stale
       entries for that module are deleted from `sys.modules` first
 - [ ] Shared helper monkeypatching in reloaded environment tests uses `raising=False`
+
+## Suite `environment.py` must not redefine shared helpers
+
+`_first_value` lives in `tests/shared/ssh_config.py` and nowhere else. Suite
+`environment.py` files import it; they do not carry their own copy. Two identical
+copies had drifted into `tests/common` and `tests/kde-smoke` before this was enforced.
+
+`tests/unit/test_suite_environment_contract.py` parses every `*/features/environment.py`
+with `ast` and asserts the helper is neither redefined nor called without being imported.
+That AST-guard shape is the cheap way to pin a cross-suite structural rule that no single
+unit test can reach: walk the module, assert on the node, no import side effects. Reuse it
+when a rule has to hold across all suites rather than inside one.
+
+If you need the helper in a new suite, import it - adding a local copy fails the guard.
