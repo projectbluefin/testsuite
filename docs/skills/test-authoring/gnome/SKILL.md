@@ -179,6 +179,8 @@ def after_scenario(context, scenario):
 Do not call `context.sandbox.shell.eval_js(...)` for screenshots — in qecore
 4.16 `sandbox.shell` is an accessibility object and has no `eval_js` method.
 
+From the runner container the capture goes over SSH and falls back `grim` -> `gnome-screenshot -f` -> `org.gnome.Shell.Screenshot` gdbus. Every remote command must source `/tmp/session.env` or the Wayland variables are absent and all three fail, and a stale PNG at the target path is deleted first so a leftover file is never reported as a fresh screenshot. Both invariants are covered by `tests/unit/test_screenshot_capture.py`.
+
 ## GNOME Extensions CLI (subprocess)
 
 
