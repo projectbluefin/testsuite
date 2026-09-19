@@ -61,6 +61,23 @@ on:
           Example: "org.gnome.Calculator,io.github.kolunmi.Bazaar"
         type: string
         default: ""
+      migration-target:
+        description: >
+          Migration target image ref for cross-registry migration scenarios.
+          Only used when the lifecycle suite runs @migration scenarios.
+          Passed as MIGRATION_TARGET env var to behave; when empty the test code
+          falls back to its built-in default (ghcr.io/projectbluefin/bluefin:stable).
+        type: string
+        default: ""
+        required: false
+      extra-tags:
+        description: >
+          Additional behave tag expression appended to the tag filter.
+          Use to scope a run to a tag group, e.g. "migration" to run only
+          @migration scenarios within the lifecycle suite.
+        type: string
+        default: ""
+        required: false
       test_ref:
         description: >
           Git ref (branch, SHA, or tag) from which to check out the tests/ directory.
@@ -1292,6 +1309,8 @@ jobs:
           BEHAVE_RETRIES: 2
           SKIP_NATIVE_APPS: ${{ inputs.skip_native_apps && 'true' || '' }}
           TARGET_IMAGE: ${{ inputs.target-image }}
+          MIGRATION_TARGET: ${{ inputs.migration-target }}
+          EXTRA_TAGS: ${{ inputs.extra-tags }}
           ZSTD_CHUNKED: ${{ inputs.chunked_enabled && 'true' || 'false' }}
           KDE_SKIP_REASON: ${{ steps.kde_webdriver.outputs.skip_reason }}
         run: |
@@ -1299,6 +1318,7 @@ jobs:
           BEHAVE_RC=0
           BEHAVE_TAG_ARGS="--tags ~quarantine --tags ~hardware_blocked"
           [[ "${SKIP_NATIVE_APPS}" == "true" ]] && BEHAVE_TAG_ARGS="${BEHAVE_TAG_ARGS} --tags ~native_app"
+          [[ -n "${EXTRA_TAGS}" ]] && BEHAVE_TAG_ARGS="${BEHAVE_TAG_ARGS} --tags ${EXTRA_TAGS}"
 
           # If the DUT was unsupported for KDE testing, emit a single skipped
           # scenario so the run is reported clearly instead of as a phantom failure.
@@ -1344,6 +1364,7 @@ jobs:
             SSH_KEY=/tmp/vm_key \
             SSH_PORT=2222 \
             ZSTD_CHUNKED="${ZSTD_CHUNKED}" \
+            MIGRATION_TARGET="${MIGRATION_TARGET}" \
             python3 tests/shared/behave_retry.py ${LOCAL_FEATURE_ARGS} \
               --format json.pretty --outfile results/results.json \
               --no-capture ${BEHAVE_TAG_ARGS} || BEHAVE_RC=$?
