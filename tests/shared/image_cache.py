@@ -7,7 +7,7 @@ blow the CI timeout instead of reporting a useful result, so the scenario is
 skipped with an explicit reason.
 
 This is the same "skip until the capability exists, then activate
-automatically" contract as ``@requires_bctl`` and ``@requires_toggle_action``
+automatically" contract as ``@requires_brew`` and ``@requires_toggle_action``
 in ``tests/common/features/environment.py``.  It is deliberately NOT a
 non-runnable tag: it does not belong in ``tests/shared/quarantine.py`` or in
 the CI tag filters, because the scenario must run the moment the image is

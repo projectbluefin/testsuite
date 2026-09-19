@@ -47,7 +47,7 @@ Feature: Bluefin DX variant smoke tests
   # @requires_cached_image is a runtime capability gate, not a pending marker:
   # environment.py probes `podman image exists` for the image each scenario
   # names and skips with an explicit reason while it is absent, exactly as
-  # @requires_bctl does for bluefinctl. Once lab#621 pre-pulls the image these
+  # @requires_brew does for Homebrew. Once lab#621 pre-pulls the image these
   # scenarios activate on their own — no edit to this file.
   @dx @distrobox @plain_ssh @requires_cached_image
   Scenario: distrobox container can be created from fedora-toolbox
