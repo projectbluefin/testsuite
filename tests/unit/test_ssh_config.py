@@ -137,18 +137,13 @@ class TestSoftwareSuiteWiring:
     def test_bazaar_probe_uses_shared_connection_details(self):
         env_mod = self._import_software_environment()
         ctx = _full_context()
-        details = {
-            "ssh_key": "/resolved/key",
-            "vm_ip": "192.0.2.40",
-            "ssh_user": "resolved-user",
-            "ssh_port": "2224",
-        }
+        argv = ["ssh", "-i", "/resolved/key", "-p", "2224", "resolved-user@192.0.2.40"]
         result = types.SimpleNamespace(returncode=0)
-        with patch.object(env_mod, "resolve_ssh_details", return_value=details) as resolve, \
+        with patch.object(env_mod, "ssh_argv", return_value=argv) as build_argv, \
              patch("subprocess.run", return_value=result) as run:
             assert env_mod._has_bazaar(ctx)
 
-        resolve.assert_called_once_with(ctx)
+        build_argv.assert_called_once_with(ctx, quiet=True)
         command = run.call_args.args[0]
         assert "/resolved/key" in command
         assert "2224" in command
@@ -176,5 +171,5 @@ class TestSoftwareSuiteWiring:
         import inspect
         steps_mod = _import_software_steps()
         src = inspect.getsource(steps_mod._flatpak)
-        assert "resolve_ssh_details" in src
+        assert "ssh_argv" in src
         assert "os.environ" not in src

@@ -14,20 +14,13 @@ import subprocess
 from behave import step
 from qecore.common_steps import *  # noqa: F401,F403
 
+from tests.shared.ssh_config import ssh_argv
+
 
 def _ssh(context, cmd, timeout=60):
     """Run a command on the DX VM over SSH and record stdout + return code."""
     result = subprocess.run(
-        [
-            "ssh",
-            "-i", context.ssh_key,
-            "-o", "StrictHostKeyChecking=no",
-            "-o", "UserKnownHostsFile=/dev/null",
-            "-o", "ConnectTimeout=10",
-            "-o", "LogLevel=ERROR",
-            f"{context.ssh_user}@{context.vm_ip}",
-            cmd,
-        ],
+        ssh_argv(context, quiet=True) + [cmd],
         capture_output=True,
         text=True,
         timeout=timeout,
