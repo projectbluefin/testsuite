@@ -154,6 +154,36 @@ def gnome_extension_is_enabled(context, uuid: str) -> None:
         "Expected state=1 (ENABLED)."
     )
 
+@step('GNOME extension "{uuid}" is installed')
+def gnome_extension_is_installed(context, uuid: str) -> None:
+    output, returncode, _ = _run_host(["gnome-extensions", "list"])
+    if returncode == 0 and uuid in [line.strip() for line in output.splitlines()]:
+        return
+
+    out, rc, _ = _run_host(
+        "source /tmp/session.env 2>/dev/null; "
+        "gdbus call --session --dest org.gnome.Shell --object-path /org/gnome/Shell "
+        "--method org.gnome.Shell.Extensions.ListExtensions"
+    )
+    if rc == 0 and out and uuid in re.findall(r"'([^'@]+@[^']+)':", out):
+        return
+
+    # Fallback to filesystem check in /usr/share/gnome-shell/extensions
+    dest_out, dest_rc, _ = _run_host(f"test -d /usr/share/gnome-shell/extensions/{uuid}")
+    assert dest_rc == 0, f"Extension {uuid!r} is not installed in the system"
+
+
+@step('Dconf path "{path}" has value "{expected_value}"')
+def dconf_path_has_value(context, path: str, expected_value: str) -> None:
+    output, returncode, stderr = _run_host(["dconf", "read", path])
+    if returncode != 0:
+        output, returncode, stderr = _run_host(f"dconf read {path}")
+    assert returncode == 0, f"dconf read {path} failed: {stderr or output}"
+    actual = output.strip()
+    assert actual == expected_value, (
+        f"dconf key {path} mismatch: expected {expected_value!r}, got {actual!r}"
+    )
+
 
 def _extensions_app():
     last_error = None
