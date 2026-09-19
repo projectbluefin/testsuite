@@ -168,6 +168,7 @@ sparse-checkout: |
   tests
   scripts/check_quarantine_age.py
   scripts/install-kde-webdriver.sh
+  scripts/image_slug.py
 sparse-checkout-cone-mode: false
 ```
 

@@ -217,6 +217,7 @@ jobs:
             scripts/check_quarantine_age.py
             scripts/install-kde-webdriver.sh
             scripts/e2e_summary.py
+            scripts/image_slug.py
           sparse-checkout-cone-mode: false
 
       # smoke-a/smoke-b, common-a/common-b, and kde-smoke-a/kde-smoke-b are
@@ -779,8 +780,7 @@ jobs:
         run: |
           SSH_COMMON="-i /tmp/vm_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ControlMaster=auto -o ControlPersist=600 -o ControlPath=/tmp/ssh-ctrl-%C -o ConnectTimeout=3"
           SSH="ssh ${SSH_COMMON} -p 2222 bluefin-test@127.0.0.1"
-          IMAGE_SLUG="${BASE_IMAGE##*/}"
-          IMAGE_SLUG="${IMAGE_SLUG//:/-}"
+          IMAGE_SLUG=$(python3 scripts/image_slug.py "${BASE_IMAGE}")
           BOOT_TIME=$($SSH "systemd-analyze time 2>/dev/null | head -1" 2>/dev/null || echo "unavailable")
           echo "### Boot time: ${IMAGE_SLUG}" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
@@ -1624,8 +1624,7 @@ jobs:
             desktop-screenshot.png:image/png
 
           # Push image-slug-specific tag so publish-to-pages can pull without metadata artifacts.
-          # Slug: strip ghcr.io/<org>/, replace : and @ with - (e.g. bluefin-testing)
-          IMAGE_SLUG=$(echo "${BASE_IMAGE}" | sed 's|ghcr.io/[^/]*/||' | tr ':@' '--')
+          IMAGE_SLUG=$(python3 scripts/image_slug.py "${BASE_IMAGE}")
           # Push both the screenshot AND results.json if it exists
           ORAS_FILES="desktop-screenshot.png:image/png"
           if [[ -f results/results.json ]]; then
@@ -1673,6 +1672,7 @@ jobs:
         env:
           SCREENSHOT_REF: ${{ steps.upload-screenshot.outputs.ref }}
           SCREENSHOT_SUITE_TAG: ${{ steps.upload-screenshot.outputs.suite_tag }}
+          SCREENSHOT_IMAGE_SLUG: ${{ steps.upload-screenshot.outputs.image_slug }}
           SCREENSHOT_FLATPAK_REFS: ${{ steps.upload-screenshot.outputs.flatpak_refs }}
           SCREENSHOT_IMAGE: ${{ env.SCREENSHOT_IMAGE }}
         run: |
@@ -1741,13 +1741,10 @@ jobs:
             ]
 
           # gh-pages stable URL
-          image_env = os.environ.get('BASE_IMAGE', '')
-          if '/' in image_env:
-            parts = image_env.replace('ghcr.io/', '').split('/')
-            slug = parts[-1] if len(parts) > 1 else parts[0]
-          else:
-            slug = 'bluefin-testing'
-          slug = slug.replace(':', '-')
+          slug = os.environ.get('SCREENSHOT_IMAGE_SLUG', '').strip()
+          if not slug:
+            from scripts.image_slug import get_image_slug
+            slug = get_image_slug(os.environ.get('BASE_IMAGE', ''))
           suite = os.environ.get('SUITE', 'smoke')
           gh_pages_url = f'https://projectbluefin.github.io/testsuite/screenshots/{slug}-{suite}-latest.png'
           lines += [
