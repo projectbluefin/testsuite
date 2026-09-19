@@ -52,6 +52,58 @@ except Exception as exc:  # noqa: BLE001
 
 SUITE_NAME = "vanilla-gnome"
 
+# Runtime gate tag for settings that only exist on GNOME 51+. environment.py
+# probes the running Shell version in before_scenario and skips these scenarios
+# on GNOME <= 50 images, so the scenarios run where they apply and skip cleanly
+# elsewhere (a version probe, not a non-runnable tag).
+REQUIRES_GNOME_51_TAG = "requires_gnome_51"
+
+
+def _gnome_major_version(context) -> int:
+    """Probe the running GNOME Shell major version on the VM, cached on context.
+
+    GNOME 51 shipped ``reduced-motion`` and ``keyboard-focus-visible-timeout``
+    in ``org.gnome.desktop.a11y.interface``; pre-51 images lack them. A probe
+    that cannot run (no VM, no SSH) returns 0 so ``@requires_gnome_51``
+    scenarios skip rather than fail. Cached so the ``before_scenario`` hook
+    does not SSH on every scenario.
+    """
+    cached = getattr(context, "_gnome_major_version", None)
+    if cached is not None:
+        return cached
+
+    major = 0
+    try:
+        from steps.steps import _ssh_run
+
+        result = _ssh_run("gnome-shell --version", timeout=15)
+        import re
+
+        match = re.search(r"GNOME Shell (\d+)", result.stdout or "")
+        if match:
+            major = int(match.group(1))
+    except Exception:  # noqa: BLE001 -- no VM / SSH: skip rather than fail
+        major = 0
+
+    context._gnome_major_version = major
+    return major
+
+
+def _skip_requires_gnome_51(context, scenario) -> bool:
+    """Skip @requires_gnome_51 scenarios on GNOME <= 50 (runtime version probe)."""
+    if REQUIRES_GNOME_51_TAG not in scenario.tags:
+        return False
+    major = _gnome_major_version(context)
+    if major < 51:
+        scenario.skip(
+            reason=(
+                f"requires GNOME 51+ reduced-motion / focus-ring gsettings; "
+                f"this image reports GNOME Shell {major}"
+            )
+        )
+        return True
+    return False
+
 
 def before_all(context) -> None:
     import time
@@ -144,6 +196,8 @@ def before_scenario(context, scenario) -> None:
 
     if skip_quarantine(scenario):
         return
+    if _skip_requires_gnome_51(context, scenario):
+        return
     context.scenario = scenario
     configure_screenshot_context(context, SUITE_NAME, scenario.name)
     # Initialize qecore command output attributes (attribute name varies by version)
@@ -161,10 +215,17 @@ def before_scenario(context, scenario) -> None:
 
 def after_scenario(context, scenario) -> None:
     record_end(context, scenario)
+    # A scenario skipped in before_scenario (quarantine tags, or @requires_gnome_51
+    # on GNOME <= 50) returns before sandbox setup, so context.sandbox is unset.
+    # behave still calls after_scenario for skipped scenarios; guard it so the
+    # skip is clean instead of an AttributeError.
+    sandbox = getattr(context, "sandbox", None)
+    if sandbox is None:
+        return
     if scenario.status.name in ('passed', 'failed'):
         configure_screenshot_context(context, SUITE_NAME, scenario.name)
         take_screenshot(scenario.status.name)
-    context.sandbox.after_scenario(context, scenario)
+    sandbox.after_scenario(context, scenario)
 
 
 def after_step(context, step) -> None:
