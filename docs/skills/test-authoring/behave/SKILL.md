@@ -262,7 +262,7 @@ after `skip_quarantine`, reads the image refs out of the scenario's own step
 text, probes each with `podman image exists` on the DUT, and skips while any is
 absent. The scenario then activates on its own once the image is cached.
 
-It is a **runtime capability gate** like `@requires_bctl`, not a non-runnable
+It is a **runtime capability gate** like `@requires_brew`, not a non-runnable
 tag: keep it out of `_SKIP_TAGS` / `NON_RUNNABLE_TAGS` / `BEHAVE_TAG_ARGS`, and
 never pair it with `@pending` or `@future` — `skip_quarantine` returns first and
 the gate goes inert. See
