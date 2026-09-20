@@ -53,6 +53,10 @@ Pull the latest screenshot locally:
 oras pull ghcr.io/projectbluefin/testsuite/desktop-screenshot:smoke-latest
 ```
 
+### E2E summary heading
+
+The summary heading omits the desktop and GNOME version entirely (`E2E Results ({suite})`), matching `.github/actions/gnome-e2e/action.yml`. gnomeos tracks the current GNOME release and flips versions (50 → 51), so a pinned number goes stale, and the `e2e` job also runs KDE suites. Do not re-insert a desktop name or GNOME release number into it.
+
 ### gh-pages screenshot publishing
 
 **Architecture: schedule-based polling, not workflow_run.**
