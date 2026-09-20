@@ -14,7 +14,7 @@ Feature: Bazaar (GNOME Software) smoke tests
 
   # Future: these target GNOME Software's Explore/Installed widgets, not
   # Bazaar's real AdwViewStack layout. Replaced by bazaar_ui.feature for
-  # Bluefin images; retained as planned vanilla-gnome coverage (#176).
+  # Bluefin images; retained as planned vanilla-gnome coverage (#847).
   @future @software @navigation
   Scenario: Explore tab is present and accessible
     * Item "Explore" "toggle button" is "showing" in "software"
@@ -36,7 +36,7 @@ Feature: Bazaar (GNOME Software) smoke tests
 
   # These crash/close checks also target the old GNOME Software widget model.
   # Replaced by bazaar_ui.feature for Bluefin images; retained as planned
-  # upstream GNOME Software coverage on vanilla-gnome images (#176).
+  # upstream GNOME Software coverage on vanilla-gnome images (#847).
   @future @software @regression @bluefin_4062
   Scenario: Flatpak updates section is reachable without crash (bluefin#4062)
     * Left click "Installed" "toggle button" in "software"

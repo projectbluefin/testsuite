@@ -1,7 +1,7 @@
 ---
 name: gnome
-version: "1.0"
-last_updated: "2026-07-29"
+version: "1.1"
+last_updated: "2026-09-16"
 id: gnome
 one_line_purpose: Write GNOME Shell, AT-SPI, and dogtail interaction tests.
 entry_point: docs/skills/test-authoring/gnome/SKILL.md
@@ -9,7 +9,7 @@ category: test-authoring
 mcp_compliance_level: partial
 status: active
 dependencies: []
-tags: [gnome, atspi, dogtail]
+tags: [gnome, atspi, dogtail, gnome-51]
 description: "How to write GNOME Shell / AT-SPI / dogtail tests for the testsuite repo. Load when editing GNOME interaction steps."
 metadata:
   type: pattern
@@ -91,6 +91,10 @@ Explicit screen lock/unlock tests (such as `@lock_screen` in `gnome_shell.featur
 test manual session locking via `loginctl lock-session` / `loginctl unlock-session`
 and logind `LockedHint`, which remain fully operational even when automatic idle
 lock is disabled.
+
+## GNOME 51 workarounds audit (issue #827)
+
+GNOME 51 (GA 2026-09-16) is Wayland-only and freezes the extension API. Keep every GNOME 50 workaround until a `gnomeos-51` run proves it obsolete — inventory, ground rules and validation procedure in [`references/gnome-51-audit.md`](references/gnome-51-audit.md).
 
 ## Remote session commands from the runner container
 
@@ -250,9 +254,11 @@ Explore/Installed toggle-button layout. For Bazaar UI tests:
 - accept both `page tab` and `toggle button` roles for those tabs
 
 The first launch often shows a **Refreshing** spinner page before the
-`AdwViewStack` content is ready. On GNOME 50, AT-SPI cache drops can also make
+`AdwViewStack` content is ready. On GNOME 50/51, AT-SPI cache drops can also make
 nodes disappear mid-query, so wrap Bazaar window/tab lookups in retry loops
-with short sleeps and re-query the tree each attempt.
+with short sleeps and re-query the tree each attempt. Upstream GNOME Software
+legacy navigation scenarios remain `@future` (#847) while Bluefin exercises
+Bazaar natively via `bazaar_ui.feature` and `bazaar_navigation.feature`.
 
 ## Desktop notifications via gdbus (smoke suite)
 
@@ -484,3 +490,4 @@ Load these when you hit the specific topic:
 - [Top-bar interactions and Shell.Eval parsing on GNOME 50+.](references/top-bar.md)
 - [MIME, display, and session configuration in containerized tests.](references/display-config.md)
 - [Deep dive: Preinstalled Flatpak desktop app launch checks](references/preinstalled-flatpak-desktop-app-launch-checks.md)
+- [GNOME 50 workaround audit against GNOME 51 (issue #827)](references/gnome-51-audit.md)

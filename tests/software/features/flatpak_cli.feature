@@ -20,7 +20,7 @@ Feature: Flatpak CLI smoke tests
     * No flatpak user overrides exist for "org.gnome.Calculator"
 
   # Future: Bluefin ships Bazaar rather than GNOME Software, so this belongs to the
-  # planned gnomeos/GNOME 50 coverage tracked alongside the other #176 scenarios.
+  # planned gnomeos/GNOME 51 coverage tracked alongside the other #847 scenarios.
   @future @software @flatpak_cli
   Scenario: flatpak install and uninstall round-trip succeeds
     # Apostrophe (~5 MB) is a small, stable Flatpak with no heavy runtimes.

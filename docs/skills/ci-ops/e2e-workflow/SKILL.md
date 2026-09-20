@@ -168,6 +168,7 @@ sparse-checkout: |
   tests
   scripts/check_quarantine_age.py
   scripts/install-kde-webdriver.sh
+  scripts/image_slug.py
 sparse-checkout-cone-mode: false
 ```
 
@@ -220,7 +221,7 @@ The same rule applies to every other non-cone checkout in this repo, including t
 18. **Load runner container into VM** — non-common suites; ensures `bluefin-test` has `/etc/subuid`/`/etc/subgid`, runs `podman system migrate`, pipes `ghcr.io/<image-org>/testsuite:runner` via `podman save | ssh podman load`; patches `openssh-clients` into the runner image if missing
 19. **Install Python test stack** — non-common suites; loads `uinput` kernel module, sets device permissions, copies SSH private key into VM for `@plain_ssh` scenarios, queries GNOME session environment into `/tmp/session.env`, enables `unsafe-mode@bluefin-test` extension, sets `toolkit-accessibility true`, disables idle locking for the disposable test user, re-queries AT-SPI bus address after enabling accessibility, terminates any pre-started `gnome-control-center`
 20. **Install gnome-ponytail-daemon** — non-common suites; builds `gnome-ponytail-daemon` (tag `0.0.11`) and `grim` from source inside a `debian:bookworm` container on the runner (without libei, uses Mutter D-Bus fallback for input events; wayland-protocols 1.37 built from source for grim); SCPs binaries into `~/.local/libexec/` and `~/.local/bin/`; registers D-Bus service file and pre-starts the daemon
-21. **Run behave suite** — `common`/`lifecycle`/`installer`: runner-side `python3 tests/shared/behave_retry.py` with `VM_IP/VM_USER/SSH_KEY/SSH_PORT` env vars (this fixed list is the whole environment those suites get — a scenario gated on any other variable can never run; see [installer-suite.md](references/installer-suite.md)); GUI suites: SCP `tests/<suite>` + `tests/shared` + `tests/__init__.py` to VM, then `podman run ... ghcr.io/<image-org>/testsuite:runner "python3 .../behave_retry.py ... --format json.pretty"` inside VM; always `--tags ~quarantine`; retries controlled by `BEHAVE_RETRIES=2`
+21. **Run behave suite** — `common`/`lifecycle`/`installer`: runner-side `python3 tests/shared/behave_retry.py` with `VM_IP/VM_USER/SSH_KEY/SSH_PORT` env vars (this fixed list is the whole environment those suites get — a scenario gated on any other variable can never run; see [installer-suite.md](references/installer-suite.md)). The migration lane additionally receives `MIGRATION_TARGET` and `EXTRA_TAGS` from the two `migration-target`/`extra-tags` inputs below; `EXTRA_TAGS` is appended to `BEHAVE_TAG_ARGS` as `--tags <value>` so a dispatch can scope the lifecycle run to just `@migration`. GUI suites: SCP `tests/<suite>` + `tests/shared` + `tests/__init__.py` to VM, then `podman run ... ghcr.io/<image-org>/testsuite:runner "python3 .../behave_retry.py ... --format json.pretty"` inside VM; always `--tags ~quarantine`; retries controlled by `BEHAVE_RETRIES=2`
 22. **Capture post-upgrade desktop screenshot** — lifecycle suite only; SSHes with `ControlMaster=no`, waits up to 60 s for Wayland socket, captures via `gdbus org.gnome.Shell.Eval`
 23. **Capture post-migration screenshot and status** — lifecycle suite only; QEMU framebuffer capture via `qemu_screendump.py` + SSH for `bootc status`, `fastfetch`, `os-release` into `results/migration-status.txt`
 24. **Capture Flatpak screenshots** — when `inputs.screenshot_flatpaks != ''`; runs `screenshot_cli.py` inside the runner container
@@ -343,7 +344,7 @@ migration-test:
     migration_target: ghcr.io/<image-org>/bluefin-lts@${{ needs.build.outputs.digest }}
 ```
 
-For non-migration lifecycle runs: dispatch `upgrade-test.yml` in `<image-org>/actions`.
+For non-migration lifecycle runs: dispatch `upgrade-test.yml` in `<image-org>/actions`. `migration-test.yml` passes `migration-target` and `extra-tags` into `e2e.yml`, and both must stay declared there or the `workflow_call` is rejected at startup — wiring, the input table, and the red flag are in [`references/migration-inputs.md`](references/migration-inputs.md).
 
 ---
 
@@ -496,3 +497,4 @@ Load these when you hit the specific topic:
 - [Permission and runtime constraints when calling the reusable action.](references/permissions.md)
 - [KDE suite wiring, gating, and runner-image split.](references/kde-suites.md)
 - [Installer suite assertions, and why an env-var gate made one unreachable.](references/installer-suite.md)
+- [Migration inputs `migration-target` / `extra-tags` and the startup_failure they cause when missing.](references/migration-inputs.md)

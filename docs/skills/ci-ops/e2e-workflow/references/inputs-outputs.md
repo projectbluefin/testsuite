@@ -65,7 +65,11 @@ The working approach:
    ```
    ghcr.io/projectbluefin/testsuite/desktop-screenshot:<slug>-<suite>-latest
    ```
-   Slug derivation: strip `ghcr.io/<org>/` from `inputs.image`, replace `:` with `-`.
+   Slug derivation: canonically owned by `scripts/image_slug.py` (`get_image_slug()`).
+   Strips registry host (e.g. `ghcr.io`, `quay.io`, `docker.io`, `localhost:5000`) and org/namespace,
+   folds remaining `/`, `:`, and `@` into `-`, and sanitizes to the OCI tag charset (`[a-zA-Z0-9_.-]`).
+   Handles digest-pinned refs (`bluefin@sha256:...` → `bluefin-sha256-...`), non-GHCR registries (`quay.io/.../silverblue:44` → `silverblue-44`), and nested paths (`subgroup/bluefin:latest` → `subgroup-bluefin-latest`).
+   In `e2e.yml`, `Capture boot time` and `upload-screenshot` derive via `scripts/image_slug.py "${BASE_IMAGE}"`, and `Write job summary` consumes `steps.upload-screenshot.outputs.image_slug` with fallback to `get_image_slug()`.
    Example: `ghcr.io/projectbluefin/bluefin:testing` → `bluefin-testing-smoke-latest`
 
    **SCREENSHOT_SUITE normalization:** smoke sharding pushes `SCREENSHOT_SUITE=smoke` for both
