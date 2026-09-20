@@ -22,7 +22,6 @@ metadata:
 ---
 # GNOME Desktop Testing Reference
 
-
 ## When to Use
 
 - Writing or debugging GNOME Shell, AT-SPI, or dogtail interactions
