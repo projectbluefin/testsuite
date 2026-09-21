@@ -68,7 +68,6 @@ Run unit tests with `python3 -m pytest tests/unit/ -q`. The `pytest` CI check (`
 | `test_brew_steps.py` | Brew step helpers and formula detection |
 | `test_gnome_notifications_steps.py` | Notification step helpers |
 | `test_retry.py` | Behave retry harness, `sys.executable` fallback |
-| `test_parse_results.py` | `scripts/parse_results.py` parsing integration |
 | `test_quarantine_age.py` | `scripts/check_quarantine_age.py` parsing and reporting |
 | `test_orca_steps.py` | Orca screen-reader toggle steps, `_wait_for_orca` polling, restore semantics |
 | `test_input_methods_steps.py` | `_run_in_vm` dispatch, exact `uint32` index parsing, success-latched input-source restore |
