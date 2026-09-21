@@ -1,6 +1,6 @@
 {
-  "id": "35483014556",
-  "timestamp": "2026-09-21T02:13:43Z",
+  "id": "35553109451",
+  "timestamp": "2026-09-21T04:09:31Z",
   "stream": "testing",
   "flavor": "bluefin",
   "suite": "vanilla-gnome",
@@ -24,87 +24,101 @@
   },
   "summary": {
     "status": "failed",
-    "total_tests": 13,
+    "total_tests": 15,
     "passed_tests": 12,
     "failed_tests": 1,
-    "skipped_tests": 0,
-    "total_duration_ms": 482622
+    "skipped_tests": 2,
+    "total_duration_ms": 376541
   },
   "tests": [
     {
+      "name": "GNOME 51 accessibility gsettings round-trips > Reduced-motion setting round-trips through gsettings",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * Run and save command output: \"gsettings set org.gnome.desktop.a11y.interface reduced-motion reduce\"\n[SKIPPED] * Return code of last command output \"is\" \"0\"\n[SKIPPED] * Run and save command output: \"gsettings get org.gnome.desktop.a11y.interface reduced-motion\"\n[SKIPPED] * Last command output stripped \"is\" \"reduce\"\n[SKIPPED] * Run and save command output: \"gsettings set org.gnome.desktop.a11y.interface reduced-motion no-preference\"\n[SKIPPED] * Return code of last command output \"is\" \"0\"\n[SKIPPED] * Run and save command output: \"journalctl -b --no-pager -p err -g 'at-spi|orca|accessibility' -q | grep -v '^--' | grep -v '^$' | wc -l\"\n[SKIPPED] * Last command output stripped \"is\" \"0\""
+    },
+    {
+      "name": "GNOME 51 accessibility gsettings round-trips > Keyboard focus-visible timeout round-trips through gsettings",
+      "status": "failed",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * Run and save command output: \"gsettings set org.gnome.desktop.a11y.interface keyboard-focus-visible-timeout 5\"\n[SKIPPED] * Return code of last command output \"is\" \"0\"\n[SKIPPED] * Run and save command output: \"gsettings get org.gnome.desktop.a11y.interface keyboard-focus-visible-timeout\"\n[SKIPPED] * Last command output stripped \"is\" \"5\"\n[SKIPPED] * Run and save command output: \"gsettings set org.gnome.desktop.a11y.interface keyboard-focus-visible-timeout -1\"\n[SKIPPED] * Return code of last command output \"is\" \"0\"\n[SKIPPED] * Run and save command output: \"journalctl -b --no-pager -p err -g 'at-spi|orca|accessibility' -q | grep -v '^--' | grep -v '^$' | wc -l\"\n[SKIPPED] * Last command output stripped \"is\" \"0\""
+    },
+    {
       "name": "Vanilla GNOME baseline smoke tests > GNOME Shell process is running and accessible via AT-SPI",
       "status": "passed",
-      "duration_ms": 363,
+      "duration_ms": 270,
       "error_message": null,
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * GNOME Shell version is reported\n[PASSED] * Dump panel children to log\n[PASSED] * Dump gnome-shell AT-SPI tree to results"
     },
     {
       "name": "Vanilla GNOME baseline smoke tests > Panel is present in AT-SPI tree",
       "status": "passed",
-      "duration_ms": 1051,
+      "duration_ms": 740,
       "error_message": null,
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * Panel is present in AT-SPI tree"
     },
     {
       "name": "Vanilla GNOME baseline smoke tests > Activities toggle button is visible in panel",
       "status": "passed",
-      "duration_ms": 174,
+      "duration_ms": 113,
       "error_message": null,
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * Item \"Activities\" \"toggle button\" is \"showing\" in \"gnome-shell\""
     },
     {
       "name": "Vanilla GNOME baseline smoke tests > Super key opens Activities overview",
       "status": "passed",
-      "duration_ms": 1036,
+      "duration_ms": 937,
       "error_message": null,
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * Open Activities overview via Shell.Eval\n[PASSED] * Overview is open\n[PASSED] * Close Activities overview via Shell.Eval\n[PASSED] * Overview is closed"
     },
     {
       "name": "Vanilla GNOME baseline smoke tests > Typing in overview populates search bar",
       "status": "passed",
-      "duration_ms": 3077,
+      "duration_ms": 2475,
       "error_message": null,
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * Open Activities overview via Shell.Eval\n[PASSED] * Overview is open\n[PASSED] * Set overview search text to \"Files\" via Shell.Eval\n[PASSED] * Overview search bar contains \"Files\"\n[PASSED] * Close Activities overview via Shell.Eval"
     },
     {
       "name": "Vanilla GNOME baseline smoke tests > Clicking System menu opens Quick Settings",
       "status": "passed",
-      "duration_ms": 953,
+      "duration_ms": 947,
       "error_message": null,
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * Open Quick Settings via Shell.Eval\n[PASSED] * Quick Settings panel is open via Shell.Eval"
     },
     {
       "name": "Vanilla GNOME baseline smoke tests > Do-not-disturb toggle is accessible via Quick Settings",
       "status": "passed",
-      "duration_ms": 1295,
+      "duration_ms": 1195,
       "error_message": null,
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * Open Quick Settings via Shell.Eval\n[PASSED] * Quick Settings panel is open via Shell.Eval\n[PASSED] * Do-not-disturb toggle is present in Quick Settings\n[PASSED] * Close Quick Settings via Shell.Eval"
     },
     {
       "name": "Vanilla GNOME baseline smoke tests > Night Light toggle is present in Quick Settings",
       "status": "passed",
-      "duration_ms": 1308,
+      "duration_ms": 1215,
       "error_message": null,
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * Open Quick Settings via Shell.Eval\n[PASSED] * Quick Settings panel is open via Shell.Eval\n[PASSED] * Night Light toggle is present in Quick Settings\n[PASSED] * Close Quick Settings via Shell.Eval"
     },
     {
       "name": "Vanilla GNOME baseline smoke tests > Clicking clock opens calendar popup",
       "status": "passed",
-      "duration_ms": 890,
+      "duration_ms": 838,
       "error_message": null,
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * Open date menu via Shell.Eval\n[PASSED] * Date menu panel is open via Shell.Eval"
     },
     {
       "name": "Vanilla GNOME baseline smoke tests > Default GNOME apps are installed",
       "status": "passed",
-      "duration_ms": 2374,
+      "duration_ms": 2102,
       "error_message": null,
       "logs": "[PASSED] * GNOME Files application is installed\n[PASSED] * A web browser application is installed\n[PASSED] * A terminal application is installed"
     },
     {
       "name": "Vanilla GNOME baseline smoke tests > Screenshot tool opens via keyboard shortcut",
       "status": "passed",
-      "duration_ms": 469748,
+      "duration_ms": 365395,
       "error_message": null,
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * Screenshot tool launches via Shell.Eval\n[PASSED] * Screenshot tool window is accessible via AT-SPI\n[PASSED] * Close screenshot tool"
     },
@@ -118,7 +132,7 @@
     {
       "name": "Vanilla GNOME baseline smoke tests > Bluefin-specific extensions are absent on vanilla-gnome",
       "status": "failed",
-      "duration_ms": 353,
+      "duration_ms": 314,
       "error_message": [
         "ASSERT FAILED: Unexpected Bluefin-specific extension 'bazaar-integration' is present in vanilla-gnome: unsafe-mode@bluefin-test",
         "appindicatorsupport@rgcjonas.gmail.com",
