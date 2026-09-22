@@ -39,7 +39,7 @@ metadata:
 
 1. Read the target `.feature` file and the suite's `steps/*.py` before adding phrases.
 2. Reuse `tests/shared/ssh_steps.py` for generic SSH command/assertion steps instead of duplicating helpers.
-3. Star-importing `tests/shared/ssh_steps` obligates the suite to set the context attributes those steps read. `run_ssh()` dereferences `context.ssh_key`, `context.ssh_user`, `context.vm_ip` and (optionally) `context.ssh_port`; a suite that skips this fails every SSH scenario with `AttributeError` on the first step. Call `tests.shared.ssh_config.populate_ssh_context(context)` from the suite's `before_all` (see `tests/software/features/environment.py`) — it resolves context attributes → behave userdata → `SSH_KEY`/`VM_IP`/`VM_USER`/`SSH_PORT` env vars → runner defaults, which is the same source suite-local SSH helpers (e.g. the software suite's `_flatpak()`) must use. Never let a suite keep a second, env-only SSH path alongside the shared steps.
+3. Star-importing `tests/shared/ssh_steps` obligates the suite to set the context attributes those steps read. `run_ssh()` builds its argv via `ssh_config.ssh_argv(context)`, which prefers `context.ssh_key`, `context.ssh_user`, `context.vm_ip`, `context.ssh_port` and then falls back to userdata/env/defaults; a suite that skips this no longer fails loudly — it silently runs against default credentials. Call `tests.shared.ssh_config.populate_ssh_context(context)` from the suite's `before_all` (see `tests/software/features/environment.py`) — it resolves context attributes → behave userdata → `SSH_KEY`/`VM_IP`/`VM_USER`/`SSH_PORT`/`TMT_SSH_PORT` env vars → runner defaults, which is the same source suite-local SSH helpers (e.g. the software suite's `_flatpak()`) must use. Never let a suite keep a second, env-only SSH path alongside the shared steps.
 4. Keep step phrases unique within the loaded suite and check for collisions before committing.
 5. Choose assertions that match the command shape: equality for single-line output, substring for multiline output.
 6. Run `behave --dry-run` on the touched suite before pushing so undefined or ambiguous phrases fail locally.
@@ -143,8 +143,8 @@ Two recipes are worked out in detail in
 [`references/ujust-noninteractive.md`](references/ujust-noninteractive.md):
 `toggle-updates` gained a non-interactive `ACTION` entry point in
 `projectbluefin/common` and is covered by a `@requires_toggle_action` scenario
-(`projectbluefin/testsuite#499`), while `toggle-devmode` has one via
-`bctl devmode --enable/--disable` (`projectbluefin/testsuite#500`).
+(`projectbluefin/testsuite#499`), while `toggle-devmode` still has none and is
+deliberately uncovered (`projectbluefin/testsuite#500`).
 
 ### uupd conditional suppression coverage
 
@@ -262,7 +262,7 @@ after `skip_quarantine`, reads the image refs out of the scenario's own step
 text, probes each with `podman image exists` on the DUT, and skips while any is
 absent. The scenario then activates on its own once the image is cached.
 
-It is a **runtime capability gate** like `@requires_bctl`, not a non-runnable
+It is a **runtime capability gate** like `@requires_brew`, not a non-runnable
 tag: keep it out of `_SKIP_TAGS` / `NON_RUNNABLE_TAGS` / `BEHAVE_TAG_ARGS`, and
 never pair it with `@pending` or `@future` — `skip_quarantine` returns first and
 the gate goes inert. See
@@ -489,7 +489,6 @@ non-dependent scenarios to a separate feature.
 - [When to use local subprocess instead of SSH in the smoke suite.](references/smoke-vs-ssh.md)
 - [Avoiding duplicate step phrases and AmbiguousStep errors.](references/ambiguous-steps.md)
 - [Mocking interactive CLI tools (gum, fzf, gh) in ujust coverage.](references/mocking-interactive-cli.md)
-- [Driving bluefinctl devmode non-interactively, and the assertion traps around it.](references/bctl-devmode.md)
 - [Which ujust recipes can be driven non-interactively, and why the rest stay @pending.](references/ujust-noninteractive.md)
 - [Gating scenarios on a pre-pulled OCI image with @requires_cached_image.](references/cached-image-gate.md)
 

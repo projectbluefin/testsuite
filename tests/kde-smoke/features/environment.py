@@ -15,7 +15,9 @@ import shlex
 import sys
 import traceback
 
+from tests.shared.ssh_config import _first_value
 from tests.shared.ssh_steps import *  # noqa: F401,F403 — register shared SSH steps
+from tests.shared.ssh_config import DEFAULT_SSH_KEY
 from tests.shared.timing import record_end, record_start
 from tests.shared.kde_faillog import collect_on_failure
 from tests.shared.kde_preconditions import (
@@ -31,12 +33,19 @@ SUITE_NAME = "kde-smoke"
 # Session environment file injected by the e2e runner.
 _SESSION_ENV_FILE = "/tmp/session.env"
 
+# Key provisioned by tmt inside the runner container.
+_TMT_SSH_KEY = "/etc/ssh/test-key/id_ed25519"
 
-def _first_value(*values: str) -> str:
-    for value in values:
-        if value:
-            return value
-    return ""
+
+def _default_ssh_key() -> str:
+    """Key path to use when no key is configured by userdata or environment.
+
+    Prefer the tmt-provisioned key when it is actually present (CI lanes), and
+    otherwise fall back to the runner container's own key — the path
+    ``_run_host`` used before it moved onto ``ssh_argv()``, so env-default
+    local runs keep authenticating.
+    """
+    return _TMT_SSH_KEY if os.path.exists(_TMT_SSH_KEY) else DEFAULT_SSH_KEY
 
 
 def _skip_scenario(context, scenario, reason: str) -> None:
@@ -105,8 +114,8 @@ def before_all(context) -> None:
         userdata.get("key", ""),
         os.environ.get("SSH_KEY", ""),
         os.environ.get("SSH_KEY_PATH", ""),
-        os.environ.get("TMT_SSH_KEY", "/etc/ssh/test-key/id_ed25519"),
-    )
+        os.environ.get("TMT_SSH_KEY", ""),
+    ) or _default_ssh_key()
     context.ssh_port = _first_value(
         userdata.get("ssh_port", ""),
         os.environ.get("SSH_PORT", ""),

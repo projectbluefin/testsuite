@@ -25,6 +25,7 @@ from dogtail import tree
 from qecore.common_steps import *  # noqa: F401,F403
 from tests.shared.gnome_shell_steps import *  # noqa: F401,F403
 from tests.shared.gnome_shell_steps import _shell_eval, _eval_bool, _wait_eval_bool, _IN_CONTAINER
+from tests.shared.ssh_config import ssh_argv
 
 
 # ── Shell.Eval helpers (GNOME 50: uinput Super + AT-SPI toggle click broken) ──
@@ -133,21 +134,20 @@ def overview_search_bar_contains(context, text) -> None:
     assert text in entry.text, f"Search bar text '{entry.text}' does not contain '{text}'"
 
 
-def _ssh_run(cmd: str, timeout: int = 15) -> subprocess.CompletedProcess:
-    """Run a command on the VM via SSH using the standard connection env vars."""
-    import os
-    ssh_args = [
-        'ssh',
-        '-i', os.environ.get('SSH_KEY', '/home/bluefin-test/.ssh/id_ed25519'),
-        '-o', 'StrictHostKeyChecking=no',
-        '-o', 'UserKnownHostsFile=/dev/null',
-        '-o', f"ConnectTimeout={timeout}",
-        '-o', 'LogLevel=ERROR',
-        '-p', os.environ.get('SSH_PORT', '22'),
-        f"{os.environ.get('VM_USER', 'bluefin-test')}@{os.environ.get('VM_IP', '127.0.0.1')}",
-        cmd,
-    ]
-    return subprocess.run(ssh_args, capture_output=True, text=True, timeout=timeout)
+def _ssh_run(cmd: str, timeout: int = 15, context=None,
+             connect_timeout: int = 10) -> subprocess.CompletedProcess:
+    """Run a command on the VM via SSH.
+
+    ``timeout`` bounds only the local wait for the command to finish; the SSH
+    *connect* deadline is passed separately as ``connect_timeout`` so a long
+    command timeout no longer inflates how long a dead connection is retried.
+    Call sites that need a longer connect window on a slow-booting VM raise
+    ``connect_timeout`` explicitly.
+    """
+    return subprocess.run(
+        ssh_argv(context, quiet=True, connect_timeout=connect_timeout) + [cmd],
+        capture_output=True, text=True, timeout=timeout,
+    )
 
 
 @step('GNOME Shell version is reported')
@@ -173,7 +173,7 @@ def report_shell_version(context) -> None:
     version = ""
     try:
         if _IN_CONTAINER:
-            res = _ssh_run("source /tmp/session.env 2>/dev/null; " + " ".join(gdbus_get), timeout=15)
+            res = _ssh_run("source /tmp/session.env 2>/dev/null; " + " ".join(gdbus_get), timeout=15, context=context)
             version = (res.stdout or "").strip()
             if res.returncode != 0:
                 detail = (res.stderr or res.stdout or "").strip()
@@ -191,19 +191,23 @@ def report_shell_version(context) -> None:
     print(f"GNOME Shell ShellVersion: {version or '<unreadable>'}", flush=True)
 
 
-def _command_exists(command: str) -> bool:
+def _command_exists(command: str, context=None) -> bool:
     """Check whether a command is available on the VM."""
     try:
-        result = _ssh_run(f'command -v {command}')
+        result = _ssh_run(f'command -v {command}', context=context)
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return False
     return result.returncode == 0 and bool(result.stdout.strip())
 
 
-def _flatpak_app_exists(app_id: str) -> bool:
+def _flatpak_app_exists(app_id: str, context=None) -> bool:
     """Check whether a Flatpak app is installed on the VM."""
     try:
-        result = _ssh_run('flatpak list --app --columns=application 2>/dev/null', timeout=20)
+        result = _ssh_run(
+            'flatpak list --app --columns=application 2>/dev/null',
+            timeout=20, connect_timeout=20, context=context,
+        )
+
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return False
     if result.returncode != 0:
@@ -212,9 +216,9 @@ def _flatpak_app_exists(app_id: str) -> bool:
     return app_id in installed
 
 
-def _assert_any_app_present(label: str, commands: tuple[str, ...], flatpaks: tuple[str, ...]) -> None:
-    found_commands = [command for command in commands if _command_exists(command)]
-    found_flatpaks = [app_id for app_id in flatpaks if _flatpak_app_exists(app_id)]
+def _assert_any_app_present(label: str, commands: tuple[str, ...], flatpaks: tuple[str, ...], context=None) -> None:
+    found_commands = [command for command in commands if _command_exists(command, context=context)]
+    found_flatpaks = [app_id for app_id in flatpaks if _flatpak_app_exists(app_id, context=context)]
     assert found_commands or found_flatpaks, (
         f"{label} not found. Commands checked: {commands}; flatpaks checked: {flatpaks}"
     )
@@ -250,6 +254,7 @@ def files_application_is_installed(context) -> None:
         # 'gnome-files' is the binary name since GNOME 47; 'nautilus' is the classic name
         ('gnome-files', 'nautilus'),
         ('org.gnome.Nautilus',),
+        context=context,
     )
 
 
@@ -260,6 +265,7 @@ def text_editor_application_is_installed(context) -> None:
         # gnome-text-editor (GNOME 42+); gedit (classic fallback)
         ('gnome-text-editor', 'gedit'),
         ('org.gnome.TextEditor', 'org.gnome.gedit'),
+        context=context,
     )
 
 
@@ -269,6 +275,7 @@ def web_browser_application_is_installed(context) -> None:
         'Web browser application',
         ('epiphany', 'firefox', 'chromium', 'chromium-browser'),
         ('org.gnome.Epiphany', 'org.mozilla.firefox', 'org.chromium.Chromium'),
+        context=context,
     )
 
 
@@ -278,6 +285,7 @@ def terminal_application_is_installed(context) -> None:
         'Terminal application',
         ('kgx', 'ptyxis', 'gnome-terminal'),
         ('org.gnome.Console', 'app.devsuite.Ptyxis', 'org.gnome.Terminal'),
+        context=context,
     )
 
 
@@ -320,7 +328,7 @@ def close_screenshot_tool(context) -> None:
 @step('Bluefin-specific extensions are absent on vanilla-gnome')
 def bluefin_extensions_absent(context) -> None:
     try:
-        result = _ssh_run("gnome-extensions list")
+        result = _ssh_run("gnome-extensions list", context=context)
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return
 

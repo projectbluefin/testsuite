@@ -67,10 +67,15 @@ metadata:
 - A workflow that builds or validates an artifact has no `pull_request` trigger and no equivalent job in `pr-validate.yml` (its first red run will be on `main`)
 - Triaging a long-red scheduled workflow by blaming the most recent merge instead of locating the first failing run
 - Treating `Could not connect: No such file or directory` from `gdbus --session` as terminal, or caching a session bus address across a GDM restart
+- Adding status parsing or icon decisions to a Justfile heredoc instead of importing `count_scenarios`/`summary_icon`/`scenario_statuses` from `scripts/e2e_summary.py`
+- Hardcoding `/var/tmp/bluefin-results` in a results recipe instead of `${RESULTS_BASE:-/var/tmp/bluefin-results}` (splits the local results root; `clean-results` can sweep a tree the other recipes never read)
+- Indenting a Justfile heredoc body deeper than the recipe lines (`just` strips only the common prefix; the leftover spaces become a Python `IndentationError`)
 
 ## Verification
 
 
+- [ ] Justfile results recipes call `count_scenarios`/`summary_icon`/`scenario_statuses` from `scripts/e2e_summary.py` and resolve `${RESULTS_BASE:-...}` for the results root
+- [ ] Heredoc bodies sit at the recipe's common indent so `just` strips them to column 0
 - [ ] Smoke suite network/DNS checks use `_run_host()` not `_run()`
 - [ ] A `bus-unavailable` readiness failure was diagnosed from the `collect_session_diagnostics()` snapshot before any code change
 - [ ] No `sys.exit()` calls in `before_scenario` / `after_scenario`
@@ -115,6 +120,31 @@ even though the desktop and all persistent image services are healthy. Keep
 `tuned.service` in `IGNORED_FAILED_UNITS_IN_VM`; the ignore is conditional on
 `systemd-detect-virt`, so the same failure outside virtualization remains a
 release-blocking signal.
+
+## Justfile results recipes: one parser, one root
+
+`scripts/e2e_summary.py` owns every read of a behave `results.json`. The
+`results`, `results-timing`, `clean-results` and `compare-results` recipes must
+not embed status logic of their own: an inline reader that treats `failed == 0`
+as success renders a green check for an all-`undefined` run (the shape of a
+missing or mis-wired step-definition module — the same defect class as #797),
+and one that counts every element inflates the totals with `Background:`
+entries, which always report `passed`. Call `count_scenarios()` plus
+`summary_icon()` for rollups and `scenario_statuses()` for name → status maps
+(#871); the icon rule itself lives in `ci-ops/e2e-workflow` ("Headline icon
+semantics").
+
+All four recipes resolve the same root with
+`BASE="${RESULTS_BASE:-/var/tmp/bluefin-results}"`. A recipe that hardcodes the
+default while its siblings honour the override makes the local results CLI read
+two different trees — worst case `clean-results` sweeps a root the other
+recipes never read.
+
+Heredoc bodies inside recipes must sit at the recipe's common leading
+whitespace: `just` strips that common prefix verbatim, so a body indented one
+level deeper than the recipe lines keeps extra spaces and Python dies with
+`IndentationError: unexpected indent` on its first line. That is how
+`compare-results` spent its life crashing before producing a single table.
 
 ---
 
@@ -163,5 +193,4 @@ Load these when you hit the specific topic:
 - [GNOME Shell readiness failures in container-QA lanes](references/gnome-shell-readiness-failures.md)
 - [Workflows without a pull_request trigger break main silently](references/workflows-without-a-pull-request-trigger-break-main-silently.md)
 - [qecore-headless restarts GDM — the session bus socket is replaced](references/qecore-headless-restarts-gdm-bus-socket-churn.md)
-- [ghost-lab poller failure signatures — infra vs PR-caused](references/ghost-lab-poller-failures.md)
 - [Coverage snapshot is generated — never hand-edit scenario counts](references/coverage-snapshot-generated.md)

@@ -19,8 +19,8 @@ Feature: Bluefin common ujust recipes
     * SSH command return code is "0"
     * SSH command output contains "Manufacturer"
 
-  # ujust toggle-updates is interactive (gum choose, or the bctl panel on
-  # bctl-equipped images) and cannot be driven from an SSH step. The recipe
+  # ujust toggle-updates prompts interactively (gum choose) by default and
+  # cannot be driven from an SSH step in that mode. The recipe
   # now honors a non-interactive ACTION argument (projectbluefin/common):
   # `ujust toggle-updates enable|disable|cancel` skips all prompts. The
   # @requires_toggle_action gate probes for that contract and skips on images

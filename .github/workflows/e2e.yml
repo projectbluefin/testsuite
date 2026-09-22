@@ -93,6 +93,11 @@ on:
         type: string
         default: "projectbluefin/testsuite"
 
+# Deny-all default: jobs without an explicit permissions block (e.g. matrix)
+# must not inherit the caller repository's default GITHUB_TOKEN scope.
+# compose and e2e declare their own job-level permissions below.
+permissions: {}
+
 jobs:
   # Resolve comma-separated suite list into a JSON matrix
   matrix:
@@ -1717,7 +1722,7 @@ jobs:
           icon    = summary_icon(counts)
 
           lines = [
-            f'## {icon} E2E Results — GNOME 50 ({suite})', '',
+            f'## {icon} E2E Results ({suite})', '',
             '| Result | Count |', '|--------|-------|',
             f'| ✅ Passed  | {passed} |',
             f'| ❌ Failed  | {failed} |',

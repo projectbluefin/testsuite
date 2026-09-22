@@ -112,3 +112,18 @@ database without replacing the image default.
 **Pattern**: Python helper scripts (such as `compile_data.py`) executed from repository root inside GitHub Actions, but developed locally inside subdirectories, must resolve their base directories dynamically relative to `Path(__file__)` rather than hardcoding relative string paths like `./raw-runs`. This avoids directory execution discrepancies between local and CI environments.
 
 **Pattern**: In Astro static sites, using `import.meta.glob('../data/runs/*.json', { eager: true })` to load detailed raw JSON files at build-time allows robust, offline-safe compilation of metrics, sparklines, and broken scenario aggregations directly from logs, entirely removing runtime client-side fetch or API performance overhead.
+
+## `atspi_tree.txt` is missing from the artefacts
+
+Artefact paths come from `tests/shared/results_dir.resolve_results_dir(context)`, which
+resolves behave userdata `results_dir` first, then `TESTSUITE_RESULTS_DIR`, then the
+`/tmp/results` default. `timing.py`, `screenshot.py`, `kde_faillog.py` and the AT-SPI tree
+dump all route through it, so a run with an overridden results dir keeps its artefacts
+together. A hardcoded `/tmp/results` literal writes outside that directory and the file
+never reaches the uploaded artefact.
+
+This fails silently: both `after_all` tree-dump sites sit inside `except Exception: pass`,
+so a broken path or a missing import surfaces as "no `atspi_tree.txt`" and nothing else.
+`tests/unit/test_suite_environment_contract.py` guards it by asserting no `after_all`
+contains a `/tmp/results` literal. Resolve the directory once and reuse it for both the
+existence check and the write.

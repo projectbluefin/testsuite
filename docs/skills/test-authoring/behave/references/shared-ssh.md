@@ -38,11 +38,27 @@ from tests.shared.ssh_steps import *  # noqa: F401,F403
 
 ## Importing the steps is only half the contract
 
-`run_ssh()` reads its connection details from **`context`**, not from the
-environment. A suite that star-imports `ssh_steps` must also populate
-`context.vm_ip`, `context.ssh_user`, `context.ssh_key` and optionally
-`context.ssh_port` in `before_all`, or every SSH step raises `AttributeError`
-at runtime.
+`run_ssh()` resolves its connection details through
+`ssh_config.ssh_argv(context)`, which prefers **`context`** attributes
+(`vm_ip`, `ssh_user`, `ssh_key`, `ssh_port`) and only then falls back to behave
+userdata, environment variables and runner defaults. A suite that star-imports
+`ssh_steps` without populating those attributes no longer raises
+`AttributeError` — it silently connects with *default* credentials, which is
+worse. Populate them in `before_all`.
+
+To keep that failure mode diagnosable, `ssh_argv()` prints the resolved
+destination once per distinct target, together with where each field came from:
+
+```
+SSH target: bluefin-test@127.0.0.1:22 key=/home/bluefin-test/.ssh/id_ed25519 (ssh_key=default,ssh_port=default,ssh_user=default,vm_ip=default)
+WARNING: no SSH connection details were configured — using built-in runner defaults. ...
+```
+
+The warning fires only when *every* field fell back to a built-in default,
+i.e. nothing (context, userdata, or environment) configured the run. Use
+`ssh_config.resolve_ssh_details_with_sources(context)` when a suite or test
+needs to assert the details came from a non-default source.
+
 
 Resolve them through the shared helper rather than hand-rolling per suite:
 
@@ -100,3 +116,22 @@ When a scenario is meant to fail on a bad command, never append `; true` (or
 similar success-forcing trailers) to the SSH command. That masks the real exit
 status and turns `SSH command return code is "0"` into a no-op. Use `2>&1` to
 capture diagnostics, but preserve the original command's exit code.
+
+## `ssh_argv()` owns the SSH argv for every suite
+
+`tests/shared/ssh_config.ssh_argv(context, *, connect_timeout=10, quiet=False)` is the
+single builder for SSH argv. Two properties of that contract are easy to get wrong:
+
+- **`-p` is always emitted**, including when `SSH_PORT` is unset (it falls back to `22`).
+  Do not write a test asserting the port flag is absent.
+- **`quiet=True` adds `-o LogLevel=ERROR`, and it is opt-in per call site.** Only pass it
+  where the old hand-rolled argv already suppressed the banner (`run_ssh`, `image_cache`,
+  the software `_has_bazaar` probe, dx/flatcar/vanilla-gnome). Passing it everywhere hides
+  diagnostics that kde-smoke and the screenshot helper rely on.
+- **`connect_timeout` is per call site.** The default is 10s; a probe that previously used
+  a longer connect window (e.g. the vanilla-gnome Flatpak probe, 20s) must pass
+  `connect_timeout=` explicitly rather than relying on the command timeout.
+
+Suites must not hand-roll `ssh` argv. `tests/unit/test_ssh_transport_contract.py`
+enforces this for the modules listed in its `MIGRATED_MODULES` set — add new suites there
+rather than copying an argv list.

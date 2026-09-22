@@ -13,9 +13,10 @@ qecore-headless (invoked by the Argo runner) handles:
 import os
 import sys
 import traceback
-
 import re as _re
 import subprocess as _subprocess
+
+from tests.shared.results_dir import resolve_results_dir
 
 try:
     from qecore.sandbox import TestSandbox
@@ -33,6 +34,8 @@ try:
     from steps.app_support import launch_target_available
 except ImportError:
     from tests.smoke.features.steps.app_support import launch_target_available
+
+from tests.shared.runtime_env import in_container_lane
 
 # ── qecore keyboard key mapping patch ────────────────────────────────────────
 # qecore 4.16 keyboard_key_combo_input builds uinput key names as
@@ -564,6 +567,18 @@ def before_scenario(context, scenario) -> None:
 
     scenario_tags = set(getattr(scenario, "effective_tags", scenario.tags))
 
+    # Skip @vm_only scenarios in container lanes. Those scenarios drive the
+    # device under test over SSH, but a container lane runs behave inside the
+    # target itself and has no sshd — the resulting connection failure is a
+    # runner limitation, not an image regression.
+    if "vm_only" in scenario_tags and in_container_lane():
+        try:
+            scenario.skip("Skipping @vm_only scenario in a container lane (no SSH target)")
+        except TypeError:
+            scenario.skip()
+        print(f"Skipping {scenario.name}: @vm_only scenario in a container lane", flush=True)
+        return
+
     # Skip @bluefin scenarios on non-Bluefin images (e.g. dakota).
     if not getattr(context, "is_bluefin_image", True):
         if "bluefin" in scenario_tags:
@@ -684,7 +699,8 @@ def after_all(context) -> None:
 
     try:
         import os
-        if os.path.exists("/tmp/results/atspi_tree.txt"):
+        results_dir = resolve_results_dir(context)
+        if os.path.exists(os.path.join(results_dir, "atspi_tree.txt")):
             return  # already written by after_scenario
         shell = context.sandbox.shell
         lines = []
@@ -692,8 +708,8 @@ def after_all(context) -> None:
             lines.append(f"role={child.roleName!r:30} name={child.name!r}")
             for gc in child.children[:20]:
                 lines.append(f"  role={gc.roleName!r:30} name={gc.name!r}")
-        os.makedirs("/tmp/results", exist_ok=True)
-        with open("/tmp/results/atspi_tree.txt", "w") as f:
+        os.makedirs(results_dir, exist_ok=True)
+        with open(os.path.join(results_dir, "atspi_tree.txt"), "w") as f:
             f.write("\n".join(lines))
     except Exception:   # noqa: BLE001
         pass

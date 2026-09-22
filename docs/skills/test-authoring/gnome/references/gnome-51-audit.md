@@ -56,6 +56,9 @@ published fact suggests it may change.
    *No image or workflow target is available in this environment* — this step is
    lab infra, not testsuite.
 2. Run the `smoke`, `bazzite`, `vanilla-gnome` and `software` suites against it.
+   The `software` suite's own `@future` rows are a separate inventory — see
+   [gnome-51-software-revalidation.md](gnome-51-software-revalidation.md); a
+   `software` run on gnomeos skips them, so it cannot validate them.
 3. For each row, move the status to one of:
    - `still required` — 51 still shows the 50 behavior; keep the workaround.
    - `broken on 51` — 51 no longer shows it and the test now fails; fix the step.
@@ -70,6 +73,10 @@ published fact suggests it may change.
 - **Do not claim qecore GNOME 51 support** until PR #821 (qecore pins, runner
   4.16 → 4.19.3) lands. GNOME 50 needed qecore ≥ 4.12; 51 needs the pinned
   4.19.3.
+- The `software` suite's `@future` GNOME Software rows are inventoried
+  separately in
+  [gnome-51-software-revalidation.md](gnome-51-software-revalidation.md)
+  (issue #847), including why a `software` run cannot validate them.
 - The `vanilla-gnome` suite already carries an informational `ShellVersion`
   canary — the `GNOME Shell version is reported` step inside the `@gnome_core`
   "GNOME Shell process is running and accessible via AT-SPI" scenario in

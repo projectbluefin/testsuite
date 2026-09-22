@@ -93,6 +93,23 @@ class TestFlatpakAppExists:
         with patch.object(m, "_ssh_run", side_effect=FileNotFoundError):
             assert m._flatpak_app_exists("org.gnome.Nautilus") is False
 
+    def test_keeps_20s_connect_window(self):
+        """Regression: the probe's connect budget was 20s before the argv was
+        centralised; ssh_argv's 10s default must not silently halve it."""
+        m = _import_vanilla_gnome_steps()
+        mock_result = MagicMock(returncode=0, stdout="")
+        with patch.object(m, "_ssh_run", return_value=mock_result) as ssh_run:
+            m._flatpak_app_exists("org.gnome.Nautilus")
+        assert ssh_run.call_args.kwargs["timeout"] == 20
+        assert ssh_run.call_args.kwargs["connect_timeout"] == 20
+
+    def test_ssh_run_passes_connect_timeout_to_argv(self):
+        m = _import_vanilla_gnome_steps()
+        with patch.object(m, "ssh_argv", return_value=["ssh"]) as argv, \
+             patch.object(m.subprocess, "run", return_value=MagicMock()):
+            m._ssh_run("true", timeout=20, connect_timeout=20)
+        assert argv.call_args.kwargs["connect_timeout"] == 20
+
 
 # ---------------------------------------------------------------------------
 # _assert_any_app_present
@@ -123,7 +140,7 @@ class TestAssertAnyAppPresent:
         """PR #388: gnome-files added as fallback alongside nautilus."""
         m = _import_vanilla_gnome_steps()
         checked_commands = []
-        def track_cmd(cmd):
+        def track_cmd(cmd, context=None):
             checked_commands.append(cmd)
             return cmd == "gnome-files"
         with patch.object(m, "_command_exists", side_effect=track_cmd), \

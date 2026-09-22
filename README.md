@@ -28,7 +28,7 @@ For the canonical ownership boundary between this repo, [`projectbluefin/lab`](h
 | Session bridge | qecore-headless | Wayland/D-Bus session bootstrap |
 | GUI automation | dogtail (AT-SPI) | Accessibility-tree interactions |
 | Wayland bridge | gnome-ponytail-daemon | Coordinate injection support |
-| Shell bridge | `org.gnome.Shell.Eval` | GNOME 50+ top-bar fallback |
+| Shell bridge | `org.gnome.Shell.Eval` | GNOME top-bar fallback |
 | KDE GUI automation | `selenium-webdriver-at-spi` (W3C WebDriver) | Plasma AT-SPI interactions |
 | KDE control plane | `org.kde.PlasmaShell` / KWin D-Bus | Diagnostics and session reset only — never the primary interaction path |
 | SSH bridge | shared SSH steps | Out-of-VM system health assertions |
@@ -97,7 +97,7 @@ For full control, use the composite action at `projectbluefin/testsuite/.github/
 
 ## Agentic factory
 
-This repo is agent-first: AI agents are primary maintainers of GNOME 50 test coverage. Agents file issues and submit PRs directly within the gates defined in `docs/skills/meta/human-gates/SKILL.md`. Every session produces two outputs: the work and a skill-doc update. See `AGENTS.md` for the agent entry point and `docs/SKILL.md` for the skill router.
+This repo is agent-first: AI agents are primary maintainers of GNOME test coverage across both supported desktops (Bluefin and gnomeos). Agents file issues and submit PRs directly within the gates defined in `docs/skills/meta/human-gates/SKILL.md`. Every session produces two outputs: the work and a skill-doc update. See `AGENTS.md` for the agent entry point and `docs/SKILL.md` for the skill router.
 
 ## Further reading
 

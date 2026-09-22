@@ -13,39 +13,41 @@ default:
 results n="10":
     #!/usr/bin/env bash
     set -euo pipefail
-    BASE="/var/tmp/bluefin-results"
+    BASE="${RESULTS_BASE:-/var/tmp/bluefin-results}"
     if [[ ! -d "${BASE}" ]]; then
         echo "(no results yet — run a test first)"
         exit 0
     fi
-    echo "=== Recent test results (last {{ n }}) ==="
-    COUNT=0
-    for dir in $(ls -1t "${BASE}"); do
-        [[ ${COUNT} -ge {{ n }} ]] && break
-        RUN="${BASE}/${dir}"
-        echo ""
-        echo "Run: ${dir}"
-        for suite_dir in "${RUN}"/*/; do
-            SUITE=$(basename "${suite_dir}")
-            JSON="${suite_dir}results.json"
-            if [[ -f "${JSON}" ]]; then
-                python3 -c "
+    RESULTS_BASE="${BASE}" RESULTS_N="{{ n }}" python3 <<'PYEOF'
     import json
-    try:
-        data = json.load(open('${JSON}'))
-        failed = sum(1 for f in data for s in f.get('elements',[]) if s.get('status') == 'failed')
-        total  = sum(len(f.get('elements',[])) for f in data)
-        icon = '✓' if failed == 0 else '✗'
-        print(f'  {icon} ${SUITE}: {total - failed}/{total} passed')
-    except Exception as e:
-        print(f'  ? ${SUITE}: (error reading results.json: {e})')
-    " 2>/dev/null
-            else
-                echo "  ? ${SUITE}: (no results.json)"
-            fi
-        done
-        COUNT=$((COUNT + 1))
-    done
+    import os
+    from pathlib import Path
+
+    from scripts.e2e_summary import count_scenarios, summary_icon
+
+    base = Path(os.environ["RESULTS_BASE"])
+    limit = int(os.environ["RESULTS_N"])
+    print("=== Recent test results (last %d) ===" % limit)
+    runs = sorted((path for path in base.iterdir() if path.is_dir()), key=lambda path: path.name)
+    runs.sort(key=lambda path: path.stat().st_mtime, reverse=True)
+    for run in runs[:limit]:
+        print()
+        print("Run: %s" % run.name)
+        for suite_dir in sorted(path for path in run.iterdir() if path.is_dir()):
+            suite = suite_dir.name
+            report_path = suite_dir / "results.json"
+            if not report_path.is_file():
+                print("  ? %s: (no results.json)" % suite)
+                continue
+            try:
+                with report_path.open(encoding="utf-8") as file_obj:
+                    counts = count_scenarios(json.load(file_obj))
+            except Exception as error:
+                print("  ? %s: (error reading results.json: %s)" % (suite, error))
+                continue
+            total = sum(counts.values())
+            print("  %s %s: %d/%d passed" % (summary_icon(counts), suite, counts["passed"], total))
+    PYEOF
 
 # Show per-scenario timing table from the most recent run (or a specific run-uid)
 # Usage: just results-timing          → most recent run
@@ -130,7 +132,7 @@ results-timing uid="":
 clean-results keep="20":
     #!/usr/bin/env bash
     set -euo pipefail
-    BASE="/var/tmp/bluefin-results"
+    BASE="${RESULTS_BASE:-/var/tmp/bluefin-results}"
     if [[ ! -d "${BASE}" ]]; then
         echo "(no results directory)"
         exit 0
@@ -154,7 +156,7 @@ clean-results keep="20":
 compare-results run_uid="":
     #!/usr/bin/env bash
     set -euo pipefail
-    BASE="/var/tmp/bluefin-results"
+    BASE="${RESULTS_BASE:-/var/tmp/bluefin-results}"
     if [[ ! -d "${BASE}" ]]; then
         echo "(no results directory — run a test first)"
         exit 0
@@ -181,66 +183,54 @@ compare-results run_uid="":
     fi
     RUN_UID=$(basename "${RUN_DIR}")
     RUN_UID="${RUN_UID}" SMOKE_JSON="${SMOKE_JSON}" VANILLA_JSON="${VANILLA_JSON}" python3 - <<'PY'
-        import json
-        import os
-        import sys
-        from pathlib import Path
+    import json
+    import os
+    import sys
+    from pathlib import Path
 
+    from scripts.e2e_summary import scenario_statuses
 
-        def load_statuses(path: str) -> dict[str, str]:
-            data = json.loads(Path(path).read_text())
-            statuses: dict[str, str] = {}
-            for feature in data:
-                for element in feature.get("elements", []):
-                    if element.get("type") != "scenario":
-                        continue
-                    name = element.get("name")
-                    if name:
-                        statuses[name] = element.get("status", "unknown")
-            return statuses
+    run_uid = os.environ["RUN_UID"]
+    smoke = scenario_statuses(json.loads(Path(os.environ["SMOKE_JSON"]).read_text(encoding="utf-8")))
+    vanilla = scenario_statuses(json.loads(Path(os.environ["VANILLA_JSON"]).read_text(encoding="utf-8")))
+    overlap = sorted(set(smoke) & set(vanilla))
 
+    print(f"=== Smoke vs Vanilla-GNOME comparison: {run_uid} ===")
+    if not overlap:
+        print("(no overlapping scenarios found)")
+        sys.exit(0)
 
-        run_uid = os.environ["RUN_UID"]
-        smoke = load_statuses(os.environ["SMOKE_JSON"])
-        vanilla = load_statuses(os.environ["VANILLA_JSON"])
-        overlap = sorted(set(smoke) & set(vanilla))
+    scenario_width = max(len("Scenario"), *(len(name) for name in overlap))
+    smoke_width = max(len("Smoke"), *(len(smoke[name]) for name in overlap))
+    vanilla_width = max(len("Vanilla-GNOME"), *(len(vanilla[name]) for name in overlap))
 
-        print(f"=== Smoke vs Vanilla-GNOME comparison: {run_uid} ===")
-        if not overlap:
-            print("(no overlapping scenarios found)")
-            sys.exit(0)
+    header = f"{'Scenario':<{scenario_width}}  {'Smoke':<{smoke_width}}  {'Vanilla-GNOME':<{vanilla_width}}"
+    print(header)
+    print(f"{'-' * scenario_width}  {'-' * smoke_width}  {'-' * vanilla_width}")
 
-        scenario_width = max(len("Scenario"), *(len(name) for name in overlap))
-        smoke_width = max(len("Smoke"), *(len(smoke[name]) for name in overlap))
-        vanilla_width = max(len("Vanilla-GNOME"), *(len(vanilla[name]) for name in overlap))
+    bluefin_regressions = 0
+    upstream_issues = 0
+    same_result = 0
+    for name in overlap:
+        smoke_status = smoke[name]
+        vanilla_status = vanilla[name]
+        note = ""
+        if smoke_status == "failed" and vanilla_status == "passed":
+            bluefin_regressions += 1
+            note = "  ⚠ Bluefin regression"
+        elif smoke_status == "failed" and vanilla_status == "failed":
+            upstream_issues += 1
+            note = "  ↑ Upstream GNOME issue"
+        else:
+            same_result += 1
+        print(f"{name:<{scenario_width}}  {smoke_status:<{smoke_width}}  {vanilla_status:<{vanilla_width}}{note}")
 
-        header = f"{'Scenario':<{scenario_width}}  {'Smoke':<{smoke_width}}  {'Vanilla-GNOME':<{vanilla_width}}"
-        print(header)
-        print(f"{'-' * scenario_width}  {'-' * smoke_width}  {'-' * vanilla_width}")
-
-        bluefin_regressions = 0
-        upstream_issues = 0
-        same_result = 0
-        for name in overlap:
-            smoke_status = smoke[name]
-            vanilla_status = vanilla[name]
-            note = ""
-            if smoke_status == "failed" and vanilla_status == "passed":
-                bluefin_regressions += 1
-                note = "  ⚠ Bluefin regression"
-            elif smoke_status == "failed" and vanilla_status == "failed":
-                upstream_issues += 1
-                note = "  ↑ Upstream GNOME issue"
-            else:
-                same_result += 1
-            print(f"{name:<{scenario_width}}  {smoke_status:<{smoke_width}}  {vanilla_status:<{vanilla_width}}{note}")
-
-        print(
-            f"Summary: {len(overlap)} overlapping scenario(s) | "
-            f"{bluefin_regressions} Bluefin regression(s) | "
-            f"{upstream_issues} upstream GNOME issue(s) | "
-            f"{same_result} other matching/mixed result(s)"
-        )
+    print(
+        f"Summary: {len(overlap)} overlapping scenario(s) | "
+        f"{bluefin_regressions} Bluefin regression(s) | "
+        f"{upstream_issues} upstream GNOME issue(s) | "
+        f"{same_result} other matching/mixed result(s)"
+    )
     PY
 
 # ── Validation ───────────────────────────────────────────────────────────────

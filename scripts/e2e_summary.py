@@ -44,6 +44,25 @@ def count_scenarios(report: list[dict[str, Any]]) -> dict[str, int]:
     return counts
 
 
+def scenario_statuses(report: list[dict[str, Any]]) -> dict[str, str]:
+    """Map scenario name to status, excluding backgrounds.
+
+    Consumers that need per-scenario statuses (``just compare-results``)
+    call this instead of keeping a private results.json walker, so the
+    ``type == "scenario"`` filter stays a property of this module rather
+    than something every reader re-derives.
+    """
+    statuses: dict[str, str] = {}
+    for feature in report:
+        for element in feature.get("elements") or []:
+            if element.get("type") != "scenario":
+                continue
+            name = element.get("name")
+            if name:
+                statuses[name] = element.get("status", "unknown")
+    return statuses
+
+
 def is_success(counts: dict[str, int]) -> bool:
     """Return True only when every counted scenario passed or was skipped.
 

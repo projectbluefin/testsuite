@@ -1,6 +1,11 @@
 """Unit tests for e2e job-summary result counting."""
 
-from scripts.e2e_summary import count_scenarios, is_success, summary_icon
+from scripts.e2e_summary import (
+    count_scenarios,
+    is_success,
+    scenario_statuses,
+    summary_icon,
+)
 
 
 def _report(*statuses, element_type="scenario"):
@@ -110,3 +115,33 @@ def test_skipped_only_and_empty_runs_stay_green():
 
     assert summary_icon(counts) == "✅"
     assert summary_icon(count_scenarios([])) == "✅"
+
+
+def test_scenario_statuses_excludes_backgrounds():
+    report = [
+        {
+            "elements": [
+                {"type": "background", "name": "Shared setup", "status": "passed"},
+                {"type": "scenario", "name": "launch", "status": "failed"},
+                {"type": "scenario", "name": "quit", "status": "passed"},
+            ]
+        }
+    ]
+
+    assert scenario_statuses(report) == {"launch": "failed", "quit": "passed"}
+
+
+def test_scenario_statuses_skips_nameless_elements():
+    report = [{"elements": [{"type": "scenario", "status": "passed"}]}]
+
+    assert scenario_statuses(report) == {}
+
+
+def test_scenario_statuses_defaults_missing_status_to_unknown():
+    report = [{"elements": [{"type": "scenario", "name": "orphan"}]}]
+
+    assert scenario_statuses(report) == {"orphan": "unknown"}
+
+
+def test_scenario_statuses_tolerates_features_without_elements():
+    assert scenario_statuses([{}, {"elements": None}]) == {}

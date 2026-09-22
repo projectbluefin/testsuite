@@ -38,6 +38,17 @@ jobs:
         # pyyaml is required to import scripts/validate_docs.py (frontmatter
         # parsing), which tests/unit/test_validate_docs.py imports directly.
 
+      - name: Install just
+        # Pinned binary so tests/unit/test_justfile_results.py's Justfile
+        # contract tests run here instead of skipping on a bare image.
+        # Bump deliberately (Renovate does not track this URL).
+        run: |
+          curl -sSfL -o /tmp/just.tar.gz \
+            "https://github.com/casey/just/releases/download/1.58.0/just-1.58.0-x86_64-unknown-linux-musl.tar.gz"
+          tar -xzf /tmp/just.tar.gz -C /tmp just
+          sudo install -m 755 /tmp/just /usr/local/bin/just
+          just --version
+
       - name: Run unit tests
         env:
           COVERAGE_PROCESS_START: .coveragerc
@@ -49,7 +60,7 @@ jobs:
           coverage report --fail-under=75
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7
         with:
           files: ./coverage.xml
           fail_ci_if_error: false

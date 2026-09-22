@@ -14,6 +14,7 @@ import re
 import shlex
 import subprocess
 from behave import step
+from tests.shared.ssh_config import ssh_argv
 from tests.shared.ssh_steps import run_ssh
 
 from tests.shared.kde_shell_steps import wait_until as _shared_wait_until
@@ -61,25 +62,13 @@ def _run(cmd: str, timeout: int = 30):
 def _run_host(cmd: str, timeout: int = 30, context=None):
     """Run cmd on the host VM via SSH when inside the runner container."""
     if _IN_CONTAINER:
-        # Prefer the connection settings resolved in before_all (which honour
-        # behave -D userdata); fall back to the environment. Reading env only
-        # meant userdata-configured runs probed the wrong host.
-        conn = getattr(context, "kde", {}).get("ssh", {}) if context is not None else {}
-        ssh_key = conn.get("key") or os.environ.get("SSH_KEY", "/home/bluefin-test/.ssh/id_ed25519")
-        vm_ip = conn.get("ip") or os.environ.get("VM_IP", "127.0.0.1")
-        vm_user = conn.get("user") or os.environ.get("VM_USER", "bluefin-test")
-        ssh_port = str(conn.get("port") or os.environ.get("SSH_PORT", "22"))
+        # ssh_argv() resolves through context attributes (set in before_all,
+        # which honours behave -D userdata) before falling back to the
+        # environment. Previously this read a never-populated
+        # ``context.kde["ssh"]`` dict, so it always fell through to raw env
+        # reads and silently ignored userdata-configured runs.
         result = subprocess.run(
-            [
-                "ssh",
-                "-i", ssh_key,
-                "-o", "StrictHostKeyChecking=no",
-                "-o", "UserKnownHostsFile=/dev/null",
-                "-o", "ConnectTimeout=10",
-                "-p", ssh_port,
-                f"{vm_user}@{vm_ip}",
-                cmd,
-            ],
+            ssh_argv(context) + [cmd],
             capture_output=True, text=True, timeout=timeout,
         )
     else:

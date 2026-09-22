@@ -1,4 +1,4 @@
-@smoke @offline
+@smoke @offline @vm_only
 Feature: Offline and degraded-network boot
   Validates that the image can reach graphical.target and remain operational
   when outbound network connectivity is absent or degraded.  Images must boot
@@ -11,6 +11,11 @@ Feature: Offline and degraded-network boot
   state without altering network configuration.
 
   Runner: plain SSH behave (no qecore — no GUI interaction needed).
+
+  Tagged @vm_only: every scenario drives the device under test over SSH, and a
+  container lane runs behave inside the target itself with no sshd to reach.
+  The suite hook skips these scenarios there rather than reporting a runner
+  limitation as an image regression.
 
   Background:
     * Bluefin VM is booted and reachable over SSH

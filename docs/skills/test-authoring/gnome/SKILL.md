@@ -22,7 +22,6 @@ metadata:
 ---
 # GNOME Desktop Testing Reference
 
-
 ## When to Use
 
 - Writing or debugging GNOME Shell, AT-SPI, or dogtail interactions
@@ -110,11 +109,20 @@ The SSH connection itself does not inherit `DBUS_SESSION_BUS_ADDRESS` or
 `WAYLAND_DISPLAY`; without this prefix, remote session calls can target no bus
 or the wrong user session and produce misleading test failures.
 
-In container mode (or nested test runners), `environment.py` automatically writes
-`/tmp/session.env` at session initialization with the active `DBUS_SESSION_BUS_ADDRESS`,
-`XDG_RUNTIME_DIR`, `WAYLAND_DISPLAY`, and `XDG_SESSION_TYPE`. `_run_host()` ensures
-the file is present and executes commands under bash so POSIX `/bin/sh` does not
-abort on missing file errors.
+In container mode, `environment.py` writes `/tmp/session.env` at session init with the
+active session addresses; `_run_host()` sources it and runs under bash so `/bin/sh`
+does not abort on a missing file.
+
+## GNOME 51 accessibility gsettings round-trips (@requires_gnome_51)
+
+GNOME 51 added two `org.gnome.desktop.a11y.interface` settings pre-51 images lack
+(confirmed against the schema source, never guessed): `reduced-motion` (enum
+`no-preference`/`reduce`) and `keyboard-focus-visible-timeout` (int; `0`=forever,
+`<0`=toolkit default, shipped `-1`). Round-trip them like the smoke suite's
+high-contrast scenario in `tests/vanilla-gnome/features/gnome_accessibility_51.feature`,
+gated with `@requires_gnome_51` and skipped at runtime via a `gnome-shell --version`
+probe in `environment.py` — a probe that cannot run skips rather than fails; run
+over SSH with the session-env prefix above.
 
 ## GNOME Shell extensions and AT-SPI health in smoke
 
@@ -174,6 +182,8 @@ def after_scenario(context, scenario):
 `take_screenshot()` calls the native `org.gnome.Shell.Screenshot` D-Bus API.
 Do not call `context.sandbox.shell.eval_js(...)` for screenshots — in qecore
 4.16 `sandbox.shell` is an accessibility object and has no `eval_js` method.
+
+From the runner container the capture goes over SSH and falls back `grim` -> `gnome-screenshot -f` -> `org.gnome.Shell.Screenshot` gdbus. Every remote command must source `/tmp/session.env` or the Wayland variables are absent and all three fail, and a stale PNG at the target path is deleted first so a leftover file is never reported as a fresh screenshot. Both invariants are covered by `tests/unit/test_screenshot_capture.py`.
 
 ## GNOME Extensions CLI (subprocess)
 
@@ -278,16 +288,13 @@ Parse the ID from `context.notify_output` with `re.search(r'\(uint32 (\d+),\)', 
 
 ## Smoke desktop-identity checks: use `_run_host` + session env
 
-
 For smoke steps that need session-scoped shell state (`XDG_SESSION_TYPE`,
 `DISPLAY`, `WAYLAND_DISPLAY`) or VM-installed tools like `glxinfo`, prefer the
 suite-local `_run_host(...)` helper over plain `subprocess.run(...)`.
 
-Why: local smoke scenarios execute inside the VM during ad-hoc runs, but CI can
-run them from the Fedora runner container. `_run_host(...)` transparently hops
-to the VM over SSH in that case, and `source /tmp/session.env 2>/dev/null; ...`
-preserves the GNOME user-session environment before probing Wayland or renderer
-state.
+Why: local smoke scenarios run inside the VM, but CI can run them from the Fedora
+runner container. `_run_host(...)` transparently hops to the VM over SSH and sources
+`/tmp/session.env` to preserve the GNOME user-session environment.
 
 ## Unit-testing smoke step modules
 

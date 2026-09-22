@@ -50,3 +50,21 @@ jobs:
 **Verified with:** `actionlint` catches this (`continue-on-error is not available` for reusable workflow jobs). Run `actionlint` on any workflow that uses `uses:` before pushing.
 
 ---
+
+## Workflow-level deny-all default in `e2e.yml`
+
+`e2e.yml` declares `permissions: {}` at workflow level, immediately before `jobs:`. Any job that does not declare its own `permissions:` block therefore gets no token scope at all.
+
+Job inventory and why the default is safe:
+
+| Job | Own `permissions:` | Needs a token |
+|---|---|---|
+| `matrix` | none — inherits deny-all | no; it only runs `python3 -c` over `inputs.suites` and writes `$GITHUB_OUTPUT` |
+| `compose` | `contents: read` + `packages: write` | yes — `podman login ghcr.io` with `secrets.GITHUB_TOKEN` |
+| `e2e` | `contents: read` + `packages: write` | yes — same |
+
+In a `workflow_call` workflow the workflow-level key sets the default for jobs without their own block and can only downscope; job-level blocks still apply, bounded by the caller's grant. Adding a job that needs a token therefore means adding its own `permissions:` block — it will not silently inherit one.
+
+**When adding a job to `e2e.yml`:** give it an explicit `permissions:` block if it touches the API, GHCR, or the checkout token. A job that only computes outputs needs nothing.
+
+---

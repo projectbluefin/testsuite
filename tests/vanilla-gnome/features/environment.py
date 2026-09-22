@@ -13,6 +13,8 @@ qecore-headless (invoked by the Argo runner) handles:
 import sys
 import traceback
 
+from tests.shared.results_dir import resolve_results_dir
+
 from qecore.sandbox import TestSandbox
 from qecore.common_steps import *  # noqa: F401,F403 — registers all common @step definitions
 
@@ -51,6 +53,58 @@ except Exception as exc:  # noqa: BLE001
 
 
 SUITE_NAME = "vanilla-gnome"
+
+# Runtime gate tag for settings that only exist on GNOME 51+. environment.py
+# probes the running Shell version in before_scenario and skips these scenarios
+# on GNOME <= 50 images, so the scenarios run where they apply and skip cleanly
+# elsewhere (a version probe, not a non-runnable tag).
+REQUIRES_GNOME_51_TAG = "requires_gnome_51"
+
+
+def _gnome_major_version(context) -> int:
+    """Probe the running GNOME Shell major version on the VM, cached on context.
+
+    GNOME 51 shipped ``reduced-motion`` and ``keyboard-focus-visible-timeout``
+    in ``org.gnome.desktop.a11y.interface``; pre-51 images lack them. A probe
+    that cannot run (no VM, no SSH) returns 0 so ``@requires_gnome_51``
+    scenarios skip rather than fail. Cached so the ``before_scenario`` hook
+    does not SSH on every scenario.
+    """
+    cached = getattr(context, "_gnome_major_version", None)
+    if cached is not None:
+        return cached
+
+    major = 0
+    try:
+        from steps.steps import _ssh_run
+
+        result = _ssh_run("gnome-shell --version", timeout=15)
+        import re
+
+        match = re.search(r"GNOME Shell (\d+)", result.stdout or "")
+        if match:
+            major = int(match.group(1))
+    except Exception:  # noqa: BLE001 -- no VM / SSH: skip rather than fail
+        major = 0
+
+    context._gnome_major_version = major
+    return major
+
+
+def _skip_requires_gnome_51(context, scenario) -> bool:
+    """Skip @requires_gnome_51 scenarios on GNOME <= 50 (runtime version probe)."""
+    if REQUIRES_GNOME_51_TAG not in scenario.tags:
+        return False
+    major = _gnome_major_version(context)
+    if major < 51:
+        scenario.skip(
+            reason=(
+                f"requires GNOME 51+ reduced-motion / focus-ring gsettings; "
+                f"this image reports GNOME Shell {major}"
+            )
+        )
+        return True
+    return False
 
 
 def before_all(context) -> None:
@@ -144,6 +198,8 @@ def before_scenario(context, scenario) -> None:
 
     if skip_quarantine(scenario):
         return
+    if _skip_requires_gnome_51(context, scenario):
+        return
     context.scenario = scenario
     configure_screenshot_context(context, SUITE_NAME, scenario.name)
     # Initialize qecore command output attributes (attribute name varies by version)
@@ -161,10 +217,17 @@ def before_scenario(context, scenario) -> None:
 
 def after_scenario(context, scenario) -> None:
     record_end(context, scenario)
+    # A scenario skipped in before_scenario (quarantine tags, or @requires_gnome_51
+    # on GNOME <= 50) returns before sandbox setup, so context.sandbox is unset.
+    # behave still calls after_scenario for skipped scenarios; guard it so the
+    # skip is clean instead of an AttributeError.
+    sandbox = getattr(context, "sandbox", None)
+    if sandbox is None:
+        return
     if scenario.status.name in ('passed', 'failed'):
         configure_screenshot_context(context, SUITE_NAME, scenario.name)
         take_screenshot(scenario.status.name)
-    context.sandbox.after_scenario(context, scenario)
+    sandbox.after_scenario(context, scenario)
 
 
 def after_step(context, step) -> None:
@@ -191,7 +254,8 @@ def after_all(context) -> None:
 
     try:
         import os
-        if os.path.exists("/tmp/results/atspi_tree.txt"):
+        results_dir = resolve_results_dir(context)
+        if os.path.exists(os.path.join(results_dir, "atspi_tree.txt")):
             return  # already written by after_scenario
         shell = context.sandbox.shell
         lines = []
@@ -199,8 +263,8 @@ def after_all(context) -> None:
             lines.append(f"role={child.roleName!r:30} name={child.name!r}")
             for gc in child.children[:20]:
                 lines.append(f"  role={gc.roleName!r:30} name={gc.name!r}")
-        os.makedirs("/tmp/results", exist_ok=True)
-        with open("/tmp/results/atspi_tree.txt", "w") as f:
+        os.makedirs(results_dir, exist_ok=True)
+        with open(os.path.join(results_dir, "atspi_tree.txt"), "w") as f:
             f.write("\n".join(lines))
     except Exception:   # noqa: BLE001
         pass

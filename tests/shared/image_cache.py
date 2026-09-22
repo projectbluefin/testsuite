@@ -7,7 +7,7 @@ blow the CI timeout instead of reporting a useful result, so the scenario is
 skipped with an explicit reason.
 
 This is the same "skip until the capability exists, then activate
-automatically" contract as ``@requires_bctl`` and ``@requires_toggle_action``
+automatically" contract as ``@requires_brew`` and ``@requires_toggle_action``
 in ``tests/common/features/environment.py``.  It is deliberately NOT a
 non-runnable tag: it does not belong in ``tests/shared/quarantine.py`` or in
 the CI tag filters, because the scenario must run the moment the image is
@@ -89,20 +89,9 @@ def _ssh_returncode(context, command: str, timeout: int) -> int:
     Unlike a step, this probe leaves ``context`` untouched: it runs before the
     per-scenario state reset and must not smear command output across scenarios.
     """
-    from tests.shared.ssh_config import resolve_ssh_details
+    from tests.shared.ssh_config import ssh_argv
 
-    details = resolve_ssh_details(context)
-    argv = [
-        "ssh",
-        "-i", details["ssh_key"],
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=/dev/null",
-        "-o", "ConnectTimeout=10",
-        "-o", "LogLevel=ERROR",
-    ]
-    if details.get("ssh_port"):
-        argv += ["-p", str(details["ssh_port"])]
-    argv += [f"{details['ssh_user']}@{details['vm_ip']}", command]
+    argv = ssh_argv(context, quiet=True) + [command]
     return subprocess.run(argv, capture_output=True, text=True, timeout=timeout).returncode
 
 

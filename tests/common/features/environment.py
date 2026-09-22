@@ -7,6 +7,7 @@ GSettings-focused checks over SSH against a live Bluefin session.
 import os
 import shlex
 
+from tests.shared.ssh_config import _first_value
 from tests.shared.ssh_steps import *  # noqa: F401,F403
 from tests.shared.ssh_steps import run_ssh
 
@@ -18,13 +19,6 @@ except Exception:  # noqa: BLE001
 
     def record_end(context, scenario):
         return None
-
-
-def _first_value(*values: str) -> str:
-    for value in values:
-        if value:
-            return value
-    return ""
 
 
 def _is_bluefin_image(image: str) -> bool:
@@ -74,22 +68,6 @@ def _is_container_target(context) -> bool:
     _, rc = run_ssh(context, "test -e /run/systemd/container")
     context.is_container_target = (rc == 0)
     return context.is_container_target
-
-
-def _has_bctl(context) -> bool:
-    """Return True when bluefinctl (`bctl`) is installed on the VM.
-
-    bluefinctl ships via the Homebrew preinstall set, and brew-setup.service is
-    masked in QEMU CI, so `bctl` is absent there. Scenarios tagged
-    ``@requires_bctl`` skip with an explicit reason rather than failing on a
-    missing binary.
-    """
-    cached = getattr(context, "has_bctl", None)
-    if cached is not None:
-        return cached
-    _, returncode = run_ssh(context, "command -v bctl")
-    context.has_bctl = returncode == 0
-    return context.has_bctl
 
 
 def _has_toggle_action(context) -> bool:
@@ -183,7 +161,6 @@ def before_all(context):
     context.last_ssh_result = None
     context.ssh_rc = 0
     context.has_brew = None
-    context.has_bctl = None
 
 
 def before_scenario(context, scenario):
@@ -210,9 +187,6 @@ def before_scenario(context, scenario):
         return
     if "requires_brew" in scenario_tags and not _has_brew(context):
         scenario.skip("Homebrew not present on this image")
-        return
-    if "requires_bctl" in scenario_tags and not _has_bctl(context):
-        scenario.skip("bluefinctl (bctl) not present on this image")
         return
     if "requires_toggle_action" in scenario_tags and not _has_toggle_action(context):
         scenario.skip("ujust toggle-updates ACTION support not present on this image")
@@ -249,25 +223,5 @@ def before_scenario(context, scenario):
     record_start(context)
 
 
-def _cleanup_devmode(context, scenario) -> None:
-    """Restore devmode to inactive after a @devmode_cleanup scenario.
-
-    The devmode mutation scenario changes durable system state (group
-    membership), so teardown must not live in trailing scenario steps: a
-    failure part-way through would leak an enabled devmode into the next run
-    or retry. Skipped scenarios never mutated anything, so they are ignored.
-    """
-    if "devmode_cleanup" not in _scenario_tags(scenario):
-        return
-    status = getattr(scenario, "status", None)
-    if getattr(status, "name", status) == "skipped":
-        return
-    try:
-        run_ssh(context, "bctl devmode --disable")
-    except Exception:  # noqa: BLE001 - teardown must never mask the real failure
-        pass
-
-
 def after_scenario(context, scenario):
-    _cleanup_devmode(context, scenario)
     record_end(context, scenario)

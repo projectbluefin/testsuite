@@ -141,3 +141,28 @@ def test_environment_uses_correct_webdriver_module():
     mod = importlib.import_module("tests.kde-smoke.features.environment")
     assert hasattr(mod.kde_webdriver, "new_session")
     assert not hasattr(mod.kde_webdriver, "start_driver")
+
+
+# ---------------------------------------------------------------------------
+# 4. Default SSH key resolution (no key configured by userdata or environment)
+# ---------------------------------------------------------------------------
+
+
+class TestDefaultSshKey:
+    """_run_host now resolves context.ssh_key through ssh_argv(); the env-default
+    key must stay usable in both the tmt-provisioned and the plain runner case."""
+
+    @pytest.fixture(autouse=True)
+    def _load_module(self):
+        self.mod = importlib.import_module("tests.kde-smoke.features.environment")
+
+    def test_prefers_tmt_key_when_present(self, monkeypatch):
+        monkeypatch.setattr(self.mod.os.path, "exists", lambda path: True)
+        assert self.mod._default_ssh_key() == "/etc/ssh/test-key/id_ed25519"
+
+    def test_falls_back_to_runner_key_when_tmt_key_absent(self, monkeypatch):
+        from tests.shared.ssh_config import DEFAULT_SSH_KEY
+
+        monkeypatch.setattr(self.mod.os.path, "exists", lambda path: False)
+        assert self.mod._default_ssh_key() == DEFAULT_SSH_KEY
+        assert DEFAULT_SSH_KEY == "/home/bluefin-test/.ssh/id_ed25519"

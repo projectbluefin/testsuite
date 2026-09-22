@@ -65,6 +65,86 @@ def _valid_fedora_version(version):
     return bool(re.fullmatch(r"\d+", version or ""))
 
 
+SETTLED_DEPLOYMENT_TIMEOUT_S = 120
+SETTLED_POLL_INTERVAL_S = 5
+
+
+def _is_deployment_settled(raw_json: str) -> tuple[bool, str]:
+    """Check whether bootc status JSON indicates a settled deployment.
+
+    A deployment is considered settled when:
+      1. The output is non-empty, valid JSON with a top-level 'status' mapping.
+      2. A 'booted' deployment is present (.status.booted is a non-empty dict).
+      3. No staged deployment is present (.status.staged is None or absent).
+         If a staged deployment is present, staging or finalization is still
+         in progress or awaiting reboot.
+
+    Returns:
+        (True, reason) if settled, (False, reason) if unsettled or invalid.
+    """
+    if not raw_json or not raw_json.strip():
+        return False, "bootc status output was empty"
+    try:
+        payload = json.loads(raw_json)
+    except json.JSONDecodeError as exc:
+        return False, f"invalid bootc status JSON: {exc}"
+    if not isinstance(payload, dict):
+        return False, f"top-level JSON is {type(payload).__name__}, expected dict"
+    status = payload.get("status")
+    if not isinstance(status, dict):
+        return False, f"missing 'status' dict in bootc status JSON (keys: {list(payload.keys())})"
+    booted = status.get("booted")
+    if not isinstance(booted, dict) or not booted:
+        return False, "missing or empty 'booted' deployment in status"
+    staged = status.get("staged")
+    if staged is not None:
+        return False, f"staged deployment is present (staging/finalization in progress or pending reboot): {staged}"
+    return True, "deployment is settled (booted deployment active, no staged deployment in progress)"
+
+
+@step("Deployment is settled")
+@step("bootc deployment is settled")
+def deployment_is_settled(context, timeout: int = SETTLED_DEPLOYMENT_TIMEOUT_S):
+    """Barrier: poll bootc status over SSH until no staging/finalization is in progress.
+
+    In fresh QEMU installs or following deployment changes, bootc may temporarily
+    report a staged deployment or hold locks while the staged-deployment writer
+    finalizes. This barrier polls until bootc status reports a valid booted deployment
+    with no staged deployment, ensuring subsequent operations like `bootc pin`
+    do not race the writer.
+    """
+    deadline = time() + timeout
+    last_reason = "bootc status was not executed"
+
+    while time() < deadline:
+        try:
+            stdout, rc = run_ssh(context, "sudo bootc status --format=json", timeout=15)
+            if rc == 0:
+                settled, reason = _is_deployment_settled(stdout)
+                if settled:
+                    print(f"Deployment settled: {reason}", flush=True)
+                    return
+                last_reason = reason
+            else:
+                last_reason = f"sudo bootc status --format=json exited {rc}: {stdout!r}"
+        except subprocess.TimeoutExpired as exc:
+            last_reason = f"SSH command timed out after {exc.timeout}s"
+        except Exception as exc:
+            last_reason = f"SSH execution failed: {exc}"
+
+        sleep(SETTLED_POLL_INTERVAL_S)
+
+    raise AssertionError(
+        f"Deployment did not settle within {timeout}s: {last_reason}"
+    )
+
+
+@step("Deployment is settled within {timeout:d} seconds")
+@step("bootc deployment is settled within {timeout:d} seconds")
+def deployment_is_settled_with_timeout(context, timeout: int):
+    deployment_is_settled(context, timeout=timeout)
+
+
 @step("bootc status shows deployment is pinned")
 def bootc_status_pinned(context):
     booted = _parse_bootc_status(context).get("booted") or {}

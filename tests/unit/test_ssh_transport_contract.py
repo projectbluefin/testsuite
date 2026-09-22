@@ -19,6 +19,9 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 # regression: the transport policy must stay in tests/shared/ssh_config.py.
 MIGRATED_MODULES = (
     "tests/shared/gnome_shell_steps.py",
+    "tests/shared/ssh_steps.py",
+    "tests/shared/image_cache.py",
+    "tests/shared/screenshot.py",
     "tests/smoke/features/steps/app_support.py",
     "tests/smoke/features/steps/display_scaling_steps.py",
     "tests/smoke/features/steps/gnome_apps_steps.py",
@@ -26,6 +29,12 @@ MIGRATED_MODULES = (
     "tests/smoke/features/steps/gnome_notifications_steps.py",
     "tests/smoke/features/steps/steps.py",
     "tests/smoke/features/steps/system_health_steps.py",
+    "tests/dx/features/steps/steps.py",
+    "tests/flatcar/features/steps/steps.py",
+    "tests/kde-smoke/features/steps/steps.py",
+    "tests/software/features/steps/steps.py",
+    "tests/software/features/environment.py",
+    "tests/vanilla-gnome/features/steps/steps.py",
 )
 
 
@@ -85,6 +94,18 @@ class TestSshArgv:
         """Suite-local helpers call ssh_argv() with no behave context."""
         with patch.dict(os.environ, _clean_env(VM_IP="10.0.0.3"), clear=True):
             assert "bluefin-test@10.0.0.3" in ssh_config.ssh_argv(None)
+
+    def test_quiet_defaults_off(self):
+        """Callers that never asked for LogLevel=ERROR keep byte-identical argv."""
+        with patch.dict(os.environ, _clean_env(), clear=True):
+            assert "LogLevel=ERROR" not in ssh_config.ssh_argv()
+
+    def test_quiet_adds_log_level_error(self):
+        """quiet=True is the single opt-in for suppressing ssh's own diagnostics."""
+        with patch.dict(os.environ, _clean_env(), clear=True):
+            argv = ssh_config.ssh_argv(quiet=True)
+        assert "LogLevel=ERROR" in argv
+        assert argv[0] == "ssh"
 
 
 class TestNoPrivateTransportCopies:

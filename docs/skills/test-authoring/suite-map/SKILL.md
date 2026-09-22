@@ -143,13 +143,14 @@ Set `chunked_enabled: true` once `ghcr.io/projectbluefin/bluefin:latest` ships z
 | `@nvidia_only` | NVIDIA variant only |
 | `@flatcar_suite` | Flatcar OS only |
 | `@hardware_emulation` | Requires full-hw VM spec (TPM, audio, watchdog) |
+| `@vm_only` | Scenario drives the device under test over SSH (or asserts VM-only boot state); the smoke `environment.py` skips it in container lanes, detected via `/run/.containerenv` (`tests/shared/runtime_env.py`) |
 | `@pending` | Placeholder coverage gap; intentionally skipped until a valid harness exists |
 | `@future` | Not yet implemented or blocked on infra |
 | `@homed_migration` | systemd-homed migration scenarios; dakota lifecycle; SSH-mode; skip-safe when homed absent |
 | `@regression` | Anchors a known incident regression guard; must remain active indefinitely |
 | `@kde_smoke` | KDE Plasma smoke-suite identifier; used by `e2e.yml` suite registration (#645) |
 | `@informational` | Bake-period tier; scenario runs and reports results but does not gate promotion until promoted to `@critical` |
-| `@requires_cached_image` | Scenario needs the OCI image named in its own steps to be pre-pulled on the DUT; `tests/shared/image_cache.py` probes `podman image exists` from `before_scenario` and skips while it is absent. A **runtime capability gate** like `@requires_bctl`, not a non-runnable tag — never pair it with `@pending`/`@future`, which mask it (#501) |
+| `@requires_cached_image` | Scenario needs the OCI image named in its own steps to be pre-pulled on the DUT; `tests/shared/image_cache.py` probes `podman image exists` from `before_scenario` and skips while it is absent. A **runtime capability gate** like `@requires_brew`, not a non-runnable tag — never pair it with `@pending`/`@future`, which mask it (#501) |
 
 ## Coverage snapshot
 
@@ -160,24 +161,24 @@ Set `chunked_enabled: true` once `ghcr.io/projectbluefin/bluefin:latest` ships z
 
 <!-- coverage-snapshot:start -->
 
-553 scenarios across 76 feature files: 437 active, 0 quarantined, 116 `@future`/`@pending`/`@hardware_blocked`
+548 scenarios across 75 feature files: 438 active, 0 quarantined, 110 `@future`/`@pending`/`@hardware_blocked`
 
 | Suite | Scenarios | Active | Quarantined | Pending/Future | Notes |
 |---|---|---|---|---|---|
 | bazzite | 20 | 20 | 0 | 0 | Extension presence + shell behaviour |
-| common | 121 | 100 | 0 | 21 | Signing assertions `@future` pending the ublue-os→projectbluefin policy migration; flatpak model/state, dconf defaults, and immutability checks `@pending` on CI infra (#838); Flatpak model + state; XDG portal health + integration; container runtime (podman); polkit rules; shell env + sourcing; system scripts; ujust recipes; devmode via bctl (non-interactive contract + idempotent state-check gated `@requires_bctl`, group mutation `@pending` on CI polkit); GSettings/dconf defaults; immutable OS integrity; desktop entries; signing assertions; Dakota `ujust --choose` regression guard active (`@dakota_only`); `ujust report` is `@pending` on #706 until a Dakota lab run validates the mocked submit flow |
-| developer | 23 | 7 | 0 | 16 | 6 brew + 6 ptyxis + 4 bctl now `@pending`: `brew-setup.service` masked in CI (#487) and the ptyxis AT-SPI restart issue (#368) |
+| common | 118 | 98 | 0 | 20 | Signing assertions `@future` pending the ublue-os→projectbluefin policy migration; flatpak model/state, dconf defaults, and immutability checks `@pending` on CI infra (#838); Flatpak model + state; XDG portal health + integration; container runtime (podman); polkit rules; shell env + sourcing; system scripts; ujust recipes; GSettings/dconf defaults; immutable OS integrity; desktop entries; signing assertions; Dakota `ujust --choose` regression guard active (`@dakota_only`); `ujust report` is `@pending` on #706 until a Dakota lab run validates the mocked submit flow |
+| developer | 19 | 7 | 0 | 12 | 6 brew + 6 ptyxis now `@pending`: `brew-setup.service` masked in CI (#487) and the ptyxis AT-SPI restart issue (#368) |
 | dx | 18 | 13 | 0 | 5 | distrobox create/install/export are active behind the `@requires_cached_image` runtime gate — they skip until `fedora-toolbox:latest` is pre-pulled on the VM (#501 / projectbluefin/lab#621) and activate without a feature-file edit; distrobox enter, JupyterLab, brew, mise remain `@pending` on infra gaps |
 | flatcar | 13 | 12 | 0 | 1 | boot (7 active) + lifecycle (5 active); 1 `@future` (boot from installed target disk — needs KubeVirt boot-order support in `projectbluefin/lab`) |
 | hardware | 13 | 13 | 0 | 0 | udev rules syntax validation (ZSA, Apple SuperDrive, Framework 16, AMD s2idle, Wooting, VIIA); emulated peripherals driven by shared SSH steps |
 | installer | 3 | 3 | 0 | 0 | post-boot assertions for installer-driven installs (UEFI, Flatpak exclusion, LUKS cmdline) |
 | kde-smoke | 13 | 13 | 0 | 0 | Plasma session, D-Bus services, AT-SPI tree, KWin output, one KCM, Dolphin, Konsole, Kickoff; all `@informational` |
-| lifecycle | 33 | 29 | 0 | 4 | bootc upgrade / rollback / migration; pin + switch are `@future` (pin races the staged-deployment writer; switch needs a valid alternate image ref) |
+| lifecycle | 33 | 30 | 0 | 3 | bootc upgrade / rollback / migration; switch is `@future` (needs a valid alternate image ref; pin activated with settled-deployment barrier) |
 | nvidia | 12 | 0 | 0 | 12 | `@future` / `@hardware_blocked` until GPU passthrough exists in the lab |
 | security | 15 | 15 | 0 | 0 | cosign verify: projectbluefin (bluefin, lts, dakota) + ublue-os (latest, LTS, DX, nvidia, GTS, DX-nvidia, negative) |
 | smoke | 223 | 174 | 0 | 49 | 39 `@pending` flatpak-permission audits blocked on CI never seeding system Flatpaks; MIME handler coverage (Firefox/Papers/Loupe/Text Editor/video); GNOME accessibility (AT-SPI daemon, high-contrast toggle, a11y panel); display fractional/integer scaling via Mutter DisplayConfig; Bluefin desktop identity (Wayland, hardware accel, Dash to Dock); GNOME regression guards in gnome_regression.feature; Dakota sudo-rs privilege and PAM checks |
 | software | 33 | 25 | 0 | 8 | Bazaar launch + search + CLI presence/info/remote + config YAML validation active on bluefin; Bazaar UI tests rewritten for actual Bazaar layout; CLI (Flathub remote + permissions DB) active on all images; Flatpak per-app permission management active on all images; upstream GNOME Software scenarios are `@future` (#847) |
-| vanilla-gnome | 13 | 13 | 0 | 0 | Baseline GNOME Shell parity check; runs on any GNOME image |
+| vanilla-gnome | 15 | 15 | 0 | 0 | Baseline GNOME Shell parity check; runs on any GNOME image; org.gnome.desktop.a11y.interface reduced-motion + keyboard-focus-visible-timeout gsettings round-trips (@requires_gnome_51, skip on GNOME <= 50 via runtime Shell version probe) |
 
 <!-- coverage-snapshot:end -->
 
@@ -261,7 +262,6 @@ skipped-coverage table above.
 | GNOME Software navigation/regression/close (×6) | software | `@future` | Bluefin ships Bazaar, not GNOME Software (#847) |
 | flatpak install/uninstall round-trip (×1) | software | `@future` | gnomeos/GNOME 51 startup path unverified (#847); also slow network I/O |
 | common signing (×2) | common | `@future` | signing policy not yet enforced upstream; mid-migration ublue-os → projectbluefin |
-| bootc pin (×1) | lifecycle | `@future` | `bootc pin` races the staged-deployment writer in a fresh QEMU install |
 | bootc switch (×1) | lifecycle | `@future` | mutates VM image variant; needs cross-variant golden-disk testing |
 
 ## @future inventory
