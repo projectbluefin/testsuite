@@ -127,3 +127,16 @@ so a broken path or a missing import surfaces as "no `atspi_tree.txt`" and nothi
 `tests/unit/test_suite_environment_contract.py` guards it by asserting no `after_all`
 contains a `/tmp/results` literal. Resolve the directory once and reuse it for both the
 existence check and the write.
+
+## Scenario timing and SLA reporting contract
+
+`tests/shared/timing.py` appends scenario run metrics to `timings.jsonl` in the results
+directory. The `gnome-e2e` composite action reads back `results/timings.jsonl` to report SLA
+violations in job summaries.
+
+- SLAs are defined solely via scenario tags matching `@sla_<n>s` (e.g. `@sla_10s`).
+- Scenarios without an `@sla_<n>s` tag do not have a default SLA (`sla_s: null`) and do not violate.
+- Violations are reported and surfaced as warnings in CI summaries; they do not fail the scenario run directly.
+- Strict gating is driven by the `results-timing` recipe in `Justfile` checking `TIMING_SLA_STRICT=1` (exiting 1 on violations), not by module-level constants in `timing.py`.
+- `tests/unit/test_timing_contract.py` validates that all keys consumed by the action summariser and the `results-timing` recipe in `Justfile` are produced by `timing.py:record_end` and ensures unconsumed public configuration constants are not added to `timing.py`.
+
