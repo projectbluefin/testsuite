@@ -43,24 +43,11 @@ Corollary: do not close or skip enqueuing a "dependency" PR just because its CI 
 
 ## Merging PRs — the effective gate
 
-**Submit to lab → wait for `ghost-lab` → merge on pass, fix on fail.**
-
-`ghost-lab` **is** posted on testsuite PRs and **must be green before merging**.
-It was dead for a long stretch: every testsuite lab workflow was rejected at
-Argo admission in 0s because `bluefin-qa-pipeline`'s `pipeline` template
-declared `image-digest` required with no default while `pr-poller` emitted it as
-an empty string, and Argo normalises an empty string to absent.
-`projectbluefin/lab#606` fixed that; `#607`/`#608`/`#610`/`#611` fixed
-nested-target provisioning. Statuses post reliably since (observed on testsuite
-`#724`, `#726`, `#727`, `#729`). Ignore any older "nothing will arrive" note.
-
-### The gate to apply
+**The gate to apply:**
 
 1. **GitHub Actions CI green** — the five required checks below.
-2. **`ghost-lab` green** — not optional, and not implied by (1). See below.
-3. **Human approval to merge.** Merging is a human gate; an agent prepares the
+2. **Human approval to merge.** Merging is a human gate; an agent prepares the
    PR and asks. See `docs/skills/meta/human-gates/SKILL.md`.
-
 | Check | Workflow | Trigger |
 |---|---|---|
 | `Lint & syntax` | `pr-validate.yml` | `pull_request`, `merge_group`, `push: main` |
@@ -75,7 +62,7 @@ repository **ruleset** (which also enables the merge queue, squash method, and
 returns `404 Branch not protected` — expected, because the configuration lives
 in a ruleset. Verify with `gh api repos/projectbluefin/testsuite/rulesets`.
 
-Once CI and `ghost-lab` are green and a human has approved, enqueue with:
+Once CI is green and a human has approved, enqueue with:
 
 ```bash
 gh pr merge <NUMBER> --repo projectbluefin/testsuite --squash --auto
@@ -84,64 +71,6 @@ gh pr merge <NUMBER> --repo projectbluefin/testsuite --squash --auto
 The `--auto` flag enqueues the PR; the merge queue re-runs the required checks
 on the merge commit and lands to `main` automatically on green. Do not attempt
 `--admin` bypasses.
-
-### The five GHA checks are not sufficient
-
-**GHA CI does not boot a real VM.** Lint, behave dry-run, quarantine age,
-pytest, and docs-validate verify syntax, step-name resolution, doc structure,
-and helper unit behaviour only. Real-VM regressions — GNOME Shell/AT-SPI
-timing, GDM state, bootc upgrade/rollback, oomd kills — are invisible to all
-five. `ghost-lab` runs the `smoke,common` suites on a real KubeVirt VM and is
-the only pre-merge signal that catches them. A PR that is "5/5 green" has had
-**no** runtime coverage.
-
-Still say so explicitly in the PR description when a change has had no real-VM
-coverage (for example when `ghost-lab` is red for an unrelated repo-wide
-blocker and a human waives it).
-
-### Reading and re-running `ghost-lab`
-
-**It is a commit status, not a check run.** It does not appear in the
-check-runs API, so tooling that only reads check runs will show it as missing.
-Query the status API against the PR head SHA:
-
-```bash
-gh api repos/projectbluefin/testsuite/commits/$(gh pr view <N> \
-  --repo projectbluefin/testsuite --json headRefOid --jq .headRefOid)/status \
-  --jq '.statuses[] | {context, state}'
-```
-
-**Dispatch is automatic for testsuite.** The `pr-label-poller` CronWorkflow in
-`projectbluefin/lab` runs every 5 minutes and auto-dispatches for every repo in
-`AUTO_REPOS` (`common`, `knuckle`, `testsuite`). You do **not** need to add a
-label: `test-on-lab` is only a Pass-2 catch-all for repos outside `AUTO_REPOS`,
-and that label does not exist in this repository. Pushing a new commit is
-enough; the poller picks up the new head SHA within 5 minutes.
-
-**Dedup is by label.** The poller keys off `bluefin.io/pr-number` and
-`bluefin.io/pr-sha` on the Argo workflow, so it will not re-dispatch for a SHA
-it has already run. To force a re-run at the same SHA, delete the workflow and
-wait for the next poll:
-
-```bash
-kubectl delete workflow -n argo -l bluefin.io/pr-number=<N>
-```
-
-**There is a `MAX_DISPATCH` rate cap.** A large batch of open PRs will not all
-dispatch in one poll cycle; they drain over successive 5-minute runs. A PR
-sitting without a `ghost-lab` status for a few minutes is normal backlog, not a
-broken gate.
-
-### Lesson: a merged fix is not a working fix
-
-Verify a gate by observing a real signal end to end. Never conclude a gate works
-because a fix for it merged: three consecutive fixes to this reporter each
-merged green, and each left the gate posting nothing. The fix that finally
-worked (`lab#606`) was confirmed by observing `ghost-lab` statuses on four
-separate PRs, not by reading the diff. Reporting is a leg of the pipeline that
-no upstream test exercises — an unauthenticated request or a rejected payload
-fails silently from the PR's point of view. This is the same failure class as a
-test suite that reports green while silently skipping every scenario.
 
 **Counted-evidence rule for token plumbing.** Token-like strings are redacted in
 command and log output, so you can never confirm an `Authorization` header by
