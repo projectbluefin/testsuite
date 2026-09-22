@@ -5,8 +5,8 @@
   ],
   "packageRules": [
     {
-      "description": "Automerge chore dep updates (digest, pin, patch, minor) when CI passes",
-      "matchUpdateTypes": ["digest", "pin", "patch", "minor"],
+      "description": "Immutable-ref housekeeping automerges when CI passes; code-changing updates (digest, patch, minor) require human review under the supply-chain gate",
+      "matchUpdateTypes": ["pin", "pinDigest"],
       "automerge": true,
       "automergeType": "pr",
       "automergeStrategy": "squash"
