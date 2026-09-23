@@ -26,8 +26,11 @@ GNOME_E2E_ACTION = REPO_ROOT / ".github" / "actions" / "gnome-e2e" / "action.yml
 JUSTFILE = REPO_ROOT / "Justfile"
 TIMING_SOURCE = REPO_ROOT / "tests" / "shared" / "timing.py"
 
-# Keys readers pull off each timings.jsonl entry.
-ENTRY_GET_RE = re.compile(r"""entry\.get\(\s*["']([A-Za-z_][A-Za-z0-9_]*)["']""")
+# Keys readers pull off each timings.jsonl entry (via entry.get(...) or subscript entry['...']/v['...']).
+ENTRY_READ_RE = re.compile(
+    r"""\b(?:entry|v)(?:\.get\(\s*|\[\s*)["']([A-Za-z_][A-Za-z0-9_]*)["']"""
+)
+ENTRY_GET_RE = ENTRY_READ_RE
 
 
 def _summarise_step_body():
@@ -90,8 +93,8 @@ def _written_entry(tmp_path, tags=None):
 
 
 def _assert_reader_keys_are_written(tmp_path, source_path, body):
-    consumed = set(ENTRY_GET_RE.findall(body))
-    assert consumed, f"found no entry.get(...) reads in {source_path}; did the reader change shape?"
+    consumed = set(ENTRY_READ_RE.findall(body))
+    assert consumed, f"found no entry reads in {source_path}; did the reader change shape?"
 
     produced = set(_written_entry(tmp_path))
     missing = sorted(consumed - produced)
@@ -204,4 +207,11 @@ def test_summarise_step_body_regex_fallback_matches():
     keys_fallback = set(ENTRY_GET_RE.findall(fallback_body))
     keys_full = set(ENTRY_GET_RE.findall(_summarise_step_body()))
     assert keys_fallback == keys_full
+
+
+def test_entry_reads_include_subscript_access():
+    """Subscript access like v['key'] or entry['key'] must be extracted."""
+    snippet = "print(entry.get('foo'))\nprint(v['bar'])\nprint(entry['baz'])\n"
+    keys = set(ENTRY_READ_RE.findall(snippet))
+    assert keys == {"foo", "bar", "baz"}
 

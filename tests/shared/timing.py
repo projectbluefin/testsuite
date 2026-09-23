@@ -2,11 +2,10 @@
 
 Each ``record_end`` call appends one JSON object to ``<results_dir>/timings.jsonl``.
 That file is not a debug artifact: the "Summarise results" step of
-``.github/actions/gnome-e2e/action.yml`` and the ``results-timing`` recipe in
-``Justfile`` read it back and report every entry whose ``sla_violated`` is true
-and whose ``status`` is not ``skipped``. The key names in ``record_end`` are
-therefore a contract with those readers, enforced by
-``tests/unit/test_timing_contract.py``.
+``.github/actions/gnome-e2e/action.yml`` reports SLA violations for non-skipped
+entries, and the ``results-timing`` recipe in ``Justfile`` tabulates every entry
+and flags violations. The key names in ``record_end`` are therefore a contract
+with those readers, enforced by ``tests/unit/test_timing_contract.py``.
 
 An SLA applies to a scenario only when the scenario carries an ``@sla_<n>s`` tag.
 There is deliberately no default-SLA table and no strict/failing mode: a violation is
