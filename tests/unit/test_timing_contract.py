@@ -31,11 +31,27 @@ ENTRY_GET_RE = re.compile(r"""entry\.get\(\s*["']([A-Za-z_][A-Za-z0-9_]*)["']"""
 
 
 def _summarise_step_body():
-    yaml = pytest.importorskip("yaml")
-    action = yaml.safe_load(GNOME_E2E_ACTION.read_text(encoding="utf-8"))
-    for step in action["runs"]["steps"]:
-        if step.get("name") == "Summarise results":
-            return step["run"]
+    try:
+        import yaml
+    except ImportError:
+        yaml = None
+
+    if yaml is not None:
+        action = yaml.safe_load(GNOME_E2E_ACTION.read_text(encoding="utf-8"))
+        for step in action["runs"]["steps"]:
+            if step.get("name") == "Summarise results":
+                return step["run"]
+    else:
+        # Fallback if PyYAML is not installed so the contract test does not skip silently.
+        content = GNOME_E2E_ACTION.read_text(encoding="utf-8")
+        match = re.search(
+            r"- name:\s*Summarise results\b.*?run:\s*\|\n(.*?)(?=\n\s*(?:-\s+name:|\Z))",
+            content,
+            re.DOTALL,
+        )
+        if match:
+            return match.group(1)
+
     raise AssertionError(
         f"no 'Summarise results' step in {GNOME_E2E_ACTION.relative_to(REPO_ROOT)}"
     )
@@ -128,6 +144,12 @@ def test_module_constants_are_consumed_by_the_module():
         if isinstance(node, ast.Assign)
         for target in node.targets
         if isinstance(target, ast.Name) and not target.id.startswith("_")
+    } | {
+        node.target.id
+        for node in tree.body
+        if isinstance(node, ast.AnnAssign)
+        and isinstance(node.target, ast.Name)
+        and not node.target.id.startswith("_")
     }
     loaded = {
         node.id
@@ -141,3 +163,45 @@ def test_module_constants_are_consumed_by_the_module():
         "Wire the constant into the code that acts on it, or drop it — do not "
         "ship configuration that cannot take effect."
     )
+
+
+def test_unconsumed_annotated_constant_is_detected():
+    """Annotated constants (ast.AnnAssign) must also be checked for usage."""
+    snippet = "UNCONSUMED: dict = {}\n_PRIVATE: int = 1\nCONSUMED: str = 'ok'\nprint(CONSUMED)\n"
+    tree = ast.parse(snippet)
+    assigned = {
+        target.id
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        for target in node.targets
+        if isinstance(target, ast.Name) and not target.id.startswith("_")
+    } | {
+        node.target.id
+        for node in tree.body
+        if isinstance(node, ast.AnnAssign)
+        and isinstance(node.target, ast.Name)
+        and not node.target.id.startswith("_")
+    }
+    loaded = {
+        node.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)
+    }
+    unconsumed = sorted(assigned - loaded)
+    assert unconsumed == ["UNCONSUMED"]
+
+
+def test_summarise_step_body_regex_fallback_matches():
+    """Ensure regex fallback extracts the same entry keys as YAML parsing."""
+    content = GNOME_E2E_ACTION.read_text(encoding="utf-8")
+    match = re.search(
+        r"- name:\s*Summarise results\b.*?run:\s*\|\n(.*?)(?=\n\s*(?:-\s+name:|\Z))",
+        content,
+        re.DOTALL,
+    )
+    assert match is not None
+    fallback_body = match.group(1)
+    keys_fallback = set(ENTRY_GET_RE.findall(fallback_body))
+    keys_full = set(ENTRY_GET_RE.findall(_summarise_step_body()))
+    assert keys_fallback == keys_full
+
