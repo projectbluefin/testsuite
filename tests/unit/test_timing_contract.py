@@ -17,8 +17,6 @@ import re
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
-
 from tests.shared import timing
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
