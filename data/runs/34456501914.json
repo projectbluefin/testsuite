@@ -1,12 +1,12 @@
 {
   "id": "34456501914",
-  "timestamp": "2026-09-24T10:07:46Z",
+  "timestamp": "2026-09-24T12:11:25Z",
   "stream": "testing",
   "flavor": "dakota",
   "suite": "smoke",
   "version": "40.latest",
   "git_commit": {
-    "sha": "b28b2514bd3195a38f30f65c7f7c610ec84cd148",
+    "sha": "9bc8cf913ce5bc1b312299d07fc56f0bf6ba0c37",
     "message": "E2E test run compiled via projectbluefin/dakota",
     "author": "KubeVirt Lab",
     "repo_url": "https://github.com/projectbluefin/dakota"
