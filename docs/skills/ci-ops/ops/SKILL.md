@@ -67,7 +67,7 @@ metadata:
 - A workflow that builds or validates an artifact has no `pull_request` trigger and no equivalent job in `pr-validate.yml` (its first red run will be on `main`)
 - Triaging a long-red scheduled workflow by blaming the most recent merge instead of locating the first failing run
 - Treating `Could not connect: No such file or directory` from `gdbus --session` as terminal, or caching a session bus address across a GDM restart
-- Adding status parsing or icon decisions to a Justfile heredoc instead of importing `count_scenarios`/`summary_icon`/`scenario_statuses` from `scripts/e2e_summary.py`
+- Adding status parsing or icon decisions to a Justfile heredoc instead of importing `count_scenarios`/`summary_icon`/`scenario_statuses`/`load_report` from `scripts/e2e_summary.py`
 - Hardcoding `/var/tmp/bluefin-results` in a results recipe instead of `${RESULTS_BASE:-/var/tmp/bluefin-results}` (splits the local results root; `clean-results` can sweep a tree the other recipes never read)
 - Indenting a Justfile heredoc body deeper than the recipe lines (`just` strips only the common prefix; the leftover spaces become a Python `IndentationError`)
 
@@ -133,6 +133,13 @@ entries, which always report `passed`. Call `count_scenarios()` plus
 `summary_icon()` for rollups and `scenario_statuses()` for name → status maps
 (#871); the icon rule itself lives in `ci-ops/e2e-workflow` ("Headline icon
 semantics").
+
+`load_report()` is the crash-tolerant entry point for every read of `results.json`:
+behave writes the closing `]` only in `close()`, so a lane that crashes mid-run
+leaves a truncated document that makes a bare `json.loads()` raise and fail the
+job for the wrong reason. `load_report()` salvages the complete feature objects and
+returns `[]` on an empty or non-array document, so the summarise step degrades to a
+zero-scenario report instead of crashing.
 
 All four recipes resolve the same root with
 `BASE="${RESULTS_BASE:-/var/tmp/bluefin-results}"`. A recipe that hardcodes the

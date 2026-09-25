@@ -131,6 +131,8 @@ adding it to `SCENARIO_STATUSES` unless you also want it as its own summary colu
 the `other` bucket already guarantees nothing is lost. `scripts/assert_kde_passed.py`
 uses the same bucketing pattern — keep the two consistent.
 
+See [results-json-crash-tolerance.md](references/results-json-crash-tolerance.md) for how `load_report()` salvages a `results.json` truncated by a mid-run crash.
+
 ## Headline icon semantics: ✅ means "actually passed"
 
 `failed == 0` is **not** success. An undefined-only, untested-only, or errored
@@ -180,10 +182,6 @@ list in the same change** — extracting an inline heredoc, adding a guard step,
 reusing a repo script elsewhere. Verify by reading the job's `sparse-checkout` block
 and confirming the exact path is listed; never assume `scripts/` is present because
 another script runs.
-
-The silent-failure mode is what makes this dangerous: a missing script fails the step
-with a confusing "no such file" error, or — when the step is a guard allowed to
-soft-fail — the guard never runs and the problem it existed to catch ships undetected.
 
 The same rule applies to every other non-cone checkout in this repo, including the
 `projectbluefin/iso` harness checkout in `.github/workflows/iso-validation.yml`.
