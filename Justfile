@@ -19,7 +19,6 @@ results n="10":
         exit 0
     fi
     RESULTS_BASE="${BASE}" RESULTS_N="{{ n }}" python3 <<'PYEOF'
-    import json
     import os
     from pathlib import Path
 
@@ -40,8 +39,7 @@ results n="10":
                 print("  ? %s: (no results.json)" % suite)
                 continue
             try:
-                with report_path.open(encoding="utf-8") as file_obj:
-                    counts = count_scenarios(load_report(file_obj.read_text()))
+                counts = count_scenarios(load_report(report_path.read_text(encoding="utf-8")))
             except Exception as error:
                 print("  ? %s: (error reading results.json: %s)" % (suite, error))
                 continue
@@ -183,7 +181,6 @@ compare-results run_uid="":
     fi
     RUN_UID=$(basename "${RUN_DIR}")
     RUN_UID="${RUN_UID}" SMOKE_JSON="${SMOKE_JSON}" VANILLA_JSON="${VANILLA_JSON}" python3 - <<'PY'
-    import json
     import os
     import sys
     from pathlib import Path
