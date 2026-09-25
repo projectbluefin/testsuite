@@ -45,7 +45,7 @@ SUITE_NOTES: dict[str, str] = {
     "lifecycle": "bootc upgrade / rollback / migration; switch is `@future` (needs a valid alternate image ref; pin activated with settled-deployment barrier)",
     "hardware": "udev rules syntax validation (ZSA, Apple SuperDrive, Framework 16, AMD s2idle, Wooting, VIIA); emulated peripherals driven by shared SSH steps",
     "security": "cosign verify: projectbluefin (bluefin, lts, dakota) + ublue-os (latest, LTS, DX, nvidia, GTS, DX-nvidia, negative)",
-    "bazzite": "Extension presence + shell behaviour",
+    "bazzite": "Extension presence + shell behaviour; 11 'is enabled' scenarios `@pending` on an upstream image regression — all extensions report state=6/ERROR in bazzite-gnome:testing/stable since 2026-06-05 (#408); 'is installed' scenarios remain active",
     "dx": "distrobox create/install/export are active behind the `@requires_cached_image` runtime gate — they skip until `fedora-toolbox:latest` is pre-pulled on the VM (#501 / projectbluefin/lab#621) and activate without a feature-file edit; distrobox enter, JupyterLab, brew, mise remain `@pending` on infra gaps",
     "nvidia": "`@future` / `@hardware_blocked` until GPU passthrough exists in the lab",
     "flatcar": "boot (7 active) + lifecycle (5 active); 1 `@future` (boot from installed target disk — needs KubeVirt boot-order support in `projectbluefin/lab`)",
