@@ -24,6 +24,55 @@ COUNTED_STATUSES = (*SCENARIO_STATUSES, OTHER_STATUS)
 SUCCESS_STATUSES = ("passed", "skipped")
 
 
+def load_report(text: str) -> list[dict[str, Any]]:
+    """Parse a behave ``results.json`` string, tolerating a crashed file.
+
+    behave's JSON formatter opens the outfile with ``"w"`` and writes the
+    closing ``]`` only in its ``close()`` hook; a mid-run crash (before
+    ``close``) therefore leaves N complete top-level feature objects with no
+    footer and possibly a truncated final object. ``json.loads`` raises
+    ``json.JSONDecodeError`` on such input, which would otherwise abort the
+    summarise step -- and on the lab pipeline fail the job for the wrong
+    reason. This loader returns the parsed array in the normal case, and on a
+    decode error salvages every complete top-level feature object so a crashed
+    run still yields a partial report instead of nothing.
+    """
+    try:
+        report = json.loads(text)
+    except json.JSONDecodeError:
+        report = _salvage_partial(text)
+    return report if isinstance(report, list) else []
+
+
+def _salvage_partial(text: str) -> list[dict[str, Any]]:
+    """Recover complete top-level feature objects from a truncated file.
+
+    Skips the opening ``[`` and any ```` , ```` separators, then decodes one
+    feature object at a time with :meth:`json.JSONDecoder.raw_decode`; the
+    first object that does not parse (a truncated tail) stops the salvage, so
+    only whole features are returned.
+    """
+    decoder = json.JSONDecoder()
+    pos = 0
+    length = len(text)
+    report: list[dict[str, Any]] = []
+    while pos < length:
+        while pos < length and text[pos].isspace():
+            pos += 1
+        if pos >= length:
+            break
+        char = text[pos]
+        if char == "[" or char == ",":
+            pos += 1
+            continue
+        try:
+            obj, end = decoder.raw_decode(text, pos)
+        except json.JSONDecodeError:
+            break
+        report.append(obj)
+        pos = end
+    return report
+
 def count_scenarios(report: list[dict[str, Any]]) -> dict[str, int]:
     """Count scenario statuses, excluding backgrounds.
 
@@ -87,8 +136,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("results_json", type=Path)
     args = parser.parse_args(argv)
-    with args.results_json.open(encoding="utf-8") as file_obj:
-        report = json.load(file_obj)
+    report = load_report(args.results_json.read_text(encoding="utf-8"))
     print(json.dumps(count_scenarios(report)))
     return 0
 

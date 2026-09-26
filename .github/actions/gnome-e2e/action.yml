@@ -430,6 +430,7 @@ runs:
             count_scenarios = e2e_summary.count_scenarios
             is_success      = e2e_summary.is_success
             summary_icon    = e2e_summary.summary_icon
+            load_report     = e2e_summary.load_report
         except Exception as exc:
             # Fail closed rather than render a headline we cannot justify, and
             # catch broadly on purpose: exec_module runs the module's top level,
@@ -452,7 +453,10 @@ runs:
                     )
             sys.exit(0)
 
-        data = json.loads(results_file.read_text())
+        # load_report tolerates a results.json left truncated by a mid-run
+        # crash (behave writes the closing ']' only in close()): it salvages
+        # the complete feature objects instead of raising and failing the job.
+        data = load_report(results_file.read_text())
 
         counts = count_scenarios(data)
         passed = counts["passed"]

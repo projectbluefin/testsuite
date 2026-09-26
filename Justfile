@@ -19,11 +19,10 @@ results n="10":
         exit 0
     fi
     RESULTS_BASE="${BASE}" RESULTS_N="{{ n }}" python3 <<'PYEOF'
-    import json
     import os
     from pathlib import Path
 
-    from scripts.e2e_summary import count_scenarios, summary_icon
+    from scripts.e2e_summary import count_scenarios, load_report, summary_icon
 
     base = Path(os.environ["RESULTS_BASE"])
     limit = int(os.environ["RESULTS_N"])
@@ -40,8 +39,7 @@ results n="10":
                 print("  ? %s: (no results.json)" % suite)
                 continue
             try:
-                with report_path.open(encoding="utf-8") as file_obj:
-                    counts = count_scenarios(json.load(file_obj))
+                counts = count_scenarios(load_report(report_path.read_text(encoding="utf-8")))
             except Exception as error:
                 print("  ? %s: (error reading results.json: %s)" % (suite, error))
                 continue
@@ -183,16 +181,15 @@ compare-results run_uid="":
     fi
     RUN_UID=$(basename "${RUN_DIR}")
     RUN_UID="${RUN_UID}" SMOKE_JSON="${SMOKE_JSON}" VANILLA_JSON="${VANILLA_JSON}" python3 - <<'PY'
-    import json
     import os
     import sys
     from pathlib import Path
 
-    from scripts.e2e_summary import scenario_statuses
+    from scripts.e2e_summary import load_report, scenario_statuses
 
     run_uid = os.environ["RUN_UID"]
-    smoke = scenario_statuses(json.loads(Path(os.environ["SMOKE_JSON"]).read_text(encoding="utf-8")))
-    vanilla = scenario_statuses(json.loads(Path(os.environ["VANILLA_JSON"]).read_text(encoding="utf-8")))
+    smoke = scenario_statuses(load_report(Path(os.environ["SMOKE_JSON"]).read_text(encoding="utf-8")))
+    vanilla = scenario_statuses(load_report(Path(os.environ["VANILLA_JSON"]).read_text(encoding="utf-8")))
     overlap = sorted(set(smoke) & set(vanilla))
 
     print(f"=== Smoke vs Vanilla-GNOME comparison: {run_uid} ===")

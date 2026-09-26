@@ -1,8 +1,10 @@
 """Unit tests for e2e job-summary result counting."""
 
+import json
 from scripts.e2e_summary import (
     count_scenarios,
     is_success,
+    load_report,
     scenario_statuses,
     summary_icon,
 )
@@ -145,3 +147,48 @@ def test_scenario_statuses_defaults_missing_status_to_unknown():
 
 def test_scenario_statuses_tolerates_features_without_elements():
     assert scenario_statuses([{}, {"elements": None}]) == {}
+
+
+def _feature(name="feature", status="passed"):
+    return {"name": name, "elements": [{"type": "scenario", "name": name, "status": status}]}
+
+
+def test_load_report_parses_valid_json_unchanged():
+    report = [_feature("a"), _feature("b")]
+
+    assert load_report(json.dumps(report)) == report
+
+
+def test_load_report_empty_input_returns_empty_list():
+    assert load_report("") == []
+
+
+def test_load_report_open_bracket_only_returns_empty_list():
+    assert load_report("[") == []
+
+
+def test_load_report_salvages_complete_features_without_footer():
+    # behave flushes each completed feature in eof() and writes the closing
+    # ']' only in close(); a crash before close() leaves the objects minus the
+    # footer. Every complete feature must survive.
+    report = [_feature("a"), _feature("b"), _feature("c")]
+    crashed = json.dumps(report)[:-1]  # drop the trailing ']'
+
+    assert load_report(crashed) == report
+    assert count_scenarios(load_report(crashed))["passed"] == 3
+
+
+def test_load_report_drops_truncated_final_feature():
+    report = [_feature("a"), _feature("b"), _feature("c")]
+    truncated = json.dumps(report)[: len(json.dumps(report)) - 5]  # chop part of last
+
+    recovered = load_report(truncated)
+
+    assert [f["name"] for f in recovered] == ["a", "b"]
+
+
+def test_load_report_trailing_comma_without_object_returns_features():
+    report = [_feature("a"), _feature("b")]
+    crashed = json.dumps(report) + ","  # complete objects, then a dangling comma
+
+    assert [f["name"] for f in load_report(crashed)] == ["a", "b"]
