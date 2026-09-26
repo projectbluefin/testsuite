@@ -2,9 +2,22 @@
 import os
 import json
 import glob
+import re
 from datetime import datetime
 
 from pathlib import Path
+
+# Run ids are re-used as output filename components; the raw run JSON they come
+# from originates outside this repo (GHCR artifacts), so constrain them to a
+# safe character set to prevent path traversal on write.
+SAFE_RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
+def sanitize_run_id(run_id):
+    """Return run_id if it is safe to use as a filename component, else ''."""
+    if run_id and SAFE_RUN_ID_RE.match(run_id) and ".." not in run_id:
+        return run_id
+    return ""
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 DASHBOARD_DIR = SCRIPT_DIR.parent
@@ -46,7 +59,12 @@ def compile_dashboard_data():
         if not run_data:
             continue
             
-        run_id = run_data["id"]
+        run_id = sanitize_run_id(str(run_data.get("id", "")))
+        if not run_id:
+            # Fall back to the (glob-constrained) source filename so a hostile
+            # id field cannot steer the write path below.
+            run_id = Path(filepath).stem
+        run_data["id"] = run_id
         flavor = run_data.get("flavor", "bluefin")
         status = run_data.get("summary", {}).get("status", "failed")
         

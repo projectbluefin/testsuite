@@ -1,9 +1,23 @@
 #!/usr/bin/env python3
 import os
 import json
+import re
 import sys
 from pathlib import Path
 from datetime import datetime
+
+# run_id is used as an output filename component. It arrives from an OCI
+# manifest annotation (io.github.projectbluefin.run_id) pulled off GHCR, so
+# treat it as untrusted: allow only a conservative character set and reject
+# anything that could traverse directories ("../", "/", "\\", leading dots).
+SAFE_RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
+def sanitize_run_id(run_id):
+    """Return run_id if it is safe to use as a filename component, else ''."""
+    if run_id and SAFE_RUN_ID_RE.match(run_id) and ".." not in run_id:
+        return run_id
+    return ""
 
 STATUS_MAP = {
     "passed": "passed",
@@ -100,7 +114,7 @@ def convert_behave_json(behave_json_path, *, run_id, caller_repo, slug, suite, t
 
     # Assemble standard Dashboard run-ID.json payload
     return {
-        "id": run_id or f"run_{datetime.utcnow().strftime('%Y%m%d_%H%M')}_{slug}",
+        "id": sanitize_run_id(run_id) or f"run_{datetime.utcnow().strftime('%Y%m%d_%H%M')}_{slug}",
         "timestamp": timestamp or datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
         "stream": stream,
         "flavor": flavor,
