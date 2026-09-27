@@ -555,6 +555,13 @@ def before_scenario(context, scenario) -> None:
     if skip_quarantine(scenario):
         return
 
+    # qecore only clears _scenario_skipped inside sandbox.before_scenario(),
+    # but the app-availability gate below (firefox, etc.) returns before that
+    # call. Notify it here so after_all doesn't assert "No scenario matched
+    # tags" when every scenario skips early (same pattern as dx).
+    if getattr(context, "sandbox", None) is not None:
+        context.sandbox._scenario_skipped = False
+
     # Skip Wi-Fi tests when no wireless hardware is present (e.g. QEMU VMs).
     if "wifi" in set(getattr(scenario, "effective_tags", scenario.tags)):
         if not _has_wifi_interface():
