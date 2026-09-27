@@ -649,7 +649,7 @@ jobs:
           # gnome-extensions install, no ReloadExtension (removed in GNOME 47).
           if [[ "${SUITE_DIR}" != kde* ]]; then
             sudo mkdir -p "${VAR}/home/bluefin-test/.local/share/gnome-shell/extensions/unsafe-mode@bluefin-test"
-            printf '{"uuid":"unsafe-mode@bluefin-test","name":"Unsafe Mode for Testing","description":"Enables Shell.Eval for automated testing","shell-version":["50","49","48","47","46","45"],"version":1}\n' | \
+            printf '{"uuid":"unsafe-mode@bluefin-test","name":"Unsafe Mode for Testing","description":"Enables Shell.Eval for automated testing","shell-version":["51","50","49","48","47","46","45"],"version":1}\n' | \
               sudo tee "${VAR}/home/bluefin-test/.local/share/gnome-shell/extensions/unsafe-mode@bluefin-test/metadata.json" > /dev/null
             sudo tee "${VAR}/home/bluefin-test/.local/share/gnome-shell/extensions/unsafe-mode@bluefin-test/extension.js" > /dev/null << 'EXTEOF'
             import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
