@@ -1,4 +1,4 @@
-@smoke_suite @extensions @copyous
+@smoke_suite @extensions @copyous @bluefin
 Feature: Copyous clipboard manager crash-regression and stress resilience
   Copyous (copyous@boerdereinar.dev) is known to have caused GNOME Shell crashes,
   black screens, and GDM fallbacks under heavy clipboard activity, binary/large payloads,

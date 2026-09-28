@@ -19,7 +19,7 @@ Feature: Newly enabled Bluefin GNOME extension stability
     * GNOME Shell remains accessible and does not crash during the stress run
     * GNOME Shell memory usage remains bounded after repeated copy and paste operations
 
-  @extensions
+  @bluefin @extensions
   Scenario: Syncthing Toggle Quick Settings control is enabled
     * GNOME Shell is accessible via AT-SPI
     * GNOME extension "syncthing-toggle@rehhouari.github.com" is enabled
@@ -38,13 +38,13 @@ Feature: Newly enabled Bluefin GNOME extension stability
     * The extension uses symbolic indicator color with "level-indicator-color = 0"
     * The panel remains clean and GNOME Shell remains accessible when no Bluetooth devices are present
 
-  @extensions
+  @bluefin @extensions
   Scenario: Quick Settings audio device hider is enabled
     * GNOME Shell is accessible via AT-SPI
     * GNOME extension "quicksettings-audio-devices-hider@marcinjahn.com" is enabled
     * The Quick Settings audio menu populates cleanly with unwanted devices hidden
 
-  @extensions
+  @bluefin @extensions
   Scenario: Quick Settings audio device renamer is enabled
     * GNOME Shell is accessible via AT-SPI
     * GNOME extension "quicksettings-audio-devices-renamer@marcinjahn.com" is enabled
@@ -60,7 +60,7 @@ Feature: Newly enabled Bluefin GNOME extension stability
     * Window-snapping gestures work
     * GNOME Shell remains responsive without shell errors
 
-  @extensions
+  @bluefin @extensions
   Scenario: Tailscale Quick Settings control handles daemon state
     * GNOME Shell is accessible via AT-SPI
     * GNOME extension "tailscale-gnome-qs@tailscale-qs.github.io" is enabled

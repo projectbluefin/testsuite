@@ -330,6 +330,16 @@ def _gsettings_get_features() -> tuple[list[str], str]:
         _with_session_env("gsettings get org.gnome.mutter experimental-features")
     )
     if rc != 0:
+        # GNOME 51 graduates fractional scaling out of experimental status and
+        # drops the key entirely: "No such key" means there is nothing to
+        # enable, not that the read failed.
+        if "No such key" in (stderr or stdout):
+            print(
+                "experimental-features key absent (GNOME 51+): "
+                "fractional scaling needs no enabling",
+                flush=True,
+            )
+            return [], ""
         raise AssertionError(
             f"gsettings get experimental-features failed: {stderr or stdout}"
         )

@@ -81,6 +81,27 @@ def test_gsettings_get_sources_remote_session_environment():
     )
 
 
+def test_gsettings_get_treats_a_missing_key_as_nothing_to_enable():
+    # GNOME 51 drops the experimental-features key once fractional scaling
+    # graduates: "No such key" means enablement is unnecessary, not an error.
+    with (
+        patch.object(display_scaling_steps, "_IN_CONTAINER", True),
+        patch.object(
+            display_scaling_steps,
+            "_run_host",
+            return_value=(
+                "",
+                1,
+                "No such key \u201cexperimental-features\u2019",
+            ),
+        ),
+    ):
+        features, raw = display_scaling_steps._gsettings_get_features()
+
+    assert features == []
+    assert raw == ""
+
+
 def test_gsettings_set_sources_remote_session_environment():
     with (
         patch.object(display_scaling_steps, "_IN_CONTAINER", True),
