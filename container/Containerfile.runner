@@ -23,7 +23,7 @@
 #   --pid=host          (qecore reads GNOME session env from /proc/<pid>/environ)
 #   --privileged        (uinput + AT-SPI socket access)
 
-FROM registry.fedoraproject.org/fedora-minimal:latest@sha256:77dae00ae95866fe18f1ee83f2eed8f1e92db3da0dd8396e35f900f050eb9e40
+FROM registry.fedoraproject.org/fedora-minimal:latest@sha256:1c0ef08cb996ba8e212111bbc9fb5b41b517ebc1397de6ef7c3dc192fa44604d
 
 LABEL org.opencontainers.image.source="https://github.com/projectbluefin/testsuite"
 LABEL org.opencontainers.image.description="qecore/behave/dogtail test runner for GNOME e2e tests"
