@@ -6,6 +6,7 @@ is proven without a GNOME OS guest or the ``gnome-extensions`` pack tool.
 
 import hashlib
 import json
+import stat
 import zipfile
 from pathlib import Path
 
@@ -222,6 +223,101 @@ def test_duplicate_member_names_are_rejected(tmp_path):
     assert not result.valid
     assert any("duplicate member names" in e for e in result.errors)
     assert art.classify(result) == "artifact"
+
+
+@pytest.mark.parametrize("name", [
+    "../outside.js", "/absolute.js", "lib/../../outside.js",
+    "./extension.js", "lib//API.js", "lib/./API.js",
+    "C:/outside.js", r"lib\outside.js", "/", "bad\0suffix.js",
+])
+def test_unsafe_members_fail_before_metadata_read(tmp_path, monkeypatch, name):
+    # zipfile's writer truncates at NUL; patch both headers to simulate an
+    # externally produced archive while preserving the filename byte length.
+    stored_name = name.replace("\0", "_")
+    archive = _make_zip(tmp_path / "unsafe.zip", {stored_name: "x"})
+    if "\0" in name:
+        archive.write_bytes(archive.read_bytes().replace(stored_name.encode(), name.encode()))
+    contract = art.ExtensionContract(uuid="test@uuid", source_repo="x/y", source_rev="abc")
+
+    def unexpected_read(*args):
+        pytest.fail("unsafe archives must be rejected before inflating metadata")
+
+    monkeypatch.setattr(art, "_metadata_in", unexpected_read)
+    result = art.validate_extension_zip(archive, contract)
+    assert art.classify(result) == art.CATEGORY_ARTIFACT
+    assert "unsafe archive path" in result.errors[0]
+    with pytest.raises(art.ArtifactValidationError) as failure:
+        art.read_archive_uuid(archive)
+    assert failure.value.category == art.CATEGORY_ARTIFACT
+
+
+@pytest.mark.parametrize("mode", [
+    stat.S_IFLNK, stat.S_IFIFO, stat.S_IFSOCK, stat.S_IFCHR, stat.S_IFBLK, stat.S_IFDIR,
+])
+def test_links_and_special_members_are_artifact_failures(tmp_path, mode):
+    archive = _make_zip(tmp_path / "special.zip", {})
+    member = zipfile.ZipInfo("extension.js")
+    member.create_system = 3
+    member.external_attr = (mode | 0o755) << 16
+    with zipfile.ZipFile(archive, "a") as zf:
+        zf.writestr(member, "../../outside")
+    contract = art.ExtensionContract(uuid="test@uuid", source_repo="x/y", source_rev="abc")
+    result = art.validate_extension_zip(archive, contract)
+    assert art.classify(result) == art.CATEGORY_ARTIFACT
+    assert "unsupported archive member type" in result.errors[0]
+
+
+@pytest.mark.parametrize("members", [
+    {"lib": "file", "lib/API.js": "x"},
+    {"lib": "file", "lib/": ""},
+    {"lib/API.js": "x", "lib": "file"},
+])
+def test_file_directory_aliases_are_rejected(tmp_path, members):
+    archive = _make_zip(tmp_path / "alias.zip", members)
+    contract = art.ExtensionContract(uuid="test@uuid", source_repo="x/y", source_rev="abc")
+    result = art.validate_extension_zip(archive, contract)
+    assert art.classify(result) == art.CATEGORY_ARTIFACT
+    assert "file/directory conflicts" in result.errors[0]
+
+
+def test_regular_directory_entries_remain_supported(tmp_path):
+    archive = _make_zip(tmp_path / "normal.zip", {"lib/": "", "lib/API.js": "x"})
+    contract = art.ExtensionContract(
+        uuid="test@uuid", source_repo="x/y", source_rev="abc",
+        required_paths=("metadata.json", "lib/API.js"),
+    )
+    assert art.validate_extension_zip(archive, contract).valid
+
+
+def test_cli_rejects_hostile_member_with_explicit_pair(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(art, "CANONICAL_CONTRACTS", _CLI_CONTRACTS[:1])
+    archive = _make_zip(tmp_path / "hostile.zip", {"a.js": "x", "../escape": "x"}, uuid="a@x")
+    assert art.main([f"a@x={archive}"]) == 1
+    assert "[FAIL/artifact]" in capsys.readouterr().out
+
+
+def test_hash_mismatch_precedes_member_inspection(tmp_path, monkeypatch):
+    archive = _make_zip(tmp_path / "hash.zip", {"../escape": "x"})
+    contract = art.ExtensionContract(
+        uuid="test@uuid", source_repo="x/y", source_rev="abc", zip_sha256="0" * 64,
+    )
+
+    def unexpected_inspection(*args):
+        pytest.fail("hash mismatch must block archive inspection")
+
+    monkeypatch.setattr(art, "_check_members", unexpected_inspection)
+    result = art.validate_extension_zip(archive, contract)
+    assert art.classify(result) == art.CATEGORY_ARTIFACT
+    assert "SHA256 mismatch" in result.errors[0]
+
+
+def test_cli_uuid_resolution_rejects_hostile_zip(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(art, "CANONICAL_CONTRACTS", _CLI_CONTRACTS[:1])
+    archive = _make_zip(tmp_path / "hostile.zip", {"a.js": "x", "../escape": "x"}, uuid="a@x")
+    assert art.main([str(archive)]) == 1
+    out = capsys.readouterr().out
+    assert "[FAIL/artifact]" in out
+    assert "unsafe archive path" in out
 
 
 # --- canonical contracts -------------------------------------------------

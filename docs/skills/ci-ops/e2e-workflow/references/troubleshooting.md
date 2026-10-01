@@ -8,6 +8,22 @@ metadata:
 ---
 # Troubleshooting
 
+## Extension ZIP pre-stage validation
+
+Before staging extension artifacts, run
+`python -m tests.shared.gnome_extensions_artifacts path/to/*.zip` from the
+pinned testsuite checkout. It requires one archive per canonical UUID and
+rejects duplicate members, traversal/absolute/non-canonical paths, symlinks,
+special files, and file/directory aliases **before reading metadata**. These
+are `artifact` failures, not GNOME Shell compatibility failures. Ordinary
+explicit directory entries are supported; do not sanitize a rejected ZIP
+and continue with a different artifact.
+
+This is structural validation, not a sandbox or provenance attestation:
+canonical ZIP hashes are not pinned yet. It does not extract, execute code,
+or prove a genuine GNOME OS session passed. Candidate extraction and execution
+still belong only in a fresh disposable guest without publishing credentials.
+
 ## Debugging failures
 
 ### A script missing from the sparse checkout fails silently

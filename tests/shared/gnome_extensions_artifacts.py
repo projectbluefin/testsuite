@@ -18,11 +18,14 @@ Validation stages, in order:
    :data:`CANONICAL_CONTRACTS`), so this stage is currently inert for every
    artifact :func:`main` validates; it only guards contracts a caller pins
    itself.
-1. ``metadata.json`` inside the ZIP must declare the contract ``uuid``. The
+1. Before reading metadata, reject duplicate names, non-canonical paths,
+   symlinks/special files and file/directory aliases. Extraction must not
+   interpret a different member tree from the one inspected here.
+2. ``metadata.json`` inside the ZIP must declare the contract ``uuid``. The
    CLI also *resolves* the contract from that declared UUID (see :func:`main`),
    so an archive is never judged against a contract it was merely passed next
    to on the command line.
-2. Every path in ``required_paths`` must be present in the ZIP. Those paths
+3. Every path in ``required_paths`` must be present in the ZIP. Those paths
    are the members the packaging recipe actually ships and the shell actually
    loads — compiled resources, ``lib/`` modules, schemas — not just the
    manifest, so a ZIP that would fail to load in the guest is rejected here
@@ -37,6 +40,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import stat
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -138,6 +142,49 @@ def _duplicate_names(zf: zipfile.ZipFile) -> list[str]:
             duplicates.add(name)
         seen.add(name)
     return sorted(duplicates)
+
+
+def _check_members(zf: zipfile.ZipFile) -> None:
+    """Reject names and file types that can escape or alias a guest install.
+
+    Inspect the original name (ZipInfo truncates names at NUL) and reject
+    non-canonical paths rather than relying on an extractor's sanitization.
+    Ordinary directory entries are allowed, but links and special files are
+    not. No archive member is inflated here.
+    """
+    duplicates = _duplicate_names(zf)
+    if duplicates:
+        raise ArtifactValidationError(
+            "duplicate member names: " + ", ".join(duplicates), CATEGORY_ARTIFACT
+        )
+    files: set[str] = set()
+    directories: set[str] = set()
+    for info in zf.infolist():
+        name = info.orig_filename
+        path = name[:-1] if info.is_dir() else name
+        if (
+            not path
+            or any(c in name for c in ("\0", "\\", ":"))
+            or any(part in ("", ".", "..") for part in path.split("/"))
+        ):
+            raise ArtifactValidationError(
+                f"unsafe archive path: {name!r}", CATEGORY_ARTIFACT
+            )
+        mode_type = stat.S_IFMT(info.external_attr >> 16) if info.create_system == 3 else 0
+        expected_type = stat.S_IFDIR if info.is_dir() else stat.S_IFREG
+        if mode_type not in (0, expected_type):
+            raise ArtifactValidationError(
+                f"unsupported archive member type: {name!r}", CATEGORY_ARTIFACT
+            )
+        (directories if info.is_dir() else files).add(path)
+        parts = path.split("/")
+        directories.update("/".join(parts[:i]) for i in range(1, len(parts)))
+    conflicts = files & directories
+    if conflicts:
+        raise ArtifactValidationError(
+            "archive file/directory conflicts: " + ", ".join(sorted(conflicts)),
+            CATEGORY_ARTIFACT,
+        )
 
 
 @dataclass(frozen=True)
@@ -251,12 +298,10 @@ def validate_extension_zip(zip_path: str | Path, contract: ExtensionContract) ->
     try:
         with zipfile.ZipFile(zip_path) as zf:  # single handle for read + namelist
             names = set(zf.namelist())
-            duplicates = _duplicate_names(zf)
-            if duplicates:
-                result.fail(
-                    CATEGORY_ARTIFACT,
-                    "duplicate member names: " + ", ".join(duplicates),
-                )
+            try:
+                _check_members(zf)
+            except ArtifactValidationError as exc:
+                result.fail(exc.category, str(exc))
                 return result
             try:
                 metadata = _metadata_in(zf, names)
@@ -436,11 +481,12 @@ def read_archive_uuid(zip_path: str | Path) -> str:
     order of :data:`CANONICAL_CONTRACTS` or the order a shell glob expanded in.
 
     Raises :class:`ArtifactValidationError` — with ``category`` set to
-    ``harness`` for an unreadable archive and ``metadata`` for a readable one
-    that declares no usable UUID.
+    ``harness`` for an unreadable archive, ``artifact`` for an unsafe member
+    tree, and ``metadata`` for a readable one that declares no usable UUID.
     """
     try:
         with zipfile.ZipFile(zip_path) as zf:
+            _check_members(zf)
             metadata = _metadata_in(zf, set(zf.namelist()))
     except zipfile.BadZipFile as exc:
         raise ArtifactValidationError(
