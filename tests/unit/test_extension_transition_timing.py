@@ -55,3 +55,8 @@ def test_natural_completion_cannot_pass_after_the_observation_budget_expires(mon
     context, _, _ = _guest_with_fade(monkeypatch, disable_latency=1.0, removes_transition=True)
     with pytest.raises(AssertionError, match="safety margin"):
         disable_during_transition(context, "Text Editor")
+
+
+def test_an_immediately_observed_removed_transition_passes(monkeypatch):
+    context, _, _ = _guest_with_fade(monkeypatch, disable_latency=0.2, removes_transition=True)
+    disable_during_transition(context, "Text Editor")
