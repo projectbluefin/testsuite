@@ -28,7 +28,7 @@ Every e2e run produces a desktop screenshot at end-of-run as visual proof of a w
 
 **Fallback path (QEMU monitor screendump):** If no in-VM screenshot lands (behave crashed, container never started, AT-SPI unavailable), `e2e.yml` captures the QEMU VGA framebuffer directly via the monitor socket at `/tmp/qemu-monitor.sock`. QEMU maintains this framebuffer internally even with `-display none` because mutter uses bochs-drm (card1) as the KMS device, which maps to the VGA framebuffer. The screendump is converted PPM→PNG via Python stdlib (`tests/shared/qemu_screendump.py`).
 
-If **both** paths fail (QEMU monitor socket missing or empty framebuffer), the "Promote desktop screenshot" step fails loud — a missing screenshot from a non-`common` suite is treated as a job failure, not a silent pass.
+If **both** paths fail (QEMU monitor socket missing or empty framebuffer), the "Promote desktop screenshot" step annotates an error (`::error::`) — because the step sets `continue-on-error: true`, it logs the missing artifact loudly without failing the job.
 
 ### Desktop screenshot distribution
 
