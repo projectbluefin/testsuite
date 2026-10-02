@@ -58,19 +58,17 @@ Bluefin/Dakota image. Provisioned surface:
 | `shade-inactive-windows` | `shade-inactive-windows-reborn@binhnguyensoft.com` |
 | `stock-market` | `stock-market@binhnguyensoft.com` |
 
-Their Behave collection (`tests/extensions/*`, PR #914, a separate slice) has per-extension
+Their Behave collection (`tests/extensions/*`, landed via #914) has per-extension
 behaviour features plus a cross-cutting `extension_lifecycle.feature`.
 
 ## Repeatable commands
-> **UNVERIFIED — do not copy-paste as proven.** Nothing below has been executed end-to-end. Two
-> hard blockers stand between this snippet and a real run:
+> **UNVERIFIED — do not copy-paste as proven.** Nothing below has been executed end-to-end. One
+> hard blocker stands between this snippet and a real run:
 >
-> 1. **`tests/extensions/` does not exist at this head** (lands with #914), so `suite: extensions`
->    makes the action's sparse checkout (`action.yml:76`) and its `scp` of
->    `_testsuite/tests/${GNOME_E2E_SUITE}` (`action.yml:373`) resolve to nothing, and the run fails.
-> 2. **Stock `gnomeos-nightly` has no `gnome-ponytail-daemon`.** The action requires it baked into
+> 1. **Stock `gnomeos-nightly` has no `gnome-ponytail-daemon`.** The action requires it baked into
 >    the OCI image (`action.yml:14`) — there is no dnf/rpm in the guest — and this lane ships **no
 >    overlay/sysext that supplies it**. That overlay is unfinished work, not a documented step.
+>    (`tests/extensions/` has landed via #914).
 >
 > Treat the commands as intended shape only; replace with the exact commands executed once a lab
 > run succeeds.
@@ -88,7 +86,7 @@ action hands `inputs.image` verbatim to `podman pull` / `bootc install`.
   with:
     # requires an image that carries gnome-ponytail-daemon (blocker 2 above)
     image: quay.io/gnome_infrastructure/gnome-build-meta@sha256:57eeef917d057e37d8d5824fab195ebf3b0ad49fc1ca191b7bc02b82418ed981
-    suite: extensions   # requires tests/extensions/ from #914 (blocker 1 above)
+    suite: extensions   # uses tests/extensions/ (landed with #914)
 ```
 
 The action runs `bootc install to-disk`, extracts kernel/initramfs, boots a KVM QEMU VM, waits for
@@ -193,7 +191,7 @@ A host socket, key, or mount exposed to the guest desktop is a regression: stop 
 - [x] Security posture recorded: guest-local, disposable credentials; no host reach
 - [ ] Gate wired into the lane (no workflow / action step invokes
       `scripts/extension_validation.py` yet; run by hand today)
-- [ ] Repeatable boot + load + run commands validated in the lab (**unverified**; blocked
-      on `tests/extensions/` (#914) and a `gnome-ponytail-daemon` overlay)
+- [ ] Repeatable boot + load + run commands validated in the lab (**unverified**;
+      tests/extensions landed with #914; blocked on a `gnome-ponytail-daemon` overlay)
 - [ ] At least one green extension-validation run captured and attached
 - [ ] Lane closed
