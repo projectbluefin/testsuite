@@ -5,7 +5,7 @@
 # suite via qecore-headless.
 #
 # Scope: GUI suites that run inside the VM via qecore-headless (AT-SPI).
-#   Supported: smoke, developer, dx, software, vanilla-gnome
+#   Supported: smoke, developer, dx, software, vanilla-gnome, extensions
 #   NOT supported: lifecycle, security, hardware (need plain-SSH mode — future work)
 #
 # Requirements:
@@ -26,14 +26,14 @@ name: 'GNOME E2E Tests'
 description: >
   Run a projectbluefin/testsuite behave suite inside a KVM QEMU VM booting
   a bootc/ostree GNOME image. Supports GUI suites (smoke, developer, dx,
-  software, vanilla-gnome).
+  software, vanilla-gnome, extensions).
 
 inputs:
   image:
     description: 'OCI image to test (e.g. ghcr.io/projectbluefin/dakota:latest)'
     required: true
   suite:
-    description: 'Test suite: smoke | developer | dx | software | vanilla-gnome'
+    description: 'Test suite: smoke | developer | dx | software | vanilla-gnome | extensions'
     default: 'smoke'
   testsuite-ref:
     description: >

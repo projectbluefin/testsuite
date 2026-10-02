@@ -8,6 +8,15 @@ metadata:
 ---
 # Permissions
 
+## Composite action suite descriptions
+
+The `.github/actions/gnome-e2e/action.yml` composite action accepts
+`suite: extensions` for the standalone GNOME extension suite in
+`tests/extensions/`. When documenting supported suites, keep the action's
+scope comment, top-level description, and `inputs.suite.description` in sync;
+updating only one leaves callers with contradictory guidance. This action's
+singular `suite` input is distinct from the reusable workflow's `suites` CSV.
+
 ## Consumer constraints — what you cannot do from the reusable action
 
 When calling this workflow from another repo, the following are explicitly banned:
