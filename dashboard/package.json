@@ -19,7 +19,7 @@
     "tailwindcss": "^4"
   },
   "devDependencies": {
-    "@astrojs/check": "0.7.0",
+    "@astrojs/check": "0.9.10",
     "pagefind": "1.5.2",
     "typescript": "5.9.3"
   }
