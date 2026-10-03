@@ -55,10 +55,11 @@ on:
       - .github/workflows/build-runner.yml
 ```
 
-`build-kde-runner.yml` already does this; `build-runner.yml` did not (filed as
-`#939`). Check both lists every time you touch `.github/workflows/**` — the
-asymmetry between a workflow's inputs and its own path is the easiest of these
-gaps to ship.
+`build-kde-runner.yml` already does this. `build-runner.yml` did not (issue
+`#939`); the asymmetry is repaired in the same PR so the workflow now build-
+validates edits to itself. The asymmetry between a workflow's inputs and its own
+path is the easiest of these gaps to ship — check both lists every time you
+touch `.github/workflows/**`.
 
 ## Triage: find the first failing run, not the newest merge
 

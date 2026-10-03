@@ -4,6 +4,7 @@
 #
 # Triggered when:
 #   - container/Containerfile.runner changes (new deps)
+#   - .github/workflows/build-runner.yml changes (action refs, step edits)
 #   - Weekly on Monday (keeps base OS + pip packages fresh)
 #   - Manual dispatch
 #
@@ -22,10 +23,12 @@ on:
     branches: [main]
     paths:
       - container/Containerfile.runner
+      - .github/workflows/build-runner.yml
   pull_request:
     branches: [main]
     paths:
       - container/Containerfile.runner
+      - .github/workflows/build-runner.yml
   schedule:
     - cron: "0 3 * * 1"   # weekly Monday 03:00 UTC — keep base + pip deps fresh
   workflow_dispatch:
