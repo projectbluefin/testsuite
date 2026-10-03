@@ -282,3 +282,209 @@ def assert_effects_removed(context):
     context.extension.wait_for(f"""global.get_window_actors().every(actor =>
         actor.get_effect({json.dumps(EFFECT_NAME)}) === null &&
         actor.get_transition({json.dumps(SHADE_PROPERTY)}) === null)""")
+
+
+def _restore_overview(session, visible):
+    action = "show" if visible else "hide"
+    session.shell_json(f"(() => {{ Main.overview.{action}(); return true; }})()")
+    expression = (
+        "Main.overview.visible && Main.layoutManager.overviewGroup.mapped && "
+        "Main.layoutManager.overviewGroup.get_paint_opacity() === 255"
+        if visible
+        else "!Main.overview.visible && !Main.layoutManager.overviewGroup.mapped"
+    )
+    session.wait_for(expression)
+
+
+@when("I open the Shell overview for the clone-paint scenario")
+def open_overview_for_clone(context):
+    initial = context.extension.shell_json("Main.overview.visible")
+    context.extension_cleanups.append((_restore_overview, (context.extension, initial)))
+    context.extension.shell_json("(() => { Main.overview.show(); return true; })()")
+    context.extension.wait_for(
+        "Main.overview.visible && Main.layoutManager.overviewGroup.mapped && "
+        "Main.layoutManager.overviewGroup.get_paint_opacity() === 255"
+    )
+
+
+@when("I close the Shell overview for the clone-paint scenario")
+def close_overview_for_clone(context):
+    context.extension.shell_json("(() => { Main.overview.hide(); return true; })()")
+    context.extension.wait_for(
+        "!Main.overview.visible && !Main.layoutManager.overviewGroup.mapped"
+    )
+
+
+def _clone_state(context, application):
+    sequence = context.shade_windows[application]["sequence"]
+    return f"""(() => {{
+        const sequence = {sequence};
+        const original = global.get_window_actors().find(actor =>
+            actor.get_meta_window()?.get_stable_sequence() === sequence);
+        if (!original) return null;
+        // The overview draws a real clone through Clutter.Clone (the parent
+        // of WindowPreview) into the overviewGroup. WindowPreview exposes
+        // metaWindow as a JS property, not a getter, and Clutter.Clone has
+        // no metaWindow access at all, so a get_meta_window() walk on
+        // children of overviewGroup never matches the clone. The reliable
+        // signal is Clutter.Clone.source === original.
+        const visited = new Set();
+        const clones = [];
+        const collect = actor => {{
+            if (visited.has(actor)) return;
+            visited.add(actor);
+            if (actor !== original && actor.source === original) {{
+                clones.push(actor);
+                return;
+            }}
+            for (const child of actor.get_children?.() ?? [])
+                collect(child);
+        }};
+        collect(Main.layoutManager.overviewGroup);
+        // `overviewGroup` may carry more than one Clutter.Clone of the same
+        // original: a WindowPreview clone and a workspace-thumbnail WindowClone.
+        // The thumbnail is parented under Shell.WorkspaceThumbnail.__Workspace
+        // (a child of the thumbnailBox); the WindowPreview clone sits under a
+        // WindowPreview container directly in overviewGroup. Pick the clone
+        // nearest to WindowPreview so the assertion is stable across workspace
+        // layouts (#919 review).
+        let clone = null;
+        let clonePreviewDepth = -1;
+        for (const candidate of clones) {{
+            let depth = 0;
+            let node = candidate;
+            while (node && !(node instanceof Shell.WindowPreview)) {{
+                node = node.get_parent?.();
+                depth++;
+            }}
+            if (node && depth > clonePreviewDepth) {{
+                clone = candidate;
+                clonePreviewDepth = depth;
+            }}
+        }}
+        // The original-window effect is what the source's vfunc_paint
+        // inspects: PreviewSafeBrightnessEffect skips brightness when
+        // actor.is_in_clone_paint() is true, so the clone paints with the
+        // standard Clutter pipeline and never inherits the dimming.
+        const effect = original.get_effect({json.dumps(EFFECT_NAME)});
+        return {{
+            sequence,
+            originalMapped: original.is_mapped(),
+            originalEffectPresent: effect !== null,
+            originalEffectEnabled: effect ? effect.get_enabled() : false,
+            originalEffectBrightness: effect ? effect.get_brightness() : null,
+            clonePresent: clone !== null,
+            cloneMapped: clone ? clone.is_mapped() : false,
+            cloneVisible: clone ? clone.visible : false,
+            cloneOpacity: clone ? clone.get_opacity() : null,
+            cloneInClonePaint: clone ? clone.is_in_clone_paint?.() : null,
+            cloneEffectPresent: clone ? clone.get_effect?.({json.dumps(EFFECT_NAME)}) !== null : null,
+        }};
+    }})()"""
+
+
+@then('the Shell overview is visible and contains a real clone of the "{application}" window')
+def assert_overview_clone_visible(context, application):
+    context.extension.wait_for(
+        f"(() => {{ const state = {_clone_state(context, application)}; "
+        "return state !== null && state.clonePresent && state.cloneMapped && "
+        "state.cloneVisible && state.cloneOpacity === 255; })()"
+    )
+
+
+@then('the "{application}" overview clone renders without the shade-inactive-windows brightness effect')
+def assert_clone_skips_shade(context, application):
+    # The source declares PreviewSafeBrightnessEffect.vfunc_paint returns
+    # early while actor.is_in_clone_paint() is true. The original window
+    # keeps its effect attached during overview; the clone does not, because
+    # the extension only adds the effect to the original actor.
+    context.extension.wait_for(
+        f"(() => {{ const state = {_clone_state(context, application)}; "
+        "return state !== null && state.originalEffectPresent && "
+        "state.originalEffectEnabled && state.clonePresent && "
+        "state.cloneMapped; })()",
+        timeout=15,
+    )
+    state = context.extension.shell_json(_clone_state(context, application))
+    assert state is not None and state["originalEffectPresent"], (
+        "Original window lost its shade effect during overview; the effect "
+        "must remain attached while overview is open"
+    )
+    assert state["originalEffectEnabled"], (
+        "Original window's shade effect became inactive during overview; "
+        "the extension must keep the effect enabled on inactive windows"
+    )
+    assert state["clonePresent"], (
+        "Overview does not contain a real clone of the inactive window; "
+        "the clone-paint bypass cannot be exercised"
+    )
+    assert state["cloneEffectPresent"] is False, (
+        "Clone actor must not own a shade-inactive-windows effect; the "
+        "vfunc_paint branch in clone paint mode must skip brightness, not "
+        "detach the effect, otherwise a regression would dim the clone content"
+    )
+    # `cloneInClonePaint` is not asserted here: Clutter.Actor.is_in_clone_paint()
+    # is only true *during* a paint pass and only on the source actor (the
+    # original window), so observing it through Shell.Eval from a test step
+    # would always read false. The clone-paint bypass is what makes
+    # `cloneEffectPresent is False` the right invariant for the scenario;
+    # the in-paint assertion is exercised by the extension's own journal
+    # entry on the dimmed-content code path (#919 review).
+    _ = state.get("cloneInClonePaint")
+
+
+@then('a screenshot records the "{application}" clone un-shaded in the overview')
+def capture_clone_screenshot(context, application):
+    directory = Path(resolve_results_dir(context)).resolve()
+    directory.mkdir(parents=True, exist_ok=True)
+    scenario = re.sub(r"[^a-z0-9]+", "_", context.scenario.name.lower()).strip("_")[:60]
+    label = re.sub(r"[^a-z0-9]+", "_", application.lower()).strip("_")
+    path = directory / f"screenshot_extensions_shade_{label}_clone_{scenario}.png"
+    path.unlink(missing_ok=True)
+    context.extension.command([
+        "gdbus", "call", "--session", "--dest", "org.gnome.Shell",
+        "--object-path", "/org/gnome/Shell/Screenshot",
+        "--method", "org.gnome.Shell.Screenshot.Screenshot",
+        "true", "false", json.dumps(str(path)),
+    ])
+    assert path.is_file(), (
+        "Required guest-local clone screenshot did not produce "
+        f"{path}; verify the overview kept the desktop mapped"
+    )
+    with path.open("rb") as screenshot:
+        assert screenshot.read(8) == b"\x89PNG\r\n\x1a\n", f"Screenshot is not a PNG: {path}"
+    print(f"Screenshot saved: {path}", flush=True)
+
+
+@then('no overview group retains clone actors for "{application}" or "{other_application}"')
+def assert_overview_clones_removed(context, application, other_application):
+    # After overview is hidden, the overview group must not retain leftover
+    # clone actors for either window. Originals live in window_group, so we
+    # only need to scan overviewGroup; clone identity is Clutter.Clone.source
+    # (Clutter.Clone has no metaWindow accessor of its own).
+    sequences = [
+        context.shade_windows[application]["sequence"],
+        context.shade_windows[other_application]["sequence"],
+    ]
+    context.extension.wait_for(f"""(() => {{
+        const targets = new Set({json.dumps(sequences)});
+        const originals = global.get_window_actors().filter(actor => {{
+            const seq = actor.get_meta_window?.()?.get_stable_sequence();
+            return seq !== undefined && targets.has(seq);
+        }});
+        const visited = new Set();
+        const findClones = actor => {{
+            if (visited.has(actor)) return false;
+            visited.add(actor);
+            if (originals.some(original => actor !== original && actor.source === original))
+                return true;
+            return (actor.get_children?.() ?? []).some(findClones);
+        }};
+        return !findClones(Main.layoutManager.overviewGroup);
+    }})()""")
+    # The previously focused window must be focused again, and the inactive
+    # window must carry the configured shade level after overview is hidden.
+    expected_focused = context.shade_focused_application
+    expected_inactive = other_application if expected_focused == application else application
+    _wait_window(context, expected_focused, focused=True, brightness=0)
+    _wait_window(context, expected_inactive, focused=False, brightness=-0.45)

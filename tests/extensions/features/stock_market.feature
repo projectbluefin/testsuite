@@ -83,3 +83,19 @@ Feature: Stock Market desktop watchlist
       | stocks-subtitle | Yahoo Finance                              |
       | stocks-subtitle | Cập nhật: --:--                             |
       | stocks-subtitle | Chưa có dữ liệu giá. Thêm mã trong Tùy chọn. |
+
+  Scenario: Stock Market helper nonzero-exit path surfaces a real warning and cleans up on disable
+    Given the Stock Market Python helper is replaced with a nonzero-exit stub
+    And the Stock Market watchlist contains these symbols:
+      | symbol  |
+      | BTC-USD |
+    When I enable the selected Hive extension
+    Then exactly one Stock Market card is mapped on the desktop
+    And Stock Market displays these labels:
+      | style_class     | text                                                   |
+      | stocks-title    | FINANCIAL MARKETS                                     |
+      | stocks-error    | Could not update prices. Will retry automatically.    |
+    And no Stock Market helper or curl child process remains for the candidate
+    When I disable the selected Hive extension
+    Then no Stock Market card remains in the Shell actor tree
+    And no Stock Market helper or curl child process remains for the candidate

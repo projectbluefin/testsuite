@@ -37,3 +37,13 @@ Feature: SJC Gold desktop card
       | text    |
       | MUA VÀO |
       | BÁN RA  |
+
+  Scenario: Missing curl_cffi dependency surfaces an actionable error and cleans up on disable
+    Given the SJC Gold Python helper is replaced with a missing curl_cffi stub
+    When I enable the selected Hive extension
+    Then exactly one SJC Gold desktop card is mapped and allocated
+    And the SJC Gold card renders the actionable missing-curl_cffi error text
+    And no SJC Gold helper or python child process remains for the candidate
+    When I disable the selected Hive extension
+    Then no SJC Gold desktop card remains in the Shell actor tree
+    And no SJC Gold helper or python child process remains for the candidate

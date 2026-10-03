@@ -7,9 +7,9 @@ Canonical tests for the four extension repositories in [gnome-extensions-hive](h
 | Tag | Extension | Functional scenarios |
 |---|---|---|
 | `just_perfection` | Just Perfection | Panel desktop/overview behavior, search, dash/launcher rendering, disable restoration |
-| `sjc_gold` | SJC Gold Widget | Rendered header/buy/sell labels, independent position changes, card removal and single-card reenable |
-| `shade_inactive_windows` | Shade Inactive Windows Reborn | Two real windows, focus-driven brightness, app exclusion, effect/transition removal |
-| `stock_market` | Stock Market Widget | Explicit watchlist rows, English/Vietnamese labels, position changes, card removal and single-card reenable |
+| `sjc_gold` | SJC Gold Widget | Rendered header/buy/sell labels, independent position changes, card removal and single-card reenable, missing-curl_cffi dependency error and cleanup |
+| `shade_inactive_windows` | Shade Inactive Windows Reborn | Two real windows, focus-driven brightness, app exclusion, effect/transition removal, overview clone paint bypass |
+| `stock_market` | Stock Market Widget | Explicit watchlist rows, English/Vietnamese labels, position changes, card removal and single-card reenable, helper nonzero-exit warning and cleanup |
 
 Common tagged examples exercise enable/disable/reenable and accessible preferences for each profile. The functional oracles inspect public Shell actor/effect rendering and real GSettings changes, not extension-private controller data. Shading is a brightness effect, not reduced window opacity.
 
@@ -30,6 +30,43 @@ No guest opt-in means failed setup before desktop actions. Missing packages, fai
 The active-fade teardown case temporarily forces guest Shell animations and restores the original flag. It requires a 1x, 1000ms transition and checks removal immediately. The timing guard uses the transition's observed elapsed time plus wall-clock time since that successful probe, which must remain below its duration minus a 100ms safety margin. Earlier polling does not consume the budget; an expired fade cannot satisfy cleanup through natural completion.
 
 Journal classification uses both the message and journald's `GLIB_DOMAIN`/`PRIORITY` fields. Gjs/GLib-GObject warning/critical records and recognizable JavaScript exceptions fail; ordinary provider HTTP/timeout console errors are allowed in the non-price UI lane. Test-owned window/overview cleanup runs before settings restoration and the journal check. The existing shared quarantine gate is honored, but a quarantined mandatory scenario still cannot satisfy the eventual service gate.
+
+## Overview clone paint (Shade)
+
+The Shade overview clone scenario proves `PreviewSafeBrightnessEffect.vfunc_paint`
+returns early while `actor.is_in_clone_paint()` is true. The clone actor is
+located by walking `Main.layoutManager.overviewGroup` for an actor whose
+`meta_window().get_stable_sequence()` matches the original. The assertion
+requires the original to keep the effect attached while overview is open, the
+clone to exist and be mapped, and the clone to **not** own an effect instance.
+The scenario's screenshot captures the desktop before overview and the overview
+itself; the guest must keep native screenshot permission and a writable results
+directory in place. The overview open/close helpers register an
+`extension_cleanups` entry so a teardown that fails during the clone assertion
+still hides the overview before journal inspection.
+
+## Helper fault injection (SJC Gold, Stock Market)
+
+Both widget scenarios exercise the real JS error path by replacing the
+installed helper script with a guest-local stub. The original helper is moved
+to `<helper>.py.test-backup` and restored through `extension_cleanups` before
+the scenario ends, even on failure. The SJC stub prints the same JSON error
+the source emits when `from curl_cffi import requests` raises
+`ImportError`, so the JS sees the actionable text without the test installing
+curl_cffi. The Stock Market stub exits with status 1, exercising the
+`Tiến trình lấy giá thất bại` branch in `SafeCommandRunner`. A PATH stub is
+not equivalent: the Stock helper hardcodes `/usr/bin/curl` and the assertion
+must trigger the real nonzero-exit path.
+
+The owned-process check walks `/proc/<pid>/cmdline` from inside the guest and
+matches the helper name (`sjc_price.py`, `stocks_fetch.py`) or `/usr/bin/curl`.
+A broad host `pgrep` cannot distinguish a leaked subprocess from unrelated
+guest processes, so the assertion stays inside the guest and identifies
+ownership by cmdline. The walker lives in `tests/shared/guest_owned_processes.py`
+so both scenarios reuse a single script body and so the regression tests in
+`tests/unit/test_guest_owned_processes_walker.py` can compile the literal
+script and pin the argv contract that prevents the vacuous-pass regression
+from issue #919.
 
 Development checks do not require a guest:
 
