@@ -115,7 +115,14 @@ def validate_links(path: Path, text: str) -> None:
             continue
         target = (base / bare).resolve()
         if not target.exists():
-            error(f"{path}: broken relative link '{url}' -> {target.relative_to(ROOT)}")
+            try:
+                display = target.relative_to(ROOT)
+            except ValueError:
+                # Target resolved outside ROOT (e.g. `../../nope.md`); show the
+                # absolute path so the run reports a FAIL: line instead of a
+                # traceback.
+                display = target
+            error(f"{path}: broken relative link '{url}' -> {display}")
 
 
 CATALOG_FIELDS = (
@@ -142,10 +149,16 @@ def validate_catalog_frontmatter(path: Path, fm: dict) -> None:
     for field in CATALOG_FIELDS:
         if not fm.get(field):
             error(f"{path}: frontmatter missing '{field}' (required by docs/skills/index.schema.json)")
-    if fm.get("category") and fm["category"] not in CATEGORIES:
-        error(f"{path}: category '{fm['category']}' not in {sorted(CATEGORIES)}")
-    if fm.get("status") and fm["status"] not in STATUSES:
-        error(f"{path}: status '{fm['status']}' not in {sorted(STATUSES)}")
+    category = fm.get("category")
+    if category is not None and not isinstance(category, str):
+        error(f"{path}: category must be one of {sorted(CATEGORIES)} (got {category!r})")
+    elif category and category not in CATEGORIES:
+        error(f"{path}: category '{category}' not in {sorted(CATEGORIES)}")
+    status = fm.get("status")
+    if status is not None and not isinstance(status, str):
+        error(f"{path}: status must be one of {sorted(STATUSES)} (got {status!r})")
+    elif status and status not in STATUSES:
+        error(f"{path}: status '{status}' not in {sorted(STATUSES)}")
     if fm.get("id") and fm.get("name") and fm["id"] != fm["name"]:
         error(f"{path}: id '{fm['id']}' does not match name '{fm['name']}'")
     if fm.get("entry_point") and fm["entry_point"] != rel:

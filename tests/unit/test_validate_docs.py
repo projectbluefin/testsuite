@@ -180,6 +180,24 @@ class TestValidateLinks:
         vd.validate_links(p, "[sec](other.md?v=2)")
         assert vd.ERRORS == []
 
+    def test_broken_link_outside_repo_is_error_not_traceback(
+        self, tmp_path, monkeypatch
+    ):
+        """Regression for #957: `../../nope.md` from any nested doc resolves
+        above ROOT and must produce one FAIL: line, not a ValueError from
+        `Path.relative_to(ROOT)`."""
+        monkeypatch.setattr(vd, "ROOT", tmp_path)
+        # Nesting once means `../../nope.md` resolves to the parent of tmp_path,
+        # which is outside ROOT — that's the case that triggered the traceback.
+        nested = tmp_path / "nested"
+        nested.mkdir()
+        p = nested / "doc.md"
+        vd.validate_links(p, "[missing](../../nope.md)")
+        assert len(vd.ERRORS) == 1
+        assert "broken relative link '../../nope.md'" in vd.ERRORS[0]
+        # The display path is shown absolutely because it lies outside ROOT.
+        assert "/nope.md" in vd.ERRORS[0] or vd.ERRORS[0].endswith("nope.md")
+
 
 # ── catalog frontmatter helpers ───────────────────────────────────────────────
 
@@ -356,3 +374,69 @@ class TestMain:
         (docs / "SKILL.md").write_text("---\nname: docs\ndescription: d\n---\n# Docs\n")
         assert vd.main() == 1
         assert any("frontmatter missing 'entry_point'" in e for e in vd.ERRORS)
+
+
+# ── validate_catalog_frontmatter (direct) ────────────────────────────────────
+
+
+class TestValidateCatalogFrontmatter:
+    """Direct exercise of validate_catalog_frontmatter().
+
+    Most catalog rules are covered through TestValidateSkill; these tests
+    pin the two crash paths called out by #957 — a list-valued `category`
+    or `status` must produce a FAIL line, not a TypeError.
+    """
+
+    def _path(self, tmp_path, name="fake-skill"):
+        p = tmp_path / "docs" / "skills" / name / "SKILL.md"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        return p
+
+    def _fm(self, **overrides):
+        base = {
+            "name": "fake-skill",
+            "description": "fake",
+            "id": "fake-skill",
+            "version": "1.0.0",
+            "last_updated": "2026-01-01",
+            "one_line_purpose": "fake",
+            "entry_point": "docs/skills/fake-skill/SKILL.md",
+            "category": "meta",
+            "status": "active",
+            "tags": ["testing"],
+        }
+        base.update(overrides)
+        return base
+
+    def test_list_valued_category_is_rejected_without_traceback(self, tmp_path, monkeypatch):
+        """Regression for #957: `category: [meta]` must be a FAIL line, not a
+        `TypeError: unhashable type: 'list'`."""
+        monkeypatch.setattr(vd, "ROOT", tmp_path)
+        p = self._path(tmp_path)
+        vd.validate_catalog_frontmatter(p, self._fm(category=["meta"]))
+        assert len(vd.ERRORS) == 1
+        assert "category must be one of" in vd.ERRORS[0]
+        assert "['meta']" in vd.ERRORS[0]
+
+    def test_list_valued_status_is_rejected_without_traceback(self, tmp_path, monkeypatch):
+        """Regression for #957: `status: [active]` must be a FAIL line, not a
+        `TypeError: unhashable type: 'list'`."""
+        monkeypatch.setattr(vd, "ROOT", tmp_path)
+        p = self._path(tmp_path)
+        vd.validate_catalog_frontmatter(p, self._fm(status=["active"]))
+        assert len(vd.ERRORS) == 1
+        assert "status must be one of" in vd.ERRORS[0]
+        assert "['active']" in vd.ERRORS[0]
+
+    def test_invalid_string_category_still_rejected(self, tmp_path, monkeypatch):
+        """The pre-#957 behavior for an unknown string category is unchanged."""
+        monkeypatch.setattr(vd, "ROOT", tmp_path)
+        p = self._path(tmp_path)
+        vd.validate_catalog_frontmatter(p, self._fm(category="not-a-category"))
+        assert any("category 'not-a-category' not in" in e for e in vd.ERRORS)
+
+    def test_invalid_string_status_still_rejected(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(vd, "ROOT", tmp_path)
+        p = self._path(tmp_path)
+        vd.validate_catalog_frontmatter(p, self._fm(status="pending"))
+        assert any("status 'pending' not in" in e for e in vd.ERRORS)
