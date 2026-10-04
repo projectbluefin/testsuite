@@ -57,3 +57,17 @@ Feature: Shade Inactive Windows Reborn dims inactive application windows
     And I focus the "Calculator" application window for shading using keyboard input
     And I disable Shade Inactive Windows while the "Text Editor" window is transitioning
     Then no window actor retains a Shade Inactive Windows effect or transition
+
+  Scenario: Overview clones of inactive windows are not shaded and the original effect returns when overview closes
+    When I focus the "Text Editor" application window for shading using keyboard input
+    Then the "Text Editor" application window is focused and unshaded
+    And the "Calculator" application window is inactive and shaded by 45 percent
+    And a screenshot records the "Calculator" window shaded by 45 percent
+    When I open the Shell overview for the clone-paint scenario
+    Then the Shell overview is visible and contains a real clone of the "Calculator" window
+    And the "Calculator" overview clone renders without the shade-inactive-windows brightness effect
+    And a screenshot records the "Calculator" clone un-shaded in the overview
+    When I close the Shell overview for the clone-paint scenario
+    Then the "Text Editor" application window is focused and unshaded
+    And the "Calculator" application window is inactive and shaded by 45 percent
+    And no overview group retains clone actors for "Calculator" or "Text Editor"

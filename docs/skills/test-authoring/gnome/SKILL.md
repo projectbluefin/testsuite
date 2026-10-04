@@ -1,7 +1,7 @@
 ---
 name: gnome
-version: "1.1"
-last_updated: "2026-09-16"
+version: "1.2"
+last_updated: "2026-10-01"
 id: gnome
 one_line_purpose: Write GNOME Shell, AT-SPI, and dogtail interaction tests.
 entry_point: docs/skills/test-authoring/gnome/SKILL.md
@@ -9,7 +9,7 @@ category: test-authoring
 mcp_compliance_level: partial
 status: active
 dependencies: []
-tags: [gnome, atspi, dogtail, gnome-51]
+tags: [gnome, atspi, dogtail, gnome-51, extensions, overview, helper-fault-injection]
 description: "How to write GNOME Shell / AT-SPI / dogtail tests for the testsuite repo. Load when editing GNOME interaction steps."
 metadata:
   type: pattern
@@ -406,7 +406,6 @@ The pattern `for _ in range(N): ... sleep(X)` that returns early already IS exit
 
 ## Red Flags
 
-
 - Using `'true' in out` to check a Shell.Eval result (success_bool is always true)
 - Calling `Shell.Eval` without first setting `global.context.unsafe_mode = true`
 - Using `requireResult=False` with `findChild` (removed in dogtail 4.16)
@@ -422,7 +421,6 @@ The pattern `for _ in range(N): ... sleep(X)` that returns early already IS exit
 - A session-readiness loop caches the D-Bus session address or treats a missing bus socket as fatal (breaks across the qecore-headless GDM restart)
 
 ## Verification
-
 
 - [ ] Shell.Eval results extracted with `_eval_bool()` / regex on second tuple element, never `'true' in out`
 - [ ] `unsafe_mode=true` set before any Shell.Eval that reads protected state
@@ -442,14 +440,12 @@ The pattern `for _ in range(N): ... sleep(X)` that returns early already IS exit
 
 ## Red Flags
 
-
 - New smoke app steps hardcode `/usr/share/applications/...` for Flatpak-only apps
 - Step code uses `findChild(..., requireResult=...)`
 - New GNOME steps duplicate existing step phrases in the suite
 - New launch steps add unconditional post-launch sleeps instead of relying on accessibility polling
 
 ## Verification
-
 
 - [ ] Reused existing GNOME/smoke helpers before adding new ones
 - [ ] Launch targets prefer desktop files, with Flatpak or command fallback only when needed
@@ -498,3 +494,7 @@ Load these when you hit the specific topic:
 - [MIME, display, and session configuration in containerized tests.](references/display-config.md)
 - [Deep dive: Preinstalled Flatpak desktop app launch checks](references/preinstalled-flatpak-desktop-app-launch-checks.md)
 - [GNOME 50 workaround audit against GNOME 51 (issue #827)](references/gnome-51-audit.md)
+
+## Overview, clone paint, and helper fault injection (issue #919)
+
+Drive the overview via `Shell.Eval` plus a teardown entry; the clone paint proof requires the original to keep the effect while the clone owns none. Helper-driven extensions exercise the JS error branch via `installed_path(info)` plus a `<helper>.py.test-backup` swap. The owned-process assertion lives in `tests.shared.guest_owned_processes`; `assert_no_guest_owned_processes(context, ("needle",))` walks `/proc` from inside the guest because a host `pgrep` cannot distinguish a leaked subprocess from unrelated host processes. The script body is exposed as `WALKER_SCRIPT` so `tests/unit/test_guest_owned_processes_walker.py` can compile it and pin the argv shape (`ExtensionSession.command` runs `subprocess.run` without a shell — passing the script as a single argv element to `python3 -c` is mandatory).
