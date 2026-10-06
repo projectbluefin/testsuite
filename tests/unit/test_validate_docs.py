@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -376,10 +379,10 @@ class TestMain:
         assert any("frontmatter missing 'entry_point'" in e for e in vd.ERRORS)
 
 
-# ── validate_catalog_frontmatter (direct) ────────────────────────────────────
+# ── validate_catalog_frontmatter: non-string category/status (#957) ──────────
 
 
-class TestValidateCatalogFrontmatter:
+class TestCatalogFrontmatterNonStringValues:
     """Direct exercise of validate_catalog_frontmatter().
 
     Most catalog rules are covered through TestValidateSkill; these tests
@@ -440,3 +443,281 @@ class TestValidateCatalogFrontmatter:
         p = self._path(tmp_path)
         vd.validate_catalog_frontmatter(p, self._fm(status="pending"))
         assert any("status 'pending' not in" in e for e in vd.ERRORS)
+
+
+# ── validate_catalog_frontmatter ──────────────────────────────────────────────
+
+
+def _valid_catalog_fm(rel: str = "docs/skills/my-skill/SKILL.md") -> dict:
+    """Parsed frontmatter that passes every validate_catalog_frontmatter rule."""
+    return vd.parse_frontmatter(_catalog_frontmatter("my-skill", rel) + "# T\n")[0]
+
+
+class TestValidateCatalogFrontmatter:
+    REL = "docs/skills/my-skill/SKILL.md"
+
+    def _check(self, tmp_path, monkeypatch, **overrides):
+        monkeypatch.setattr(vd, "ROOT", tmp_path)
+        fm = _valid_catalog_fm(self.REL)
+        fm.update(overrides)
+        vd.validate_catalog_frontmatter(tmp_path / self.REL, fm)
+        return vd.ERRORS
+
+    def test_valid_frontmatter_has_no_errors(self, tmp_path, monkeypatch):
+        assert self._check(tmp_path, monkeypatch) == []
+
+    @pytest.mark.parametrize("field", vd.CATALOG_FIELDS)
+    def test_each_catalog_field_is_required(self, tmp_path, monkeypatch, field):
+        errors = self._check(tmp_path, monkeypatch, **{field: None})
+        assert any(f"frontmatter missing '{field}'" in e for e in errors)
+
+    def test_unknown_category_is_error(self, tmp_path, monkeypatch):
+        errors = self._check(tmp_path, monkeypatch, category="misc")
+        assert errors == [
+            f"{tmp_path / self.REL}: category 'misc' not in {sorted(vd.CATEGORIES)}"
+        ]
+
+    @pytest.mark.parametrize("category", sorted(vd.CATEGORIES))
+    def test_every_known_category_is_accepted(self, tmp_path, monkeypatch, category):
+        assert self._check(tmp_path, monkeypatch, category=category) == []
+
+    def test_unknown_status_is_error(self, tmp_path, monkeypatch):
+        errors = self._check(tmp_path, monkeypatch, status="draft")
+        assert errors == [
+            f"{tmp_path / self.REL}: status 'draft' not in {sorted(vd.STATUSES)}"
+        ]
+
+    @pytest.mark.parametrize("status", sorted(vd.STATUSES))
+    def test_every_known_status_is_accepted(self, tmp_path, monkeypatch, status):
+        assert self._check(tmp_path, monkeypatch, status=status) == []
+
+    def test_id_differing_from_name_is_error(self, tmp_path, monkeypatch):
+        errors = self._check(tmp_path, monkeypatch, id="other-skill")
+        assert errors == [
+            f"{tmp_path / self.REL}: id 'other-skill' does not match name 'my-skill'"
+        ]
+
+    def test_id_without_name_is_not_compared(self, tmp_path, monkeypatch):
+        assert self._check(tmp_path, monkeypatch, name=None, id="other") == []
+
+    def test_entry_point_not_matching_own_path_is_error(self, tmp_path, monkeypatch):
+        errors = self._check(
+            tmp_path, monkeypatch, entry_point="docs/skills/other/SKILL.md"
+        )
+        assert errors == [
+            f"{tmp_path / self.REL}: entry_point 'docs/skills/other/SKILL.md' "
+            f"does not match its own path '{self.REL}'"
+        ]
+
+    def test_absolute_entry_point_is_error(
+        self, tmp_path, monkeypatch
+    ):
+        errors = self._check(
+            tmp_path, monkeypatch, entry_point=str(tmp_path / self.REL)
+        )
+        assert any("does not match its own path" in e for e in errors)
+
+    @pytest.mark.parametrize(
+        "value", ["2026-1-01", "01-01-2026", "2026/01/01", "2026-01-01T00:00", "today"]
+    )
+    def test_malformed_last_updated_is_error(self, tmp_path, monkeypatch, value):
+        errors = self._check(tmp_path, monkeypatch, last_updated=value)
+        assert errors == [
+            f"{tmp_path / self.REL}: last_updated '{value}' is not YYYY-MM-DD"
+        ]
+
+    def test_yaml_date_last_updated_is_accepted(self, tmp_path, monkeypatch):
+        """Unquoted YAML dates parse to datetime.date; str() must still match."""
+        fm = _valid_catalog_fm(self.REL)
+        assert not isinstance(fm["last_updated"], str)
+        assert self._check(tmp_path, monkeypatch) == []
+
+    def test_one_line_purpose_at_120_chars_is_accepted(self, tmp_path, monkeypatch):
+        assert self._check(tmp_path, monkeypatch, one_line_purpose="x" * 120) == []
+
+    def test_one_line_purpose_over_120_chars_is_error(self, tmp_path, monkeypatch):
+        errors = self._check(tmp_path, monkeypatch, one_line_purpose="x" * 121)
+        assert errors == [
+            f"{tmp_path / self.REL}: one_line_purpose exceeds 120 characters"
+        ]
+
+    def test_scalar_tags_is_error(self, tmp_path, monkeypatch):
+        errors = self._check(tmp_path, monkeypatch, tags="testing")
+        assert errors == [f"{tmp_path / self.REL}: tags must be a non-empty list"]
+
+    def test_empty_tags_list_is_error(self, tmp_path, monkeypatch):
+        errors = self._check(tmp_path, monkeypatch, tags=[])
+        assert f"{tmp_path / self.REL}: tags must be a non-empty list" in errors
+
+    def test_skill_md_runs_catalog_rules(self, tmp_path, monkeypatch):
+        """validate_skill() must route a skill's SKILL.md through the catalog schema."""
+        monkeypatch.setattr(vd, "ROOT", tmp_path)
+        skill_dir = tmp_path / "docs" / "skills" / "my-skill"
+        skill_dir.mkdir(parents=True)
+        p = skill_dir / "SKILL.md"
+        p.write_text(
+            _catalog_frontmatter("my-skill", self.REL).replace(
+                "status: active", "status: draft"
+            )
+            + "# T\n"
+        )
+        vd.validate_skill(p)
+        assert any("status 'draft'" in e for e in vd.ERRORS)
+
+    def test_skills_index_md_skips_catalog_rules(self, tmp_path, monkeypatch):
+        """docs/skills/index.md is not a SKILL.md, so no catalog fields are required."""
+        monkeypatch.setattr(vd, "ROOT", tmp_path)
+        skills = tmp_path / "docs" / "skills"
+        skills.mkdir(parents=True)
+        p = skills / "index.md"
+        p.write_text("---\nname: skills\ndescription: index\n---\n# Skills\n")
+        vd.validate_skill(p)
+        assert vd.ERRORS == []
+
+
+# ── reference frontmatter warnings ────────────────────────────────────────────
+
+
+class TestReferenceNameWarning:
+    def _ref(self, tmp_path, stem, name):
+        ref_dir = tmp_path / "docs" / "skills" / "my-skill" / "references"
+        ref_dir.mkdir(parents=True)
+        p = ref_dir / f"{stem}.md"
+        p.write_text(f"---\nname: {name}\ndescription: ref\n---\n# Ref\n")
+        return p
+
+    def test_name_mismatch_is_warning_not_error(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(vd, "ROOT", tmp_path)
+        p = self._ref(tmp_path, "api", "other")
+        vd.validate_skill(p)
+        assert vd.ERRORS == []
+        assert vd.WARNINGS == [
+            f"{p}: frontmatter name 'other' does not match filename 'api'"
+        ]
+
+    def test_matching_name_has_no_warning(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(vd, "ROOT", tmp_path)
+        vd.validate_skill(self._ref(tmp_path, "api", "api"))
+        assert vd.ERRORS == [] and vd.WARNINGS == []
+
+    def test_main_prints_warnings_and_still_passes(self, tmp_path, monkeypatch, capsys):
+        monkeypatch.setattr(vd, "ROOT", tmp_path)
+        _write_router(tmp_path)
+        p = self._ref(tmp_path, "api", "other")
+        monkeypatch.setattr(vd, "collect_md_files", lambda: [p])
+        assert vd.main() == 0
+        out = capsys.readouterr().out
+        assert "WARN: " in out and "does not match filename 'api'" in out
+        assert "All docs validation checks passed." in out
+
+
+# ── validate_router / main dispatch ───────────────────────────────────────────
+
+
+class TestRouterAndDispatch:
+    def test_router_without_frontmatter_is_error(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(vd, "ROOT", tmp_path)
+        (tmp_path / "docs").mkdir()
+        (tmp_path / "docs" / "SKILL.md").write_text("# Docs\n")
+        vd.validate_router()
+        assert vd.ERRORS == ["docs/SKILL.md: missing YAML frontmatter"]
+
+    def test_router_entry_point_must_be_docs_skill_md(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(vd, "ROOT", tmp_path)
+        docs = tmp_path / "docs"
+        docs.mkdir()
+        (docs / "SKILL.md").write_text(
+            _catalog_frontmatter("testsuite-docs", "docs/index.md") + "# Docs\n"
+        )
+        vd.validate_router()
+        assert any("does not match its own path 'docs/SKILL.md'" in e for e in vd.ERRORS)
+
+    def test_router_is_validated_as_general_doc_not_as_skill(
+        self, tmp_path, monkeypatch
+    ):
+        """docs/SKILL.md's parent is 'docs', so the name-vs-directory rule must not fire."""
+        monkeypatch.setattr(vd, "ROOT", tmp_path)
+        _write_router(tmp_path, name="not-docs")
+        router = tmp_path / "docs" / "SKILL.md"
+        monkeypatch.setattr(vd, "collect_md_files", lambda: [router])
+        assert vd.main() == 0
+        assert vd.ERRORS == []
+
+    def test_main_prints_each_failure(self, tmp_path, monkeypatch, capsys):
+        monkeypatch.setattr(vd, "ROOT", tmp_path)
+        _write_router(tmp_path)
+        doc = tmp_path / "bad.md"
+        doc.write_text("no heading\n##### too deep\n")
+        monkeypatch.setattr(vd, "collect_md_files", lambda: [doc])
+        assert vd.main() == 1
+        out = capsys.readouterr().out
+        assert f"FAIL: {doc}:2: H5 heading (max H4)" in out
+        assert f"FAIL: {doc}: missing H1" in out
+        assert "All docs validation checks passed." not in out
+
+
+# ── collect_md_files ──────────────────────────────────────────────────────────
+
+
+def _git(cwd, *args):
+    subprocess.run(
+        ["git", *args],
+        cwd=cwd,
+        check=True,
+        capture_output=True,
+        env={
+            **os.environ,
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_CONFIG_SYSTEM": os.devnull,
+        },
+    )
+
+
+class TestCollectMdFiles:
+    @pytest.fixture
+    def no_parent_repo(self, tmp_path, monkeypatch):
+        """Stop git discovering a repository above tmp_path."""
+        monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path.parent))
+        monkeypatch.setattr(vd, "ROOT", tmp_path)
+        return tmp_path
+
+    @pytest.mark.skipif(shutil.which("git") is None, reason="git not installed")
+    def test_git_repo_returns_only_tracked_md_sorted(self, no_parent_repo):
+        root = no_parent_repo
+        _git(root, "init", "-q")
+        (root / "docs").mkdir()
+        (root / "z.md").write_text("# Z\n")
+        (root / "docs" / "a.md").write_text("# A\n")
+        (root / "notes.txt").write_text("not markdown\n")
+        _git(root, "add", "z.md", "docs/a.md", "notes.txt")
+        (root / "untracked.md").write_text("# U\n")
+
+        assert vd.collect_md_files() == [root / "docs" / "a.md", root / "z.md"]
+
+    @pytest.mark.skipif(shutil.which("git") is None, reason="git not installed")
+    def test_non_git_directory_falls_back_to_filtered_walk(self, no_parent_repo):
+        root = no_parent_repo
+        keep = [root / "README.md", root / "docs" / "guide.md"]
+        skip = [
+            root / "node_modules" / "pkg" / "README.md",
+            root / "__pycache__" / "x.md",
+            root / ".venv" / "lib" / "x.md",
+            root / ".worktrees" / "branch" / "README.md",
+            root / ".git" / "x.md",
+            root / ".github" / "ISSUE_TEMPLATE" / "bug.md",
+        ]
+        for p in keep + skip:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text("# T\n")
+
+        assert vd.collect_md_files() == sorted(keep)
+
+    def test_missing_git_binary_falls_back_to_walk(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(vd, "ROOT", tmp_path)
+        (tmp_path / "README.md").write_text("# T\n")
+
+        def no_git(*args, **kwargs):
+            raise FileNotFoundError("git")
+
+        monkeypatch.setattr(subprocess, "run", no_git)
+        assert vd.collect_md_files() == [tmp_path / "README.md"]
