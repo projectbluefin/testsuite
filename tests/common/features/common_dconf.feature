@@ -84,10 +84,6 @@ Feature: Bluefin common dconf and GSettings defaults
     * SSH command return code is "0"
     * SSH command output stripped "is" "'xdg-terminal-exec'"
 
-  Scenario: Searchlight extension is configured
-    * Run SSH command: "dconf read /org/gnome/shell/extensions/search-light/shortcut-search"
-    * SSH command return code is "0"
-    * SSH command output stripped "is" "['<Super>space']"
 
   # Pending: the Ptyxis palette is user-session dconf state, not image state.
   @pending

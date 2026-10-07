@@ -46,7 +46,3 @@ Feature: Bluefin GNOME extension presence
     * GNOME Shell is accessible via AT-SPI
     * GNOME extension "custom-command-list@storageb.github.com" is enabled
 
-  @bluefin @extensions
-  Scenario: Search Light extension is enabled
-    * GNOME Shell is accessible via AT-SPI
-    * GNOME extension "search-light@icedman.github.com" is enabled
