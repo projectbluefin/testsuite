@@ -385,7 +385,7 @@ For commands that produce multiline output (e.g. `flatpak install ... 2>&1; echo
 In the SSH-driven `common` suite, validate Bluefin desktop identity overrides with the API that matches the schema type:
 
 - Use `gsettings get` for regular schemas shipped via `zz0-bluefin-modifications.gschema.override` (for example `org.gnome.desktop.interface accent-color` or `org.gnome.desktop.app-folders folder-children`).
-- Use `dconf read` for relocatable schemas and extensions without XML schemas (for example custom media-key keybindings under `/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/`, Search Light under `/org/gnome/shell/extensions/search-light/`, and Ptyxis profile palette keys under `/org/gnome/Ptyxis/Profiles/<uuid>/`).
+- Use `dconf read` for relocatable schemas and extensions without XML schemas (for example custom media-key keybindings under `/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/`, and Ptyxis profile palette keys under `/org/gnome/Ptyxis/Profiles/<uuid>/`).
 
 This keeps common-suite assertions aligned with how Bluefin actually ships those defaults in `projectbluefin/common`.
 

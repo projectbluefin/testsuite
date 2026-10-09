@@ -162,12 +162,12 @@ Set `chunked_enabled: true` once `ghcr.io/projectbluefin/bluefin:latest` ships z
 
 <!-- coverage-snapshot:start -->
 
-570 scenarios across 80 feature files: 449 active, 0 quarantined, 121 `@future`/`@pending`/`@hardware_blocked`
+568 scenarios across 80 feature files: 447 active, 0 quarantined, 121 `@future`/`@pending`/`@hardware_blocked`
 
 | Suite | Scenarios | Active | Quarantined | Pending/Future | Notes |
 |---|---|---|---|---|---|
 | bazzite | 20 | 9 | 0 | 11 | Extension presence + shell behaviour; 11 'is enabled' scenarios `@pending` on an upstream image regression — all extensions report state=6/ERROR in bazzite-gnome:testing/stable since 2026-06-05 (#408); 'is installed' scenarios remain active |
-| common | 118 | 98 | 0 | 20 | Signing assertions `@future` pending the ublue-os→projectbluefin policy migration; flatpak model/state, dconf defaults, and immutability checks `@pending` on CI infra (#838); Flatpak model + state; XDG portal health + integration; container runtime (podman); polkit rules; shell env + sourcing; system scripts; ujust recipes; GSettings/dconf defaults; immutable OS integrity; desktop entries; signing assertions; Dakota `ujust --choose` regression guard active (`@dakota_only`); `ujust report` is `@pending` on #706 until a Dakota lab run validates the mocked submit flow |
+| common | 117 | 97 | 0 | 20 | Signing assertions `@future` pending the ublue-os→projectbluefin policy migration; flatpak model/state, dconf defaults, and immutability checks `@pending` on CI infra (#838); Flatpak model + state; XDG portal health + integration; container runtime (podman); polkit rules; shell env + sourcing; system scripts; ujust recipes; GSettings/dconf defaults; immutable OS integrity; desktop entries; signing assertions; Dakota `ujust --choose` regression guard active (`@dakota_only`); `ujust report` is `@pending` on #706 until a Dakota lab run validates the mocked submit flow |
 | developer | 19 | 7 | 0 | 12 | 6 brew + 6 ptyxis now `@pending`: `brew-setup.service` masked in CI (#487) and the ptyxis AT-SPI restart issue (#368) |
 | dx | 18 | 13 | 0 | 5 | distrobox create/install/export are active behind the `@requires_cached_image` runtime gate — they skip until `fedora-toolbox:latest` is pre-pulled on the VM (#501 / projectbluefin/lab#621) and activate without a feature-file edit; distrobox enter, JupyterLab, brew, mise remain `@pending` on infra gaps |
 | extensions | 22 | 22 | 0 | 0 | Four Hive extension lifecycle/rendering profiles; guest-only Behave; GNOME OS provisioning/artifact and HTTPS fixture execution deferred to #908/#909 |
@@ -178,7 +178,7 @@ Set `chunked_enabled: true` once `ghcr.io/projectbluefin/bluefin:latest` ships z
 | lifecycle | 33 | 30 | 0 | 3 | bootc upgrade / rollback / migration; switch is `@future` (needs a valid alternate image ref; pin activated with settled-deployment barrier) |
 | nvidia | 12 | 0 | 0 | 12 | `@future` / `@hardware_blocked` until GPU passthrough exists in the lab |
 | security | 15 | 15 | 0 | 0 | cosign verify: projectbluefin (bluefin, lts, dakota) + ublue-os (latest, LTS, DX, nvidia, GTS, DX-nvidia, negative) |
-| smoke | 223 | 174 | 0 | 49 | 39 `@pending` flatpak-permission audits blocked on CI never seeding system Flatpaks; MIME handler coverage (Firefox/Papers/Loupe/Text Editor/video); GNOME accessibility (AT-SPI daemon, high-contrast toggle, a11y panel); display fractional/integer scaling via Mutter DisplayConfig; Bluefin desktop identity (Wayland, hardware accel, Dash to Dock); GNOME regression guards in gnome_regression.feature; Dakota sudo-rs privilege and PAM checks |
+| smoke | 222 | 173 | 0 | 49 | 39 `@pending` flatpak-permission audits blocked on CI never seeding system Flatpaks; MIME handler coverage (Firefox/Papers/Loupe/Text Editor/video); GNOME accessibility (AT-SPI daemon, high-contrast toggle, a11y panel); display fractional/integer scaling via Mutter DisplayConfig; Bluefin desktop identity (Wayland, hardware accel, Dash to Dock); GNOME regression guards in gnome_regression.feature; Dakota sudo-rs privilege and PAM checks |
 | software | 33 | 25 | 0 | 8 | Bazaar launch + search + CLI presence/info/remote + config YAML validation active on bluefin; Bazaar UI tests rewritten for actual Bazaar layout; CLI (Flathub remote + permissions DB) active on all images; Flatpak per-app permission management active on all images; upstream GNOME Software scenarios are `@future` (#847) |
 | vanilla-gnome | 15 | 15 | 0 | 0 | Baseline GNOME Shell parity check; runs on any GNOME image; org.gnome.desktop.a11y.interface reduced-motion + keyboard-focus-visible-timeout gsettings round-trips (@requires_gnome_51, skip on GNOME <= 50 via runtime Shell version probe) |
 

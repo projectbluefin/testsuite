@@ -244,12 +244,8 @@ The smoke suite's UUID-specific extension checks use the same
 `_run_host(...)` helper so they work both inside the VM and from the Fedora
 runner container over SSH.
 
-Bluefin's 9 bundled extensions each get a named scenario in
-`tests/smoke/features/bluefin_extensions.feature`. Tag the
-`search-light@icedman.github.com` scenario with `@bluefin` so dakota smoke runs
-skip it via `environment.py`.
-
-Use the distinct step phrase `GNOME extension "{uuid}" is enabled` (not
+Bluefin's bundled extensions each get a named scenario in
+`tests/smoke/features/bluefin_extensions.feature`. Use the distinct step phrase `GNOME extension "{uuid}" is enabled` (not
 bazzite's `Extension "{uuid}" is enabled`) to avoid cross-suite step collisions.
 
 ## Bazaar on Bluefin: wait out the Refreshing spinner
