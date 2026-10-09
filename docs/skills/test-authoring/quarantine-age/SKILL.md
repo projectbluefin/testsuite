@@ -33,7 +33,7 @@ metadata:
 ## Core Process
 
 1. Scan current `tests/**/*.feature` files and collect scenarios tagged `@quarantine`.
-2. For each feature file, walk `git log --follow --reverse` and inspect file snapshots with `git show <sha>:<path>`.
+2. For each feature file, walk `git log --follow --name-only` (newest first, reversed in Python because git ignores `--follow` with `--reverse`) and inspect file snapshots with `git show <sha>:<path-at-that-commit>`.
 3. Record the first commit where each scenario appears with `@quarantine`; if history cannot prove it, fall back to the file's last git modification date.
 4. Calculate age in days and fail when `age_days > (--max-days + --grace-days)`.
 5. Print an actionable report with feature path, scenario name, quarantine date, age, and the required next action.

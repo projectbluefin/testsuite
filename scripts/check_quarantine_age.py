@@ -147,10 +147,13 @@ def file_history_entries(
 
     git ignores --follow when --reverse is given, so history is read newest
     first and reversed here; --name-only supplies each commit's path, which
-    differs from the current one before a rename.
+    differs from the current one before a rename. core.quotePath=false keeps
+    non-ASCII paths unescaped so they can be passed back to git show.
     """
     relative_path = str(feature_file.relative_to(repo_root))
     result = git(
+        "-c",
+        "core.quotePath=false",
         "log",
         "--follow",
         "--name-only",
