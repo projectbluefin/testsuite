@@ -140,13 +140,24 @@ def parse_git_date(date_text: str) -> datetime:
     return datetime.fromisoformat(date_text.strip())
 
 
-def file_history_entries(repo_root: Path, feature_file: Path) -> list[tuple[str, datetime]]:
+def file_history_entries(
+    repo_root: Path, feature_file: Path
+) -> list[tuple[str, datetime, str]]:
+    """Return (sha, author date, path at that commit), oldest first.
+
+    git ignores --follow when --reverse is given, so history is read newest
+    first and reversed here; --name-only supplies each commit's path, which
+    differs from the current one before a rename. core.quotePath=false keeps
+    non-ASCII paths unescaped so they can be passed back to git show.
+    """
     relative_path = str(feature_file.relative_to(repo_root))
     result = git(
+        "-c",
+        "core.quotePath=false",
         "log",
         "--follow",
-        "--reverse",
-        "--format=%H%x09%aI",
+        "--name-only",
+        "--format=%x00%H%x09%aI",
         "--",
         relative_path,
         repo_root=repo_root,
@@ -154,12 +165,15 @@ def file_history_entries(repo_root: Path, feature_file: Path) -> list[tuple[str,
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or f"git log failed for {relative_path}")
 
-    history: list[tuple[str, datetime]] = []
-    for line in result.stdout.splitlines():
-        if not line.strip():
+    history: list[tuple[str, datetime, str]] = []
+    for record in result.stdout.split("\x00"):
+        lines = [line for line in record.splitlines() if line.strip()]
+        if not lines:
             continue
-        sha, date_text = line.split("\t", 1)
-        history.append((sha, parse_git_date(date_text)))
+        sha, date_text = lines[0].split("\t", 1)
+        path = lines[-1] if len(lines) > 1 else relative_path
+        history.append((sha, parse_git_date(date_text), path))
+    history.reverse()
     return history
 
 
@@ -184,11 +198,10 @@ def scenario_quarantine_dates(
     repo_root: Path, feature_file: Path, scenario_names: set[str]
 ) -> dict[str, tuple[date, str]]:
     history = file_history_entries(repo_root, feature_file)
-    relative_path = str(feature_file.relative_to(repo_root))
     first_seen: dict[str, tuple[date, str]] = {}
 
-    for sha, committed_at in history:
-        show = git("show", f"{sha}:{relative_path}", repo_root=repo_root)
+    for sha, committed_at, path_at_commit in history:
+        show = git("show", f"{sha}:{path_at_commit}", repo_root=repo_root)
         if show.returncode != 0:
             continue
 

@@ -141,9 +141,11 @@ def test_parse_feature_scenarios_no_scenarios():
 
 # --- file_history_entries ---
 
+# `git log --follow --name-only --format=%x00%H%x09%aI`: newest first, each
+# record carrying the path the file had at that commit.
 _GIT_LOG_OUTPUT = (
-    "abc123\t2026-01-15T10:00:00+00:00\n"
-    "def456\t2026-01-20T12:00:00+00:00\n"
+    "\x00def456\t2026-01-20T12:00:00+00:00\n\ntests/smoke/features/f.feature\n"
+    "\x00abc123\t2026-01-15T10:00:00+00:00\n\ntests/smoke/features/old.feature\n"
 )
 
 
@@ -156,9 +158,10 @@ def test_file_history_entries_parses_log(tmp_path):
         entries = file_history_entries(tmp_path, tmp_path / "tests/smoke/features/f.feature")
 
     assert len(entries) == 2
-    sha, dt = entries[0]
+    sha, dt, path = entries[0]
     assert sha == "abc123"
     assert dt.date() == date(2026, 1, 15)
+    assert path == "tests/smoke/features/old.feature"
 
 
 def test_file_history_entries_raises_on_git_failure(tmp_path):
@@ -174,7 +177,7 @@ def test_file_history_entries_raises_on_git_failure(tmp_path):
 def test_file_history_entries_ignores_blank_lines(tmp_path):
     mock_result = MagicMock()
     mock_result.returncode = 0
-    mock_result.stdout = "abc123\t2026-01-15T10:00:00+00:00\n\n"
+    mock_result.stdout = "\x00abc123\t2026-01-15T10:00:00+00:00\n\n"
 
     with patch("scripts.check_quarantine_age.git", return_value=mock_result):
         entries = file_history_entries(tmp_path, tmp_path / "tests/f.feature")
@@ -191,8 +194,8 @@ _FEATURE_V2 = "Feature: F\n\n@quarantine\nScenario: My scenario\n  * Step\n"
 def test_scenario_quarantine_dates_finds_first_quarantine(tmp_path):
     from datetime import datetime, timezone
     history_real = [
-        ("sha1", datetime(2026, 1, 10, tzinfo=timezone.utc)),
-        ("sha2", datetime(2026, 1, 20, tzinfo=timezone.utc)),
+        ("sha1", datetime(2026, 1, 10, tzinfo=timezone.utc), "tests/smoke/features/f.feature"),
+        ("sha2", datetime(2026, 1, 20, tzinfo=timezone.utc), "tests/smoke/features/f.feature"),
     ]
 
     def fake_git(*args, repo_root):

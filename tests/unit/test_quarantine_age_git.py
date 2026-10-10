@@ -154,13 +154,6 @@ def test_mixed_history_and_fallback_in_one_file(repo):
     }
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "git log --follow --reverse drops the pre-rename commits, so a rename "
-        "restarts the quarantine clock; remove this marker once fixed"
-    ),
-)
 def test_rename_preserves_the_original_quarantine_date(repo):
     _commit(repo, FEATURE_PATH, QUARANTINED, "2026-01-01")
     renamed = "tests/smoke/features/renamed.feature"
@@ -168,6 +161,18 @@ def test_rename_preserves_the_original_quarantine_date(repo):
     _git(repo, "commit", "-q", "-m", "rename", when="2026-04-01")
 
     dates = qa.scenario_quarantine_dates(repo, repo / renamed, {"Flaky thing"})
+
+    assert dates == {"Flaky thing": (date(2026, 1, 1), "history")}
+
+
+def test_rename_from_non_ascii_path_preserves_the_original_quarantine_date(repo):
+    _git(repo, "config", "core.quotePath", "true")
+    original = "tests/smoke/features/é.feature"
+    _commit(repo, original, QUARANTINED, "2026-01-01")
+    _git(repo, "mv", original, FEATURE_PATH)
+    _git(repo, "commit", "-q", "-m", "rename", when="2026-04-01")
+
+    dates = qa.scenario_quarantine_dates(repo, repo / FEATURE_PATH, {"Flaky thing"})
 
     assert dates == {"Flaky thing": (date(2026, 1, 1), "history")}
 
@@ -184,7 +189,7 @@ def test_history_commit_without_the_file_at_that_path_is_skipped(repo, monkeypat
 
     def history_with_extra_commit(repo_root, feature_file):
         entries = real_history(repo_root, feature_file)
-        return [(readme_only, entries[0][1].replace(month=1))] + entries
+        return [(readme_only, entries[0][1].replace(month=1), FEATURE_PATH)] + entries
 
     monkeypatch.setattr(qa, "file_history_entries", history_with_extra_commit)
 
