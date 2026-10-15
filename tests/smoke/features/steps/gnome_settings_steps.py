@@ -123,7 +123,7 @@ def launch_settings_via_command(context) -> None:
         # Use exact-name pgrep to avoid killing unrelated processes.
         # pkill -f with a broad pattern can crash the GNOME session on GNOME 50.
         _ssh_run(
-            "pid=$(pgrep -x gnome-control-center 2>/dev/null); "
+            "pid=$(pgrep -x gnome-control-c 2>/dev/null); "
             "[ -n \"$pid\" ] && kill -TERM \"$pid\" 2>/dev/null; sleep 0.5; true",
             timeout=5,
         )
@@ -234,8 +234,10 @@ def navigate_to_settings_panel(context, name: str) -> None:
     panel_id = SETTINGS_PANEL_IDS.get(name, name.lower().replace(" ", "-").replace("&", "and"))
     if _IN_CONTAINER:
         # Kill any existing instance first so the new launch opens on the correct panel.
+        # pgrep -x matches the kernel comm, truncated to 15 chars ("gnome-control-c");
+        # the full name never matched, so the old window kept its previous panel.
         _ssh_run(
-            "pid=$(pgrep -x gnome-control-center 2>/dev/null); "
+            "pid=$(pgrep -x gnome-control-c 2>/dev/null); "
             "[ -n \"$pid\" ] && kill -TERM \"$pid\" 2>/dev/null; sleep 0.5; true",
             timeout=5,
         )

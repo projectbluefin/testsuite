@@ -9,6 +9,7 @@ Feature: Power status color extension alerts
   @extensions @power_status
   Scenario: Power status color extension is enabled
     * GNOME Shell is accessible via AT-SPI
+    * GNOME extension "power-status-color@projectbluefin.io" is re-enabled
     * GNOME extension "power-status-color@projectbluefin.io" is enabled
     * No gnome-shell extension load journal errors exist
     * No power-status-color extension GJS or St warnings exist in the journal
@@ -16,6 +17,7 @@ Feature: Power status color extension alerts
   @extensions @power_status @atspi
   Scenario: Power button indicates reboot required when flag file exists
     Given GNOME Shell is accessible via AT-SPI
+    And GNOME extension "power-status-color@projectbluefin.io" is re-enabled
     And GNOME extension "power-status-color@projectbluefin.io" is enabled
     When file "/run/reboot-required" is created on the host
     Then Quick Settings power button has style class "power-status-reboot" within 5 seconds
@@ -25,6 +27,7 @@ Feature: Power status color extension alerts
   @extensions @power_status
   Scenario: Uptime overdue alert takes precedence over reboot required
     Given GNOME Shell is accessible via AT-SPI
+    And GNOME extension "power-status-color@projectbluefin.io" is re-enabled
     And GNOME extension "power-status-color@projectbluefin.io" is enabled
     And file "/run/reboot-required" is created on the host
     And Quick Settings power button has style class "power-status-reboot" within 5 seconds
@@ -38,6 +41,7 @@ Feature: Power status color extension alerts
   @extensions @power_status @regression
   Scenario: Extension cleans up style classes and timers on disable
     Given GNOME Shell is accessible via AT-SPI
+    And GNOME extension "power-status-color@projectbluefin.io" is re-enabled
     And GNOME extension "power-status-color@projectbluefin.io" is enabled
     And file "/run/reboot-required" is created on the host
     And Quick Settings power button has style class "power-status-reboot" within 5 seconds
