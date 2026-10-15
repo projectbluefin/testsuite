@@ -154,11 +154,10 @@ def gnome_extension_is_enabled(context, uuid: str) -> None:
         "Expected state=1 (ENABLED)."
     )
 
-@step('GNOME extension "{uuid}" is installed')
-def gnome_extension_is_installed(context, uuid: str) -> None:
+def _extension_installed(uuid: str) -> bool:
     output, returncode, _ = _run_host(["gnome-extensions", "list"])
     if returncode == 0 and uuid in [line.strip() for line in output.splitlines()]:
-        return
+        return True
 
     out, rc, _ = _run_host(
         "source /tmp/session.env 2>/dev/null; "
@@ -166,11 +165,24 @@ def gnome_extension_is_installed(context, uuid: str) -> None:
         "--method org.gnome.Shell.Extensions.ListExtensions"
     )
     if rc == 0 and out and uuid in re.findall(r"'([^'@]+@[^']+)':", out):
-        return
+        return True
 
     # Fallback to filesystem check in /usr/share/gnome-shell/extensions
-    dest_out, dest_rc, _ = _run_host(f"test -d /usr/share/gnome-shell/extensions/{uuid}")
-    assert dest_rc == 0, f"Extension {uuid!r} is not installed in the system"
+    _, dest_rc, _ = _run_host(f"test -d /usr/share/gnome-shell/extensions/{uuid}")
+    return dest_rc == 0
+
+
+@step('GNOME extension "{uuid}" is installed')
+def gnome_extension_is_installed(context, uuid: str) -> None:
+    assert _extension_installed(uuid), f"Extension {uuid!r} is not installed in the system"
+
+
+@step('GNOME extension "{uuid}" is installed, otherwise skip')
+def gnome_extension_installed_or_skip(context, uuid: str) -> None:
+    # For extensions an image may deliberately not ship, e.g. Search Light,
+    # which is broken on GNOME 51 and left out of GNOME 51 images.
+    if not _extension_installed(uuid):
+        context.scenario.skip(f"{uuid} is not installed on this image")
 
 
 @step('Dconf path "{path}" has value "{expected_value}"')
