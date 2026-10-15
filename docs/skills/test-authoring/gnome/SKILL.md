@@ -247,7 +247,8 @@ runner container over SSH.
 Bluefin's 9 bundled extensions each get a named scenario in
 `tests/smoke/features/bluefin_extensions.feature`. Tag the
 `search-light@icedman.github.com` scenario `@bluefin` and guard it with
-`... is installed, otherwise skip` (not shipped on GNOME 51 images).
+`... is installed, otherwise skip on GNOME 51+` (not shipped on GNOME 51
+images; still fails if missing on older shells).
 
 Use the distinct step phrase `GNOME extension "{uuid}" is enabled` (not
 bazzite's `Extension "{uuid}" is enabled`) to avoid cross-suite step collisions.
