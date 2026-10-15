@@ -227,7 +227,7 @@ def settings_sidebar_is_present(context) -> None:
 
 @step('Navigate to Settings panel "{name}"')
 def navigate_to_settings_panel(context, name: str) -> None:
-    from app_support import _IN_CONTAINER, _ssh_run
+    from app_support import _IN_CONTAINER, _ssh_launch, _ssh_run
     # Use gnome-control-center <panel-id> for direct D-Bus activation — this is more
     # reliable than AT-SPI sidebar clicks, especially in the runner container where
     # Wayland input injection via ponytail is unavailable.
@@ -241,13 +241,10 @@ def navigate_to_settings_panel(context, name: str) -> None:
             "[ -n \"$pid\" ] && kill -TERM \"$pid\" 2>/dev/null; sleep 0.5; true",
             timeout=5,
         )
-        # Launch gnome-control-center with the panel ID directly.
-        # gnome-control-center interprets the first positional arg as the panel name.
-        _ssh_run(
-            f"source /tmp/session.env 2>/dev/null; "
-            f"gnome-control-center {panel_id} &",
-            timeout=5,
-        )
+        # Launch gnome-control-center with the panel ID directly, detached and with
+        # the a11y env (as "Launch Settings via command" does): a bare "&" over SSH
+        # dies with the session and never registers on AT-SPI.
+        _ssh_launch(f"gnome-control-center {panel_id}", SETTINGS_A11Y_ENV)
     else:
         try:
             if shutil.which("pkill"):

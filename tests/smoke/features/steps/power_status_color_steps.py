@@ -251,17 +251,17 @@ def no_power_status_color_journal_warnings(context) -> None:
 
 @step("the power status color extension has no active file monitor or timer")
 def extension_has_no_active_monitor_or_timer(context) -> None:
-    # After disable() the extension's stateObj is torn down entirely, so
-    # extensionManager.lookup(...).stateObj is null/undefined — that absence
-    # itself is the cleanest available evidence that no dangling monitor or
-    # timer closures survive on a live instance.
+    # GNOME Shell 45+ keeps the Extension instance (stateObj) across disable(),
+    # so its absence cannot be required. disable() nulls the timer id, file
+    # monitors and cancellable; check those on whatever instance remains.
     js = (
         "(() => {"
         f"const ext = Main.extensionManager.lookup('{POWER_STATUS_UUID}')?.stateObj; "
-        "return (ext == null).toString();"
+        "return (ext == null || (ext._timeoutId == null && ext._fileMonitors == null "
+        "&& ext._cancellable == null)).toString();"
         "})()"
     )
     assert _eval_bool(js), (
-        f"{POWER_STATUS_UUID} still has a live stateObj after disable(); "
-        "expected teardown to release it (see extension.js disable())."
+        f"{POWER_STATUS_UUID} kept a timer, file monitor or cancellable after "
+        "disable(); expected teardown to release them (see extension.js disable())."
     )
