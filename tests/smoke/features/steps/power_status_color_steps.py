@@ -126,8 +126,53 @@ def _extension_stub_js(body: str) -> str:
     )
 
 
+def _extension_enabled(uuid: str):
+    """Return whether ``uuid`` is in org.gnome.shell enabled-extensions, or None."""
+    output, returncode, _ = _run_host(
+        ["gsettings", "get", "org.gnome.shell", "enabled-extensions"]
+    )
+    if returncode != 0:
+        return None
+    return f"'{uuid}'" in output
+
+
+def _remember_extension_state(context, uuid: str) -> None:
+    """Record ``uuid``'s enabled state the first time a scenario toggles it."""
+    originals = getattr(context, "extension_original_enabled", None)
+    if originals is None:
+        originals = {}
+        context.extension_original_enabled = originals
+    if uuid not in originals:
+        originals[uuid] = _extension_enabled(uuid)
+
+
+def restore_extension_states(context) -> None:
+    """Return extensions toggled during the scenario to their original state.
+
+    Images such as Dakota/Utah ship some extensions installed but disabled;
+    scenarios that opt in must not leave them enabled for later features.
+    """
+    originals = getattr(context, "extension_original_enabled", None) or {}
+    for uuid, was_enabled in originals.items():
+        if was_enabled is None:
+            continue
+        action = "enable" if was_enabled else "disable"
+        try:
+            output, returncode, stderr = _run_host(["gnome-extensions", action, uuid])
+        except Exception as exc:  # noqa: BLE001
+            print(f"WARNING: gnome-extensions {action} {uuid} failed: {exc}", flush=True)
+            continue
+        if returncode != 0:
+            print(
+                f"WARNING: gnome-extensions {action} {uuid} failed: {stderr or output}",
+                flush=True,
+            )
+    context.extension_original_enabled = {}
+
+
 @step('GNOME extension "{uuid}" is disabled')
 def gnome_extension_is_disabled_step(context, uuid: str) -> None:
+    _remember_extension_state(context, uuid)
     output, returncode, stderr = _run_host(["gnome-extensions", "disable", uuid])
     assert returncode == 0, f"gnome-extensions disable {uuid} failed: {stderr or output}"
     sleep(1)
@@ -135,6 +180,7 @@ def gnome_extension_is_disabled_step(context, uuid: str) -> None:
 
 @step('GNOME extension "{uuid}" is re-enabled')
 def gnome_extension_is_re_enabled_step(context, uuid: str) -> None:
+    _remember_extension_state(context, uuid)
     output, returncode, stderr = _run_host(["gnome-extensions", "enable", uuid])
     assert returncode == 0, f"gnome-extensions enable {uuid} failed: {stderr or output}"
     sleep(1)

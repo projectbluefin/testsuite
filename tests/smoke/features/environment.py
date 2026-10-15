@@ -670,6 +670,12 @@ def after_scenario(context, scenario) -> None:
         _restore_display_scale(context)
     except Exception as e:  # noqa: BLE001
         print(f"WARNING: display scaling cleanup failed: {e}", flush=True)
+    # Return GNOME extensions toggled by the scenario to their shipped state.
+    try:
+        from steps.power_status_color_steps import restore_extension_states
+        restore_extension_states(context)
+    except Exception as e:  # noqa: BLE001
+        print(f"WARNING: extension state cleanup failed: {e}", flush=True)
     record_end(context, scenario)
     if scenario.status.name in ('passed', 'failed'):
         configure_screenshot_context(context, SUITE_NAME, scenario.name)

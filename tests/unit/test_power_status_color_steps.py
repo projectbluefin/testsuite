@@ -185,3 +185,54 @@ class TestExtensionStubJs:
         assert "stateObj" in js
         assert "ext._checkStatus();" in js
         assert "no-ext" in js
+
+
+class TestExtensionStateRestore:
+    UUID = "power-status-color@projectbluefin.io"
+
+    def _context(self):
+        return types.SimpleNamespace()
+
+    def test_restores_disabled_extension_after_opt_in(self):
+        m = _import_power_status_color_steps()
+        ctx = self._context()
+        with patch.object(m, "_run_host") as run, patch.object(m, "sleep"):
+            run.side_effect = [
+                ("['other@x']", 0, ""),  # gsettings get: not enabled
+                ("", 0, ""),  # gnome-extensions enable
+                ("", 0, ""),  # gnome-extensions disable (restore)
+            ]
+            m.gnome_extension_is_re_enabled_step(ctx, self.UUID)
+            m.restore_extension_states(ctx)
+        assert run.call_args_list[-1][0][0] == ["gnome-extensions", "disable", self.UUID]
+        assert ctx.extension_original_enabled == {}
+
+    def test_records_only_first_state_per_scenario(self):
+        m = _import_power_status_color_steps()
+        ctx = self._context()
+        with patch.object(m, "_run_host") as run, patch.object(m, "sleep"):
+            run.side_effect = [
+                (f"['{self.UUID}']", 0, ""),  # gsettings get: enabled
+                ("", 0, ""),  # disable
+                ("", 0, ""),  # re-enable (no second gsettings probe)
+                ("", 0, ""),  # restore enable
+            ]
+            m.gnome_extension_is_disabled_step(ctx, self.UUID)
+            m.gnome_extension_is_re_enabled_step(ctx, self.UUID)
+            m.restore_extension_states(ctx)
+        assert run.call_count == 4
+        assert run.call_args_list[-1][0][0] == ["gnome-extensions", "enable", self.UUID]
+
+    def test_skips_restore_when_state_unknown(self):
+        m = _import_power_status_color_steps()
+        ctx = self._context()
+        ctx.extension_original_enabled = {self.UUID: None}
+        with patch.object(m, "_run_host") as run:
+            m.restore_extension_states(ctx)
+        run.assert_not_called()
+
+    def test_noop_without_toggles(self):
+        m = _import_power_status_color_steps()
+        with patch.object(m, "_run_host") as run:
+            m.restore_extension_states(self._context())
+        run.assert_not_called()
