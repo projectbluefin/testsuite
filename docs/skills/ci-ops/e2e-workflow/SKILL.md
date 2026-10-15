@@ -482,8 +482,6 @@ gh workflow run publish-to-pages.yml --repo <image-org>/testsuite
 
 Prerequisites: GHCR cross-repo package write access must be granted first (see above).
 
----
-
 ## On-demand references
 
 Load these when you hit the specific topic:
@@ -496,3 +494,4 @@ Load these when you hit the specific topic:
 - [KDE suite wiring, gating, and runner-image split.](references/kde-suites.md)
 - [Installer suite assertions, and why an env-var gate made one unreachable.](references/installer-suite.md)
 - [Migration inputs `migration-target` / `extra-tags` and the startup_failure they cause when missing.](references/migration-inputs.md)
+- [GNOME OS guest lane for the developer extension-validation service and its mandatory gate.](references/gnome-extensions-validation.md)
