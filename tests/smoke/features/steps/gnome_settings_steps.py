@@ -39,6 +39,8 @@ SETTINGS_LAUNCH_TARGETS = (
     ("desktop", "org.gnome.Settings.desktop"),
 )
 TEXT_ROLES = {"heading", "label", "static", "text", "description", "paragraph"}
+# Provider titles GNOME Online Accounts lists; none appear in the Settings sidebar.
+GOA_PROVIDER_LABELS = ("Google", "Nextcloud", "Microsoft", "Email Server", "WebDAV", "Kerberos")
 INFO_TOKENS = ("bluefin", "fedora", "linux", "version", "os")
 SETTINGS_PANEL_ALIASES = {
     "About": ("About", "System"),
@@ -302,34 +304,23 @@ def about_page_shows_system_information(context) -> None:
     )
 
 
-def _ancestor_with_name(node, name: str, max_depth: int = 8):
-    """Return the first ancestor of ``node`` whose name matches ``name``."""
-    current = getattr(node, "parent", None)
-    depth = 0
-    while current and depth < max_depth:
-        if (getattr(current, "name", "") or "").strip() == name:
-            return current
-        current = getattr(current, "parent", None)
-        depth += 1
-    return None
-
-
 @step("Online Accounts provider list is non-empty")
 def online_accounts_provider_list_is_non_empty(context) -> None:
+    # Match provider labels anywhere in the showing tree: libadwaita rows do not
+    # sit under an ancestor named "Online Accounts" and may carry the title on a
+    # child label rather than the row, so a role+ancestor query finds nothing
+    # even when the panel lists every provider. No sidebar entry contains these.
     app = _settings_app()
-    panel_name = "Online Accounts"
-    provider_roles = {"list item", "row", "table row"}
     for _ in range(20):
-        rows = app.findChildren(
-            lambda n: n.showing
-            and n.roleName in provider_roles
-            and (n.name or "").strip()
-            and _ancestor_with_name(n, panel_name) is not None
-        )
-        if rows:
-            context.online_accounts_providers = [
-                (n.name or "").strip() for n in rows
-            ]
+        names = {
+            (n.name or "").strip()
+            for n in app.findChildren(
+                lambda n: n.showing
+                and any(p in (n.name or "") for p in GOA_PROVIDER_LABELS)
+            )
+        }
+        if names:
+            context.online_accounts_providers = sorted(names)
             return
         sleep(0.5)
     raise AssertionError(
