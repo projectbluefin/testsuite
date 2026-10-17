@@ -13,7 +13,7 @@ except Exception:  # noqa: BLE001
 from qecore.common_steps import *  # noqa: F401,F403
 from tests.shared.ssh_config import ssh_argv
 from tests.shared.ssh_steps import *  # noqa: F401,F403
-from tests.smoke.features.steps.app_support import atspi_click, launch_background
+from tests.shared.app_support import atspi_click, launch_background
 
 _IN_CONTAINER = os.path.lexists("/proc/1/ns/mnt") and not os.path.isfile("/usr/bin/bootc")
 FRAME_ROLES = {"frame", "filler"}

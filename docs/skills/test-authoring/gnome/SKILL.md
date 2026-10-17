@@ -348,7 +348,7 @@ FIREFOX_A11Y_ENV = {
 context.firefox_launch_target = launch_background(FIREFOX_LAUNCH_TARGETS, env=FIREFOX_A11Y_ENV)
 ```
 
-`launch_background(targets, env=...)` in `tests/smoke/features/steps/app_support.py`
+`launch_background(targets, env=...)` in `tests/shared/app_support.py`
 applies `env` on every launch path: exported before the command in SSH mode,
 merged into `os.environ` for local `Popen`, and forwarded across the Flatpak
 sandbox boundary with `--env=`. Environment set outside a Flatpak sandbox is

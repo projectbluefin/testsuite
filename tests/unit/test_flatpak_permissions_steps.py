@@ -31,12 +31,6 @@ def _import_module():
     ssh_steps_stub.__all__ = []
     sys.modules["tests.shared.ssh_steps"] = ssh_steps_stub
 
-    # steps.py imports smoke app_support (dogtail-dependent); stub it out.
-    app_support_stub = types.ModuleType("tests.smoke.features.steps.app_support")
-    app_support_stub.atspi_click = lambda *a, **kw: None
-    app_support_stub.launch_background = lambda *a, **kw: None
-    sys.modules["tests.smoke.features.steps.app_support"] = app_support_stub
-
     for key in list(sys.modules):
         if "software.features.steps" in key:
             del sys.modules[key]
