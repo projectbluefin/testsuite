@@ -90,7 +90,7 @@ For full control, use the composite action at `projectbluefin/testsuite/.github/
 
 ## Local development
 
-- CI uses Python 3.14; match it locally.
+- CI uses Python 3.15; match it locally.
 - Install local Python pieces: `pip install behave qecore dogtail`.
 - `gnome-ponytail-daemon` is baked into the image under test, not installed locally.
 - Full GUI runs need a live Wayland + AT-SPI session; most contributors use the GitHub Action path.
