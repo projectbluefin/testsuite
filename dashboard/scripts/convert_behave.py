@@ -31,6 +31,19 @@ def normalize_status(status):
         return "failed"
     return STATUS_MAP.get(str(status).strip().lower(), "failed")
 
+
+def error_text(error_message):
+    """Return a step's ``result.error_message`` as one string.
+
+    behave's JSON formatter writes a multi-line message (every traceback) as a
+    list of lines and a one-line message as a plain string.
+    """
+    if not error_message:
+        return None
+    if isinstance(error_message, list):
+        return "\n".join(str(line) for line in error_message)
+    return str(error_message)
+
 def convert_behave_json(behave_json_path, *, run_id, caller_repo, slug, suite, timestamp):
     try:
         with open(behave_json_path, 'r') as f:
@@ -81,7 +94,7 @@ def convert_behave_json(behave_json_path, *, run_id, caller_repo, slug, suite, t
                 step_logs_list.append(f"[{step_status.upper()}] {step_name}")
                 
                 # Check for error details
-                err_msg = step_result.get("error_message")
+                err_msg = error_text(step_result.get("error_message"))
                 if err_msg:
                     error_message = err_msg
                     step_logs_list.append(f"\u001b[1;31m[ERROR] {err_msg}\u001b[0m")
@@ -103,7 +116,7 @@ def convert_behave_json(behave_json_path, *, run_id, caller_repo, slug, suite, t
 
             tests.append({
                 "name": f"{feature_name} > {scenario_name}",
-                "status": "passed" if status == "passed" else "failed",
+                "status": status,
                 "duration_ms": duration_ms,
                 "error_message": error_message,
                 "logs": "\n".join(step_logs_list)

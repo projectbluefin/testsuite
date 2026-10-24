@@ -112,6 +112,17 @@ operands it prints usage and exits 1 before reading input or creating output.
 successful conversion with all seven; the six-operand case catches an
 otherwise easy-to-miss off-by-one in the guard.
 
+### Per-test status and error text
+
+Each `tests[]` entry carries the normalized scenario status — `passed`,
+`failed` or `skipped` — matching the summary bucket it was counted in.
+`LogViewer.astro` draws `skipped` grey and collapsed; collapsing it into
+`failed` once rendered every `@pending`/`@future` scenario as a red failure
+under a SUCCESS badge. behave writes a multi-line `error_message` (every
+traceback) as a list of lines, so `error_text()` joins it before it reaches
+the log or the `error_message` field, the same rule as
+`scripts/e2e_summary.py:error_text`.
+
 ## Coverage badges: `scripts/generate_badges.py`
 
 The shields.io coverage badges are generated at publish time by parsing

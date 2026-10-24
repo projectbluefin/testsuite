@@ -208,12 +208,33 @@ def test_empty_report_is_not_reported_as_success(tmp_path):
     assert run["summary"]["status"] == "failed"
 
 
-def test_skipped_scenario_is_published_as_failed_status(tmp_path):
-    """The per-test status field is binary; only ``passed`` maps to passed."""
+def test_skipped_scenario_is_published_as_skipped_status(tmp_path):
+    """A @pending/@future skip must not render as a red failed row.
+
+    LogViewer.astro draws ``skipped`` grey and collapsed; publishing it as
+    ``failed`` put every stub scenario in red under a SUCCESS badge.
+    """
     run = _convert([_feature(elements=[_scenario(status="skipped")])], tmp_path)
 
-    assert run["tests"][0]["status"] == "failed"
+    assert run["tests"][0]["status"] == "skipped"
     assert run["summary"]["skipped_tests"] == 1
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("passed", "passed"),
+        ("failed", "failed"),
+        ("error", "failed"),
+        ("undefined", "failed"),
+        ("hook_error", "failed"),
+        (None, "failed"),
+    ],
+)
+def test_per_test_status_matches_the_summary_bucket(tmp_path, raw, expected):
+    run = _convert([_feature(elements=[_scenario(status=raw)])], tmp_path)
+
+    assert run["tests"][0]["status"] == expected
 
 
 def test_step_durations_sum_into_milliseconds(tmp_path):
@@ -277,6 +298,38 @@ def test_step_error_message_is_surfaced_on_the_test(tmp_path):
     assert "[ERROR] AssertionError: nope" in test["logs"]
     assert "[PASSED] Given ok" in test["logs"]
     assert "[FAILED] Then boom" in test["logs"]
+
+
+def test_multi_line_error_message_is_joined_into_text(tmp_path):
+    """behave writes a multi-line error (every traceback) as a list of lines."""
+    run = _convert(
+        [
+            _feature(
+                elements=[
+                    _scenario(
+                        status="failed",
+                        steps=[
+                            _step(
+                                status="failed",
+                                error_message=["Traceback:", "  AssertionError: nope"],
+                            )
+                        ],
+                    )
+                ]
+            )
+        ],
+        tmp_path,
+    )
+
+    test = run["tests"][0]
+    assert test["error_message"] == "Traceback:\n  AssertionError: nope"
+    assert "[ERROR] Traceback:\n  AssertionError: nope" in test["logs"]
+    assert "['" not in test["logs"]
+
+
+@pytest.mark.parametrize("raw", [None, "", []])
+def test_error_text_treats_empty_messages_as_none(raw):
+    assert convert_behave.error_text(raw) is None
 
 
 def test_last_step_error_message_wins(tmp_path):
