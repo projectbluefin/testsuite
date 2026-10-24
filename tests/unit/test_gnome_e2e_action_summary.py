@@ -371,3 +371,22 @@ def test_action_checks_out_the_summary_module():
 
     assert checkout, "Checkout testsuite step not found"
     assert "scripts" in checkout
+
+
+def _gate_step() -> str:
+    step = _action_text().partition("- name: Gate extension-validation run")[2]
+    assert step, "Gate extension-validation run step not found in the gnome-e2e action"
+    return step.partition("\n    - name:")[0]
+
+
+def test_extension_validation_gate_step_is_present_and_scoped():
+    """The extensions lane must stay hard-gated on scripts/extension_validation.py.
+
+    It must run even when behave failed (``always()``) and only for the
+    extensions suite, so other suites keep the e2e_summary headline.
+    """
+    step = _gate_step()
+
+    assert "if: always() && inputs.suite == 'extensions'" in step
+    assert "_testsuite/scripts/extension_validation.py" in step
+    assert "results/results.json" in step

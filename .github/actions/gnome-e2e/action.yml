@@ -20,6 +20,9 @@
 #       suite: smoke
 #
 # The action writes results to ./results/ and vm-serial.log in the workspace.
+# For most suites the caller decides pass/fail from the behave-rc output; for
+# suite: extensions the action itself fails the job via the mandatory
+# extension-validation gate (scripts/extension_validation.py).
 # Artifact upload is deliberately left to the caller workflow.
 
 name: 'GNOME E2E Tests'
@@ -53,7 +56,9 @@ inputs:
 
 outputs:
   behave-rc:
-    description: 'Exit code from behave (0 = all passed)'
+    description: >
+      Exit code from behave (0 = all passed). For suite: extensions the
+      action additionally fails the job via the extension-validation gate.
     value: ${{ steps.run.outputs.behave_rc }}
   results-path:
     description: 'Workspace-relative path to the results directory'
@@ -586,3 +591,27 @@ runs:
         with open(summary_file, "a") as fh:
             fh.write("\n".join(lines) + "\n")
         PYEOF
+
+    # ── Extension-validation gate (mandatory service gate) ────────────────────
+    # Issue #908 acceptance: an extension-validation run passes only when at
+    # least one scenario genuinely passed and nothing errored. The summarise
+    # step above renders scripts/e2e_summary.py, which deliberately scores an
+    # empty or all-skipped run green (whole suites legitimately ship only
+    # @future) — the wrong verdict for this lane, where all-skipped means the
+    # extensions never loaded. scripts/extension_validation.py (added in #916)
+    # fails closed for empty / all-skipped / undefined / untested / hook-error
+    # / failed-boot / missing-result runs; this step makes it the lane verdict.
+    # Runs even when behave failed (if: always()) so a crashed lane that left
+    # no results.json still fails the gate instead of slipping through on the
+    # run step's exit code alone. Scoped to suite == 'extensions' only: every
+    # other suite keeps the e2e_summary headline.
+    - name: Gate extension-validation run
+      if: always() && inputs.suite == 'extensions'
+      shell: bash
+      run: |
+        GATE="_testsuite/scripts/extension_validation.py"
+        if [[ ! -f "${GATE}" ]]; then
+          echo "::error::Extension-validation gate script missing: ${GATE} not in the testsuite checkout (needs PR #916). Failing closed."
+          exit 1
+        fi
+        python3 "${GATE}" results/results.json
