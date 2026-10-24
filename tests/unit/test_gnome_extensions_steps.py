@@ -217,3 +217,49 @@ class TestExtensionListSteps:
         with patch.object(m, "_run_host", side_effect=fake_run_host):
             m.at_least_one_gnome_extension_is_enabled(context)
             assert "dash-to-dock@micxgx.gmail.com" in context.enabled_extensions
+
+
+class TestExtensionInstalledOrSkip:
+    UUID = "search-light@icedman.github.com"
+
+    def _run(self, installed: bool, major):
+        m = _import_gnome_extensions_steps()
+        context = MagicMock()
+        with patch.object(m, "_extension_installed", return_value=installed), \
+             patch.object(m, "_gnome_shell_major_version", return_value=major):
+            m.gnome_extension_installed_or_skip(context, self.UUID, 51)
+        return context
+
+    def test_installed_passes_without_skip(self):
+        context = self._run(installed=True, major=50)
+        context.scenario.skip.assert_not_called()
+
+    def test_missing_on_gnome_51_skips(self):
+        context = self._run(installed=False, major=51)
+        context.scenario.skip.assert_called_once()
+
+    def test_missing_on_newer_gnome_skips(self):
+        context = self._run(installed=False, major=52)
+        context.scenario.skip.assert_called_once()
+
+    def test_missing_on_older_gnome_fails(self):
+        import pytest  # noqa: PLC0415
+        with pytest.raises(AssertionError, match="GNOME 50"):
+            self._run(installed=False, major=50)
+
+    def test_missing_with_unknown_version_fails(self):
+        import pytest  # noqa: PLC0415
+        with pytest.raises(AssertionError, match="unknown GNOME version"):
+            self._run(installed=False, major=None)
+
+
+class TestGnomeShellMajorVersion:
+    def test_parses_gnome_shell_version(self):
+        m = _import_gnome_extensions_steps()
+        with patch.object(m, "_run_host", return_value=("GNOME Shell 51.1", 0, "")):
+            assert m._gnome_shell_major_version() == 51
+
+    def test_returns_none_on_failure(self):
+        m = _import_gnome_extensions_steps()
+        with patch.object(m, "_run_host", return_value=("", 1, "nope")):
+            assert m._gnome_shell_major_version() is None
