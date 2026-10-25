@@ -22,7 +22,7 @@ MIGRATED_MODULES = (
     "tests/shared/ssh_steps.py",
     "tests/shared/image_cache.py",
     "tests/shared/screenshot.py",
-    "tests/smoke/features/steps/app_support.py",
+    "tests/shared/app_support.py",
     "tests/smoke/features/steps/display_scaling_steps.py",
     "tests/smoke/features/steps/gnome_apps_steps.py",
     "tests/smoke/features/steps/gnome_extensions_steps.py",

@@ -1,6 +1,20 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import matter from 'gray-matter';
+import yaml from 'js-yaml';
+
+// Split a markdown document into its leading `---` YAML front-matter block and
+// the body. Skill docs are repository-controlled, so js-yaml's default (safe)
+// schema is enough; a document without a front-matter block yields `{}`.
+export function parseFrontMatter(raw) {
+  const text = raw.replace(/^\uFEFF/, '');
+  const lines = text.split(/\r?\n/);
+  if (lines[0].trim() !== '---') return { data: {}, content: text };
+  const end = lines.findIndex((line, i) => i > 0 && line.trim() === '---');
+  if (end === -1) return { data: {}, content: text };
+  const parsed = yaml.load(lines.slice(1, end).join('\n'));
+  const data = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  return { data, content: lines.slice(end + 1).join('\n') };
+}
 
 export async function loadSkills() {
   const TESTSUITE_SKILLS_PATH = path.resolve(process.cwd(), '../docs/skills');
@@ -20,7 +34,7 @@ export async function loadSkills() {
       for (const file of mdFiles) {
         const fullPath = path.join(source.dir, file);
         const rawContent = await fs.readFile(fullPath, 'utf-8');
-        const { data, content } = matter(rawContent);
+        const { data, content } = parseFrontMatter(rawContent);
 
         // Map tags and metadata
         const name = data.name || file.replace('.md', '').replace(/-/g, ' ').toUpperCase();

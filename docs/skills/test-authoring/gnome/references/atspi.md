@@ -22,38 +22,44 @@ node = app.findChild(GenericPredicate(name="Settings"), retry=False)
 # WRONG — crashes at runtime
 node = app.findChild(pred, requireResult=False)  # ← do not use
 ```
-## AT-SPI app-lookup helpers must retry
+## AT-SPI lookup retry ownership
 
-Every `_<app>_app()` helper must poll with a deadline, not check once and raise. GNOME 50 AT-SPI
-registration is slower in QEMU; a single-pass lookup fails even when the process is already running.
+Use one monotonic elapsed-time deadline for the complete lookup. Each polling attempt
+uses a single-shot application snapshot (`tree.root.applications()`) and no-raise
+`findChildren` discovery; `tree.root.application(name)` has its own default retries,
+so calling it for every alias inside a poll loop multiplies the declared timeout.
 
-**Canonical pattern (mirrors `_settings_app()`):**
+**Standalone app lookup pattern:**
 
 ```python
 import time
 from time import sleep
 
-def _myapp_app(timeout: int = 15):
-    """Find the app in the AT-SPI tree, retrying for up to ``timeout`` seconds."""
+def _myapp_app(timeout: float = 15):
+    """Find the app within one elapsed-time polling budget."""
     deadline = time.monotonic() + timeout
-    last_error = None
     while time.monotonic() < deadline:
-        for name in MYAPP_APP_NAMES:
-            try:
-                return tree.root.application(name)
-            except Exception as exc:  # noqa: BLE001
-                last_error = exc
-        sleep(1)
-    raise AssertionError(
-        f"MyApp application was not found via AT-SPI after {timeout}s: {last_error}"
-    )
+        for app in tree.root.applications():
+            if app.name in MYAPP_APP_NAMES:
+                return app
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        sleep(min(0.5, remaining))
+    raise AssertionError(f"MyApp application was not found via AT-SPI after {timeout}s")
 ```
 
-A scenario-level `@retry` tag does NOT substitute for this — it re-launches the whole scenario,
-potentially opening a second instance of the app. The retry loop in `_<app>_app()` is the right fix.
+In `gnome_apps_steps.py`, `_app()` deliberately performs only one snapshot: its
+caller `_wait_for_window()` owns retries for both application registration and visible
+window discovery. `_wait_for_window_or_title()` checks the strict title fallback on
+each poll under that same deadline, rather than starting a second full timeout.
+Missing, hidden, or nonmatching windows still fail; delayed matching windows may succeed
+before the deadline. Sleep is capped to the remaining budget. An in-flight native
+AT-SPI/D-Bus call cannot be preempted by this deadline; no library retry is added on top.
 
-The `@retry` tag is for infrastructure-flaky scenarios (network timeouts, D-Bus races at startup).
-AT-SPI registration lag on first lookup is always fixed at the helper level.
+A scenario-level `@retry` tag does not replace helper polling: it re-launches the
+whole scenario and may open another app instance. Use it only for infrastructure
+flakiness, not application registration lag.
 
 
 When scaffolding multiple feature areas at once:

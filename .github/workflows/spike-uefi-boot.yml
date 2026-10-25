@@ -198,7 +198,7 @@ jobs:
             # Sudo access
             sudo mkdir -p "${DEP}/etc/sudoers.d"
             printf 'bluefin-test ALL=(ALL) NOPASSWD: ALL\n' | \
-              sudo tee "${DEP}/etc/sudoers.d/bluefin-test"
+              sudo tee "${DEP}/etc/sudoers.d/zz-bluefin-test"
 
             # SSH authorized key via sshd AuthorizedKeysCommand
             sudo mkdir -p "${DEP}/etc/ssh/sshd_config.d"

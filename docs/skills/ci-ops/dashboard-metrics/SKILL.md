@@ -81,7 +81,7 @@ This skill guides agents through modifying, compiling, and deploying the QA dash
    const stats = statsRes.ok ? await statsRes.json() : {};
    ```
 
-6. **Node-Based Markdown Skills Loader**: Standard Astro Content Collections cannot access files located outside the dashboard's `src/` folder (such as standard repository documentation in `docs/skills` or a sibling repository like `../common/docs/skills`). Bypass this restriction by writing a dynamic build-time filesystem loader in `src/utils/getSkills.js` utilizing `gray-matter` for YAML parsing and `marked` for Markdown rendering.
+6. **Node-Based Markdown Skills Loader**: Standard Astro Content Collections cannot access files located outside the dashboard's `src/` folder (such as standard repository documentation in `docs/skills` or a sibling repository like `../common/docs/skills`). Bypass this restriction by writing a dynamic build-time filesystem loader in `src/utils/getSkills.js` using a small `parseFrontMatter()` splitter that extracts the leading `---` block and parses it with `js-yaml` (default safe schema), plus `marked` for Markdown rendering. Do not add `gray-matter`.
 
 7. **Pagefind Search Indexing for Dynamically Loaded Skills**: Enable Pagefind search on dynamically loaded Markdown files by adding `data-pagefind-body` directly on the `<main>` or `<article>` element containing the rendered skill body, and use Pagefind metadata selectors (such as `data-pagefind-meta="category"`) to expose tags to the client-side search component.
 
@@ -111,6 +111,17 @@ operands it prints usage and exits 1 before reading input or creating output.
 `tests/unit/test_convert_behave_cli.py` covers zero through six operands and
 successful conversion with all seven; the six-operand case catches an
 otherwise easy-to-miss off-by-one in the guard.
+
+### Per-test status and error text
+
+Each `tests[]` entry carries the normalized scenario status — `passed`,
+`failed` or `skipped` — matching the summary bucket it was counted in.
+`LogViewer.astro` draws `skipped` grey and collapsed; collapsing it into
+`failed` once rendered every `@pending`/`@future` scenario as a red failure
+under a SUCCESS badge. behave writes a multi-line `error_message` (every
+traceback) as a list of lines, so `error_text()` joins it before it reaches
+the log or the `error_message` field, the same rule as
+`scripts/e2e_summary.py:error_text`.
 
 ## Coverage badges: `scripts/generate_badges.py`
 

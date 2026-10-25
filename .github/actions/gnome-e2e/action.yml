@@ -222,8 +222,8 @@ runs:
           sudo tee "${D}/etc/ssh/sshd_config.d/99-bluefin-test.conf"
 
         echo 'bluefin-test ALL=(ALL) NOPASSWD:ALL' | \
-          sudo tee "${D}/etc/sudoers.d/bluefin-test"
-        sudo chmod 440 "${D}/etc/sudoers.d/bluefin-test"
+          sudo tee "${D}/etc/sudoers.d/zz-bluefin-test"
+        sudo chmod 440 "${D}/etc/sudoers.d/zz-bluefin-test"
 
         sudo mkdir -p "${D}/etc/gdm"
         printf '[daemon]\nAutomaticLoginEnable=True\nAutomaticLogin=bluefin-test\n' | \

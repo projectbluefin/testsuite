@@ -1,7 +1,7 @@
 """Custom step definitions for GNOME app launch smoke tests."""
 import os
 import subprocess
-from time import sleep
+from time import monotonic, sleep
 
 from tests.shared.ssh_config import ssh_argv
 
@@ -198,58 +198,71 @@ def _launch_app(app_id: str) -> None:
 
 
 def _app(app_names: tuple[str, ...], label: str):
-    last_error = None
-    if callable(getattr(tree.root, "applications", None)):
-        for app in tree.root.applications():
-            name = getattr(app, "name", None) or (app.get_name() if hasattr(app, "get_name") else None)
-            if isinstance(name, str):
-                clean = name.strip("'\" ")
-                if clean in app_names or any(a.lower() in clean.lower() for a in app_names):
-                    return app
-    for name in app_names:
-        try:
-            return tree.root.application(name)
-        except Exception as exc:  # noqa: BLE001
-            last_error = exc
-    raise AssertionError(f"{label} application was not found via AT-SPI: {last_error}")
+    """Take one application snapshot; the window waiter owns all retries."""
+    for app in tree.root.applications():
+        name = getattr(app, "name", None) or (app.get_name() if hasattr(app, "get_name") else None)
+        if isinstance(name, str):
+            clean = name.strip("'\" ")
+            if clean in app_names or any(a.lower() in clean.lower() for a in app_names):
+                return app
+    raise AssertionError(f"{label} application was not found via AT-SPI")
 
 
 def _wait_for_window(
     app_names: tuple[str, ...],
     window_names: set[str],
     label: str,
-    timeout: int = 15,
+    timeout: float = 15,
+    *,
+    title_fallback: bool = False,
 ):
+    """Poll single-shot discovery under one elapsed-time budget, including fallback."""
+    deadline = monotonic() + timeout
     last_frames = []
-    def _is_frame(n):
-        role = getattr(n, "roleName", None) or (n.get_role_name() if hasattr(n, "get_role_name") else "")
-        name = (getattr(n, "name", "") or (n.get_name() if hasattr(n, "get_name") else "")).strip()
-        showing = getattr(n, "showing", True)
-        return (
-            role in FRAME_ROLES
-            and showing
-            and (not window_names or name in window_names or "~" in name or "@" in name)
-        )
+    last_title_frames = []
 
-    for _ in range(timeout * 2):
+    def _role(n):
+        return getattr(n, "roleName", None) or (n.get_role_name() if hasattr(n, "get_role_name") else "")
+
+    def _is_visible_frame(n):
+        return _role(n) in FRAME_ROLES and getattr(n, "showing", True)
+
+    def _name(n):
+        return (getattr(n, "name", "") or (n.get_name() if hasattr(n, "get_name") else "")).strip()
+
+    while monotonic() < deadline:
         try:
             app = _app(app_names, label)
         except Exception:  # noqa: BLE001
-            sleep(0.5)
-            continue
+            app = None
+        if app is not None and monotonic() < deadline:
+            frames = app.findChildren(_is_visible_frame)
+            last_frames = [(_name(frame), _role(frame)) for frame in frames]
+            for frame in frames:
+                name = _name(frame)
+                if not window_names or name in window_names or "~" in name or "@" in name:
+                    return frame
 
-        frames = app.findChildren(_is_frame)
-        if frames:
-            return frames[0]
+        if title_fallback and monotonic() < deadline:
+            frames = tree.root.findChildren(_is_visible_frame)
+            last_title_frames = [(_name(frame), _role(frame)) for frame in frames[:20]]
+            for frame in frames:
+                if _name(frame) in window_names:
+                    return frame
 
-        last_frames = [
-            ((getattr(frame, "name", getattr(frame, "get_name", lambda: "")()) or "").strip(), getattr(frame, "roleName", getattr(frame, "get_role_name", lambda: "")()))
-            for frame in app.findChildren(lambda n: (getattr(n, "roleName", None) or getattr(n, "get_role_name", lambda: "")()) in FRAME_ROLES and getattr(n, "showing", True))
-        ]
-        sleep(0.5)
+        remaining = deadline - monotonic()
+        if remaining <= 0:
+            break
+        sleep(min(0.2 if title_fallback else 0.5, remaining))
 
+    detail = ""
+    if title_fallback:
+        detail = (
+            f". Also failed to find a visible {label} frame by title. "
+            f"Visible frames: {last_title_frames}"
+        )
     raise AssertionError(
-        f"Visible {label} window not found. Visible frames: {last_frames}"
+        f"Visible {label} window not found. Visible frames: {last_frames}{detail}"
     )
 
 
@@ -257,31 +270,11 @@ def _wait_for_window_or_title(
     app_names: tuple[str, ...],
     window_names: set[str],
     label: str,
-    timeout: int = 15,
+    timeout: float = 15,
 ):
-    try:
-        return _wait_for_window(app_names, window_names, label, timeout=timeout)
-    except AssertionError as app_error:
-        last_frames = []
-        for _ in range(timeout * 5):
-            frames = tree.root.findChildren(
-                lambda n: n.roleName in FRAME_ROLES
-                and n.showing
-                and (n.name or "").strip() in window_names
-            )
-            if frames:
-                return frames[0]
-            last_frames = [
-                ((frame.name or "").strip(), frame.roleName)
-                for frame in tree.root.findChildren(
-                    lambda n: n.roleName in FRAME_ROLES and n.showing
-                )[:20]
-            ]
-            sleep(0.2)
-        raise AssertionError(
-            f"{app_error}. Also failed to find a visible {label} frame by title. "
-            f"Visible frames: {last_frames}"
-        ) from app_error
+    return _wait_for_window(
+        app_names, window_names, label, timeout=timeout, title_fallback=True
+    )
 
 
 def _wait_for_app_to_close(app_names: tuple[str, ...], label: str) -> None:

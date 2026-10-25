@@ -123,6 +123,8 @@ The exception is bounded by three requirements. Do not weaken any of them:
 `kde-smoke` auto-shards into `kde-smoke-a` / `kde-smoke-b`. Both the **expansion** set and
 the **resolver** set must list `kde-smoke`. If only the expansion lists it, the shards resolve
 to `tests/kde-smoke-a/features/`, a directory that does not exist, and every KDE job fails.
+`tests/unit/test_e2e_suite_shards.py` runs both sets from `e2e.yml` and fails on any such
+drift, for every suite.
 
 ## Container networking
 

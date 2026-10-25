@@ -4,6 +4,8 @@ import sys
 import types
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 
 # ---------------------------------------------------------------------------
 # Import helper
@@ -225,3 +227,156 @@ class TestPtyxisLaunch:
             context = MagicMock()
             m.ptyxis_terminal_launches_successfully(context)
             assert context.last_launched_app_window is frame
+
+
+class TestWindowDeadline:
+    @pytest.fixture
+    def clock(self, monkeypatch):
+        m = _import_gnome_apps()
+        clock = types.SimpleNamespace(now=100.0)
+
+        def advance(seconds):
+            clock.now += seconds
+
+        clock.advance = advance
+        monkeypatch.setattr(m, "monotonic", lambda: clock.now)
+        monkeypatch.setattr(m, "sleep", advance)
+        # The old per-alias fallback would spend ten seconds on every miss.
+        def retrying_application(name):
+            advance(10)
+            raise LookupError(name)
+
+        m.tree.root.application.side_effect = retrying_application
+        return m, clock
+
+    @pytest.mark.parametrize("registered", [False, True])
+    def test_files_missing_window_fails_within_elapsed_budget(self, clock, registered):
+        m, clock = clock
+        app = MagicMock(name="files-app")
+        app.name = "org.gnome.Nautilus"
+        app.findChildren.return_value = []
+
+        def applications():
+            clock.advance(0.1)  # Discovery itself consumes the budget, not just sleep.
+            return [app] if registered else []
+
+        m.tree.root.applications.side_effect = applications
+        context = MagicMock()
+        with patch.object(m, "_launch_app"), \
+             pytest.raises(AssertionError, match="Visible Files window not found"):
+            m.files_file_manager_launches_successfully(context)
+
+        assert clock.now - 100.0 == pytest.approx(15, abs=0.2)
+        m.tree.root.application.assert_not_called()
+        context.execute_steps.assert_not_called()
+
+    @pytest.mark.parametrize("fallback", [False, True])
+    def test_late_app_and_matching_window_succeed(self, clock, fallback):
+        m, clock = clock
+        frame = types.SimpleNamespace(roleName="frame", showing=True, name=" Home ")
+        app = MagicMock()
+        app.name = ' "ORG.GNOME.NAUTILUS service" '
+        app.findChildren.side_effect = lambda pred: [frame] if pred(frame) else []
+        m.tree.root.applications.side_effect = lambda: [app] if clock.now >= 101 else []
+        m.tree.root.findChildren.return_value = []
+        wait = m._wait_for_window_or_title if fallback else m._wait_for_window
+
+        assert wait(m.FILES_APP_NAMES, {"Files", "Home"}, "Files", timeout=1.5) is frame
+        assert 1 <= clock.now - 100.0 < 1.5
+        m.tree.root.application.assert_not_called()
+
+    def test_title_fallback_succeeds_without_second_budget(self, clock):
+        m, clock = clock
+        frame = types.SimpleNamespace(roleName="filler", showing=True, name=" Clocks ")
+        m.tree.root.applications.return_value = []
+        m.tree.root.findChildren.side_effect = lambda pred: (
+            [frame] if clock.now >= 100.6 and pred(frame) else []
+        )
+
+        assert m._wait_for_window_or_title(
+            m.CLOCKS_APP_NAMES, {"Clocks"}, "Clocks", timeout=1
+        ) is frame
+        assert 0.6 <= clock.now - 100.0 < 1
+        m.tree.root.application.assert_not_called()
+
+    @pytest.mark.parametrize("fallback", [False, True])
+    def test_hidden_wrong_role_and_wrong_title_still_fail(self, clock, fallback):
+        m, clock = clock
+        frames = [
+            types.SimpleNamespace(roleName="frame", showing=False, name="Home"),
+            types.SimpleNamespace(roleName="label", showing=True, name="Home"),
+            types.SimpleNamespace(roleName="filler", showing=True, name="Other"),
+        ]
+        app = MagicMock()
+        app.name = "Files"
+        app.findChildren.side_effect = lambda pred: [f for f in frames if pred(f)]
+        m.tree.root.applications.return_value = [app]
+        m.tree.root.findChildren.side_effect = app.findChildren.side_effect
+        wait = m._wait_for_window_or_title if fallback else m._wait_for_window
+
+        with pytest.raises(AssertionError, match="Other"):
+            wait(m.FILES_APP_NAMES, {"Home"}, "Files", timeout=0.7)
+        assert clock.now - 100.0 == pytest.approx(0.7)
+        m.tree.root.application.assert_not_called()
+
+    def test_discovery_exhaustion_does_not_start_window_or_fallback_search(self, clock):
+        m, clock = clock
+        app = MagicMock()
+        app.name = "Files"
+
+        def applications():
+            clock.advance(1)
+            return [app]
+
+        m.tree.root.applications.side_effect = applications
+        with pytest.raises(AssertionError, match="Visible Files window not found"):
+            m._wait_for_window_or_title(m.FILES_APP_NAMES, {"Home"}, "Files", timeout=1)
+        assert clock.now - 100.0 == 1
+        app.findChildren.assert_not_called()
+        m.tree.root.findChildren.assert_not_called()
+
+    def test_title_fallback_does_not_accept_unrelated_shell_prompt(self, clock):
+        m, clock = clock
+        frame = types.SimpleNamespace(roleName="frame", showing=True, name="other@runner:~")
+        m.tree.root.applications.return_value = []
+        m.tree.root.findChildren.side_effect = lambda pred: [frame] if pred(frame) else []
+
+        with pytest.raises(AssertionError, match="by title"):
+            m._wait_for_window_or_title(m.CLOCKS_APP_NAMES, {"Clocks"}, "Clocks", timeout=1)
+        assert clock.now - 100.0 == pytest.approx(1)
+
+    def test_registered_app_waits_for_late_visible_window(self, clock):
+        m, clock = clock
+        frame = types.SimpleNamespace(
+            get_role_name=lambda: "frame", get_name=lambda: "Home", showing=True
+        )
+        app = MagicMock()
+        app.name = "Files"
+        app.findChildren.side_effect = lambda pred: (
+            [frame] if clock.now >= 100.5 and pred(frame) else []
+        )
+        m.tree.root.applications.return_value = [app]
+
+        assert m._wait_for_window(m.FILES_APP_NAMES, {"Home"}, "Files", timeout=0.75) is frame
+        assert clock.now - 100.0 == 0.5
+
+    @pytest.mark.parametrize("fallback", [False, True])
+    def test_match_found_by_traversal_straddling_deadline_is_returned(self, clock, fallback):
+        m, clock = clock
+        frame = types.SimpleNamespace(roleName="frame", showing=True, name="Home")
+
+        def slow_find(pred):
+            clock.advance(0.3)
+            return [frame] if pred(frame) else []
+
+        app = MagicMock()
+        app.name = "Files"
+        if fallback:
+            m.tree.root.applications.return_value = []
+            m.tree.root.findChildren.side_effect = slow_find
+        else:
+            app.findChildren.side_effect = slow_find
+            m.tree.root.applications.return_value = [app]
+        wait = m._wait_for_window_or_title if fallback else m._wait_for_window
+
+        assert wait(m.FILES_APP_NAMES, {"Home"}, "Files", timeout=0.25) is frame

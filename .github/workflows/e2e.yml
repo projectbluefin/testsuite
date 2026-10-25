@@ -590,10 +590,14 @@ jobs:
               "${BFT_UID}" "${BFT_UID}" | \
               sudo tee "${DEP}/etc/tmpfiles.d/ci-user.conf"
 
-            # Passwordless sudo for test operations
+            # Passwordless sudo for test operations. sudoers.d is read in
+            # lexical order and the last matching rule wins: freedesktop-sdk
+            # images (Dakota, GNOME OS) ship %wheel ALL=(ALL) ALL as
+            # sudoers.d/wheel, and bluefin-test is in wheel, so this file must
+            # sort after "wheel" or sudo asks for a password over SSH.
             printf 'bluefin-test ALL=(ALL) NOPASSWD:ALL\n' | \
-              sudo tee "${DEP}/etc/sudoers.d/bluefin-test"
-            sudo chmod 440 "${DEP}/etc/sudoers.d/bluefin-test"
+              sudo tee "${DEP}/etc/sudoers.d/zz-bluefin-test"
+            sudo chmod 440 "${DEP}/etc/sudoers.d/zz-bluefin-test"
 
             # Pre-bake GDM autologin
             sudo mkdir -p "${DEP}/etc/gdm"

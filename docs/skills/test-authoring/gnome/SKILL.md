@@ -160,7 +160,7 @@ In GNOME 50:
 In GNOME 50, Firefox exposes its top-level window as `filler` or `frame` in AT-SPI, while web content and iframes within tabs also expose nested `frame` nodes (often containing child widgets such as `push button`). When tabs crash under containerized or headless environments, Firefox may also spawn `Tab crash reporter — Mozilla Firefox` frame nodes in the AT-SPI tree.
 
 To resolve the genuine browser window reliably:
-1. Query registered application name as `"Firefox"` first in `FIREFOX_APP_NAMES` to avoid a 10s retry timeout against `"firefox"`.
+1. Resolve the app with `_firefox_app()`, which first scans the live `tree.root.applications()` list matching `FIREFOX_APP_NAMES` case-insensitively, then falls back to per-name `tree.root.application()` lookups, polling until a short elapsed-time deadline (3 s by default). Keep `"Firefox"` (the name GNOME 50 registers) first in `FIREFOX_APP_NAMES` so the fallback lookup hits on its first attempt.
 2. Filter out Mozilla crash reporter windows (`"crash reporter" in name.lower()`) so stale or crashed frames carrying a `page tab list` are not misidentified as browser windows.
 3. Prioritize top-level candidates (`app.children`) before recursive searching, and require genuine browser chrome: `combo box`, `entry`, `autocomplete`, or `page tab list`. In GNOME 50, the Firefox address bar exposes role `combo box` (name `"Search with Google or enter address"`), and buttons use role `button`.
 4. In headless Wayland container environments where `/dev/uinput` evdev keystrokes are not routed to windows by the compositor, provide an AT-SPI fallback via `atspi_click` targeting the `"Open a new tab (Ctrl+T)"` and tab `"Close tab"` buttons.
@@ -247,7 +247,7 @@ runner container over SSH.
 Bluefin's 9 bundled extensions each get a named scenario in
 `tests/smoke/features/bluefin_extensions.feature`. Tag the
 `search-light@icedman.github.com` scenario `@bluefin` and guard it with
-`... is installed, otherwise skip` (not shipped on GNOME 51 images).
+`... is installed, otherwise skip on GNOME 51+` (missing on older shells fails).
 
 Use the distinct step phrase `GNOME extension "{uuid}" is enabled` (not
 bazzite's `Extension "{uuid}" is enabled`) to avoid cross-suite step collisions.
@@ -348,7 +348,7 @@ FIREFOX_A11Y_ENV = {
 context.firefox_launch_target = launch_background(FIREFOX_LAUNCH_TARGETS, env=FIREFOX_A11Y_ENV)
 ```
 
-`launch_background(targets, env=...)` in `tests/smoke/features/steps/app_support.py`
+`launch_background(targets, env=...)` in `tests/shared/app_support.py`
 applies `env` on every launch path: exported before the command in SSH mode,
 merged into `os.environ` for local `Popen`, and forwarded across the Flatpak
 sandbox boundary with `--env=`. Environment set outside a Flatpak sandbox is
@@ -392,7 +392,7 @@ Unconditional `sleep(N)` calls inflate suite time — avoid them. Rules:
 
 1. **`launch_background()` from qecore** — do NOT add `sleep(1)` after calling qecore's built-in `launch_background()`. The immediately-following "window is accessible" step has its own AT-SPI polling loop; the launch sleep is redundant there.
 
-   **EXCEPTION — `_launch_app()` custom launcher**: The suite-local `_launch_app()` in `gnome_apps_steps.py` uses D-Bus app activation (`gio open` or `gtk-launch`), which is **asynchronous**. `sleep(1)` after a successful `_launch_app()` return is **required** as a D-Bus activation settle time — without it, `_wait_for_window()` starts polling before the process has registered with the AT-SPI accessibility bus, exhausts all retries (~10s), and fails on slower images (e.g. Dakota testing). Do not remove this sleep. The regression in PR #465 was caused by removing it.
+   **EXCEPTION — `_launch_app()` custom launcher**: The suite-local `_launch_app()` in `gnome_apps_steps.py` uses D-Bus app activation (`gio open` or `gtk-launch`), which is **asynchronous**. `sleep(1)` after a successful `_launch_app()` return is **required** as a D-Bus activation settle time — without it, `_wait_for_window()` starts polling before the process has registered with the AT-SPI accessibility bus, exhausts its 15 s elapsed-time deadline, and fails on slower images (e.g. Dakota testing). Do not remove this sleep. The regression in PR #465 was caused by removing it.
 
 2. **Polling loop intervals** — use 0.2s intervals in retry loops (`for _ in range(N): sleep(0.2)`). 0.5s is the old default; the loops already exit-early on success so tighter intervals help.
 

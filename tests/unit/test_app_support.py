@@ -1,4 +1,4 @@
-"""Unit tests for tests/smoke/features/steps/app_support.py.
+"""Unit tests for tests/shared/app_support.py.
 
 Tests _desktop_path, _flatpak_available, launch_target_available, and
 launch_background using mocks — no real filesystem or subprocesses required.
@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 import pytest
 
-from tests.smoke.features.steps import app_support
+from tests.shared import app_support
 
 # Force non-container mode for all tests in this module.
 _no_container = patch.object(app_support, "_IN_CONTAINER", False)
@@ -86,7 +86,7 @@ class TestFlatpakAvailable:
 
     def test_returns_true_when_flatpak_info_succeeds(self):
         fake_result = SimpleNamespace(returncode=0)
-        with patch("tests.smoke.features.steps.app_support.subprocess.run",
+        with patch("tests.shared.app_support.subprocess.run",
                    return_value=fake_result) as mock_run:
             result = app_support._flatpak_available("org.gnome.Calculator")
 
@@ -98,7 +98,7 @@ class TestFlatpakAvailable:
 
     def test_returns_false_when_flatpak_info_fails(self):
         fake_result = SimpleNamespace(returncode=1)
-        with patch("tests.smoke.features.steps.app_support.subprocess.run",
+        with patch("tests.shared.app_support.subprocess.run",
                    return_value=fake_result):
             result = app_support._flatpak_available("io.missing.App")
 
@@ -141,7 +141,7 @@ class TestLaunchTargetAvailable:
     def test_returns_true_for_available_flatpak(self):
         targets = (("flatpak", "org.gnome.Calculator"),)
         fake_result = SimpleNamespace(returncode=0)
-        with patch("tests.smoke.features.steps.app_support.subprocess.run",
+        with patch("tests.shared.app_support.subprocess.run",
                    return_value=fake_result):
             assert app_support.launch_target_available(targets) is True
 
@@ -151,7 +151,7 @@ class TestLaunchTargetAvailable:
             ("flatpak", "io.missing.App"),
         )
         with patch.object(app_support.shutil, "which", return_value=None):
-            with patch("tests.smoke.features.steps.app_support.subprocess.run",
+            with patch("tests.shared.app_support.subprocess.run",
                        return_value=SimpleNamespace(returncode=1)):
                 assert app_support.launch_target_available(targets) is False
 
@@ -182,7 +182,7 @@ class TestLaunchBackground:
     def test_launches_command_when_available(self):
         targets = (("command", "bash"),)
         with patch.object(app_support.shutil, "which", return_value="/usr/bin/bash"):
-            with patch("tests.smoke.features.steps.app_support.subprocess.Popen") as mock_popen:
+            with patch("tests.shared.app_support.subprocess.Popen") as mock_popen:
                 result = app_support.launch_background(targets)
 
         assert result == "command:bash"
@@ -193,7 +193,7 @@ class TestLaunchBackground:
         (tmp_path / desktop_id).write_text("")
         targets = (("desktop", desktop_id),)
         with patch.object(app_support, "DESKTOP_DIRS", (str(tmp_path),)):
-            with patch("tests.smoke.features.steps.app_support.subprocess.Popen") as mock_popen:
+            with patch("tests.shared.app_support.subprocess.Popen") as mock_popen:
                 result = app_support.launch_background(targets)
 
         assert result == f"desktop:{desktop_id}"
@@ -201,9 +201,9 @@ class TestLaunchBackground:
 
     def test_launches_flatpak_when_available(self):
         targets = (("flatpak", "org.gnome.Calculator"),)
-        with patch("tests.smoke.features.steps.app_support.subprocess.run",
+        with patch("tests.shared.app_support.subprocess.run",
                    return_value=SimpleNamespace(returncode=0)):
-            with patch("tests.smoke.features.steps.app_support.subprocess.Popen") as mock_popen:
+            with patch("tests.shared.app_support.subprocess.Popen") as mock_popen:
                 result = app_support.launch_background(targets)
 
         assert result == "flatpak:org.gnome.Calculator"
@@ -246,7 +246,7 @@ class TestLaunchEnvironment:
     def test_command_launch_merges_env_into_os_environ(self):
         targets = (("command", "bash"),)
         with patch.object(app_support.shutil, "which", return_value="/usr/bin/bash"):
-            with patch("tests.smoke.features.steps.app_support.subprocess.Popen") as mock_popen:
+            with patch("tests.shared.app_support.subprocess.Popen") as mock_popen:
                 app_support.launch_background(targets, env={"GNOME_ACCESSIBILITY": "1"})
 
         passed = mock_popen.call_args.kwargs["env"]
@@ -256,16 +256,16 @@ class TestLaunchEnvironment:
     def test_command_launch_without_env_inherits_environ(self):
         targets = (("command", "bash"),)
         with patch.object(app_support.shutil, "which", return_value="/usr/bin/bash"):
-            with patch("tests.smoke.features.steps.app_support.subprocess.Popen") as mock_popen:
+            with patch("tests.shared.app_support.subprocess.Popen") as mock_popen:
                 app_support.launch_background(targets)
 
         assert mock_popen.call_args.kwargs["env"] is None
 
     def test_flatpak_launch_forwards_env_into_sandbox(self):
         targets = (("flatpak", "org.mozilla.firefox"),)
-        with patch("tests.smoke.features.steps.app_support.subprocess.run",
+        with patch("tests.shared.app_support.subprocess.run",
                    return_value=SimpleNamespace(returncode=0)):
-            with patch("tests.smoke.features.steps.app_support.subprocess.Popen") as mock_popen:
+            with patch("tests.shared.app_support.subprocess.Popen") as mock_popen:
                 app_support.launch_background(targets, env={"GNOME_ACCESSIBILITY": "1"})
 
         assert mock_popen.call_args.args[0] == [
@@ -273,7 +273,7 @@ class TestLaunchEnvironment:
         ]
 
     def test_ssh_launch_exports_env_before_command(self):
-        with patch("tests.smoke.features.steps.app_support.subprocess.run") as mock_run:
+        with patch("tests.shared.app_support.subprocess.run") as mock_run:
             app_support._ssh_launch("firefox", {"GNOME_ACCESSIBILITY": "1"})
 
         remote_cmd = mock_run.call_args.args[0][-1]
@@ -311,7 +311,7 @@ class TestFlatpakExportedDesktopEntries:
         (export_dir / desktop_id).write_text("")
 
         with patch.object(app_support, "DESKTOP_DIRS", (str(export_dir),)):
-            with patch("tests.smoke.features.steps.app_support.subprocess.Popen") as mock_popen:
+            with patch("tests.shared.app_support.subprocess.Popen") as mock_popen:
                 result = app_support.launch_background(
                     (("desktop", desktop_id),), env={"GNOME_ACCESSIBILITY": "1"}
                 )
@@ -326,7 +326,7 @@ class TestFlatpakExportedDesktopEntries:
         (tmp_path / desktop_id).write_text("")
 
         with patch.object(app_support, "DESKTOP_DIRS", (str(tmp_path),)):
-            with patch("tests.smoke.features.steps.app_support.subprocess.Popen") as mock_popen:
+            with patch("tests.shared.app_support.subprocess.Popen") as mock_popen:
                 result = app_support.launch_background(
                     (("desktop", desktop_id),), env={"GNOME_ACCESSIBILITY": "1"}
                 )
@@ -342,7 +342,7 @@ class TestFlatpakExportedDesktopEntries:
                 "_desktop_path",
                 return_value="/var/lib/flatpak/exports/share/applications/org.mozilla.firefox.desktop",
             ):
-                with patch("tests.smoke.features.steps.app_support.subprocess.run") as mock_run:
+                with patch("tests.shared.app_support.subprocess.run") as mock_run:
                     result = app_support.launch_background(
                         (("desktop", "org.mozilla.firefox.desktop"),),
                         env={"GNOME_ACCESSIBILITY": "1"},
