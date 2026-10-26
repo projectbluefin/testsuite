@@ -155,6 +155,8 @@ the checkout's namespace package whatever `sys.path` says, forcing the fail-clos
 path. That load catches bare `Exception` on purpose — `exec_module` runs the module's top level, so a corrupted
 copy raises `SyntaxError` or anything else, and this reporting-only step must exit 0 rather than fail the job.
 
+**Gate extension-validation run** follows `Summarise results` for `suite: extensions`: it loads the sibling results helper by file path and requires at least one passing scenario with no errors, while emitting a JSON report for either verdict.
+
 ## Sparse checkout is non-cone — every script must be listed explicitly
 
 The testsuite checkout in `e2e.yml` sets `sparse-checkout-cone-mode: false`. Per the

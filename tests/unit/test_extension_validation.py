@@ -7,6 +7,9 @@ a run with at least one genuine pass (plus legitimate skips) does.
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -154,3 +157,48 @@ def test_unknown_non_success_status_fails_gate() -> None:
     assert e2e_summary.is_success(counts) is False
     assert is_extension_validation_pass(counts) is False
     assert is_extension_validation_pass({"passed": 3, "skipped": 1, "error": 0}) is True
+
+
+@pytest.mark.parametrize(
+    "statuses,expected_pass,expected_code",
+    [(["passed", "skipped"], True, 0), (["passed", "failed"], False, 1)],
+)
+def test_cli_reports_from_consumer_with_regular_scripts_package(
+    tmp_path: Path, statuses: list[str], expected_pass: bool, expected_code: int
+) -> None:
+    """A consumer's regular scripts package must not hide the sibling helper."""
+    consumer = tmp_path / "consumer"
+    package = consumer / "scripts"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text(
+        'raise AssertionError("consumer scripts package imported")\n',
+        encoding="utf-8",
+    )
+    results = consumer / "results.json"
+    results.write_text(_feature_json(statuses), encoding="utf-8")
+    checkout = Path(__file__).resolve().parents[2]
+    env = os.environ.copy()
+    # Expose both checkouts as in the action; a regular package wins over a
+    # namespace package even when the testsuite root comes first.
+    env["PYTHONPATH"] = os.pathsep.join((str(checkout), str(consumer)))
+    completed = subprocess.run(
+        [sys.executable, str(checkout / "scripts/extension_validation.py"), str(results)],
+        cwd=consumer,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    assert completed.returncode == expected_code, completed.stderr
+    assert completed.stderr == ""
+    report = json.loads(completed.stdout)
+    assert report["passed"] is expected_pass
+    assert report["counts"] == {
+        status: statuses.count(status)
+        for status in ("passed", "failed", "skipped", "undefined", "untested", "other")
+    }
+    if expected_pass:
+        assert report["reason"] == ""
+    else:
+        assert "failed=1" in report["reason"]
