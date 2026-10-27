@@ -1256,7 +1256,15 @@ jobs:
             meson setup /wp/build /wp --prefix=/usr
             ninja -C /wp/build install
             # Build grim (uses ext-image-copy-capture-v1, supported by mutter 47+)
-            git clone --quiet --depth 1 https://git.sr.ht/~emersion/grim /grim
+            # grim moved to gitlab.freedesktop.org (the sr.ht repo is frozen);
+            # pin a release and retry so a forge hiccup does not fail the suite.
+            for attempt in 1 2 3; do
+              git clone --quiet --depth 1 --branch v1.5.0 \
+                https://gitlab.freedesktop.org/emersion/grim.git /grim && break
+              rm -rf /grim
+              [ \"\$attempt\" = 3 ] && exit 1
+              sleep 15
+            done
             meson setup /grim/build /grim --prefix=/usr
             ninja -C /grim/build
             cp /grim/build/grim /out/
