@@ -118,7 +118,7 @@ jobs:
           for p in parts:
               if p == 'smoke':
                   expanded.extend(['smoke-a', 'smoke-b', 'smoke-firefox'])
-              elif p in {'common', 'kde-smoke'}:
+              elif p == 'common':
                   expanded.extend([f'{p}-a', f'{p}-b'])
               else:
                   expanded.append(p)
@@ -245,8 +245,8 @@ jobs:
             scripts/image_slug.py
           sparse-checkout-cone-mode: false
 
-      # smoke-a/smoke-b, common-a/common-b, and kde-smoke-a/kde-smoke-b are
-      # parallel halves of their parent suites. smoke-firefox owns the stateful
+      # smoke-a/smoke-b and common-a/common-b are parallel halves of their
+      # parent suites; kde-smoke has one feature file and runs unsharded. smoke-firefox owns the stateful
       # Firefox feature exclusively. SUITE_DIR is the physical directory and
       # FEATURE_ARGS lists the feature files for this shard (empty = run all).
       - name: Resolve suite shard
@@ -266,7 +266,7 @@ jobs:
               if base == "smoke" and label == "firefox":
                   suite_dir = base
                   feature_args = "tests/smoke/features/firefox.feature"
-              elif base in {"smoke", "common", "kde-smoke"} and label in {"a", "b"}:
+              elif base in {"smoke", "common"} and label in {"a", "b"}:
                   files = sorted(glob.glob(f"tests/{base}/features/*.feature"))
                   if base == "smoke":
                       files = [path for path in files if not path.endswith("/firefox.feature")]
