@@ -35,6 +35,7 @@ SCRIPT_PATH = REPO_ROOT / "scripts" / "vm_validation_plan.py"
         ".github/workflows/unit-tests.yml",
         ".github/workflows/update-v1-tag.yml",
         "scripts/validate_docs.py",
+        "scripts/v1_gate.py",
     ],
 )
 def test_paths_that_never_reach_a_vm_need_no_boot(path):

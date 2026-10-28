@@ -81,11 +81,13 @@ on:
       test_ref:
         description: >
           Git ref (branch, SHA, or tag) from which to check out the tests/ directory.
-          Defaults to main when the caller does not pass it. Caller workflows must
+          Defaults to v1, the tag the post-merge VM gate (update-v1-tag.yml)
+          moves only after the merged tests boot, so consumers that call
+          e2e.yml@v1 without a test_ref run the same validated tests. Caller workflows must
           resolve branch selection before entering workflow_call; do not use
           github.ref_name inside this file because GitHub resolves it to main here.
         type: string
-        default: "main"
+        default: "v1"
       test_repository:
         description: >
           Repository from which to check out the tests/ directory. Defaults to

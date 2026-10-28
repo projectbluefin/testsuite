@@ -1,11 +1,25 @@
-# Auto-update v1 tag after merge to main
+# Move the v1 tag after a merge to main, behind a VM gate (testsuite#1027)
 #
-# After any PR merges to main in projectbluefin/testsuite, this workflow
-# force-pushes the v1 tag to HEAD. Consumers referencing @v1 get the
-# latest e2e.yml without manual SHA management.
+# Consumers call e2e.yml@v1, and e2e.yml checks out its tests at v1 by
+# default, so v1 is what every image repo runs. On each push to main this
+# workflow plans which suites the not-yet-distributed range (v1..main) needs
+# (scripts/vm_validation_plan.py), boots them through e2e.yml at the merged SHA
+# against a digest-pinned image, and moves v1 only when they pass. e2e.yml's
+# own fail-closed verdict (scripts/assert_passed.py, #1022) decides "pass".
 #
-# Security: Only runs on push to main (post-merge). The human gate
-# for actions is the PR review — once merged, tag update is mechanical.
+# The range starts at v1, not at the push's previous commit: if a newer push
+# cancels a gated run, the next run still covers the cancelled change.
+#
+# A held v1 is never silent: the run fails and an issue titled
+# "v1 tag held by the post-merge VM gate" names the held SHA. The next
+# successful move closes it.
+#
+# Emergency path: run this workflow by hand on main with force=true to move v1
+# to main without booting. The run summary records who forced it and why.
+#
+# Security: only merged main code runs here (push to main or a manual run
+# on main). The VM jobs get contents:read and packages:write, as every
+# e2e.yml caller does; only the final job can write the tag and issues.
 
 name: Update v1 tag
 
@@ -13,40 +27,201 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Move v1 to main without the VM gate (emergency only)"
+        type: boolean
+        default: false
+      reason:
+        description: "Why the gate is being skipped (recorded in the run summary)"
+        type: string
+        default: ""
 
-permissions:
-  contents: write
+permissions: {}
 
 concurrency:
   group: update-v1-tag
   cancel-in-progress: true
 
+env:
+  # Image the gate boots. Resolved to a digest at plan time so the run records
+  # exactly what it tested. Override with the V1_GATE_IMAGE repository variable.
+  GATE_IMAGE: ${{ vars.V1_GATE_IMAGE || 'ghcr.io/projectbluefin/dakota:latest' }}
+
 jobs:
-  update-tag:
-    name: Force-push v1 to HEAD
+  plan:
+    name: Plan v1 gate
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      sha: ${{ steps.plan.outputs.sha }}
+      previous: ${{ steps.plan.outputs.previous }}
+      action: ${{ steps.plan.outputs.action }}
+      suites: ${{ steps.plan.outputs.suites }}
+      ungated: ${{ steps.plan.outputs.ungated }}
+      reason: ${{ steps.plan.outputs.reason }}
+      image: ${{ steps.image.outputs.image }}
     steps:
+      - name: Refuse manual runs off main
+        if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main'
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          echo "::error::Run this workflow on main, not ${REF}."
+          exit 1
+
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          fetch-depth: 1
+          fetch-depth: 0
+          persist-credentials: false
 
-      - name: Update v1 tag
+      - name: Plan
+        id: plan
+        env:
+          FORCE: ${{ github.event_name == 'workflow_dispatch' && inputs.force }}
         run: |
           set -euo pipefail
+          SHA=$(git rev-parse HEAD)
+          PREVIOUS=$(git rev-parse -q --verify 'refs/tags/v1^{commit}' || true)
+          {
+            echo "sha=${SHA}"
+            echo "previous=${PREVIOUS}"
+          } >> "$GITHUB_OUTPUT"
 
-          CURRENT_SHA=$(git rev-parse HEAD)
-
-          # Check if v1 already points to HEAD
-          EXISTING_TAG_SHA=$(git ls-remote --tags origin refs/tags/v1 | awk '{print $1}')
-
-          if [ "$EXISTING_TAG_SHA" = "$CURRENT_SHA" ]; then
-            echo "v1 already points to HEAD (${CURRENT_SHA::7}) — nothing to do"
+          if [ "${PREVIOUS}" = "${SHA}" ]; then
+            echo "action=none" >> "$GITHUB_OUTPUT"
+            echo "v1 already points to ${SHA::7}; nothing to do."
+            exit 0
+          fi
+          if [ "${FORCE}" = "true" ]; then
+            echo "action=move" >> "$GITHUB_OUTPUT"
+            echo "reason=forced by a manual run" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          git tag -f v1 HEAD
-          git push --force origin v1
+          if [ -n "${PREVIOUS}" ] && git merge-base --is-ancestor "${PREVIOUS}" "${SHA}"; then
+            git diff --name-only "${PREVIOUS}" "${SHA}" > changed.txt
+          else
+            # No v1 yet, or v1 is not behind main: plan the full set (fail-closed).
+            echo "unknown-base" > changed.txt
+          fi
+          python3 scripts/vm_validation_plan.py < changed.txt > plan.json
+          python3 scripts/v1_gate.py < plan.json | tee -a "$GITHUB_OUTPUT"
 
-          echo "Updated v1: ${EXISTING_TAG_SHA::7} → ${CURRENT_SHA::7}"
+          {
+            echo "### v1 gate plan"
+            echo
+            echo "Range: \`${PREVIOUS:-none}\` → \`${SHA}\`"
+            echo
+            echo '```json'
+            cat plan.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Pin the gate image by digest
+        id: image
+        if: steps.plan.outputs.action == 'gate'
+        run: |
+          set -euo pipefail
+          DIGEST=$(skopeo inspect --format '{{.Digest}}' "docker://${GATE_IMAGE}")
+          case "${DIGEST}" in
+            sha256:*) ;;
+            *) echo "::error::Could not resolve a digest for ${GATE_IMAGE}"; exit 1 ;;
+          esac
+          echo "image=${GATE_IMAGE}@${DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "Gate image: \`${GATE_IMAGE}@${DIGEST}\`" >> "$GITHUB_STEP_SUMMARY"
+
+  gate:
+    name: Boot merged tests
+    needs: plan
+    if: needs.plan.outputs.action == 'gate'
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/e2e.yml
+    with:
+      image: ${{ needs.plan.outputs.image }}
+      suites: ${{ needs.plan.outputs.suites }}
+      test_ref: ${{ needs.plan.outputs.sha }}
+      test_repository: ${{ github.repository }}
+
+  publish:
+    name: Move or hold v1
+    needs: [plan, gate]
+    if: >-
+      always() && !cancelled() &&
+      needs.plan.result == 'success' && needs.plan.outputs.action != 'none'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      REPO: ${{ github.repository }}
+      SHA: ${{ needs.plan.outputs.sha }}
+      PREVIOUS: ${{ needs.plan.outputs.previous }}
+      ACTION: ${{ needs.plan.outputs.action }}
+      GATE_RESULT: ${{ needs.gate.result }}
+      SUITES: ${{ needs.plan.outputs.suites }}
+      UNGATED: ${{ needs.plan.outputs.ungated }}
+      REASON: ${{ needs.plan.outputs.reason }}
+      IMAGE: ${{ needs.plan.outputs.image }}
+      FORCE_REASON: ${{ inputs.reason }}
+      ACTOR: ${{ github.actor }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      HELD_TITLE: v1 tag held by the post-merge VM gate
+    steps:
+      - name: Move or hold v1
+        run: |
+          set -euo pipefail
+          HELD=$(gh issue list --state open --search "\"${HELD_TITLE}\" in:title" \
+            --json number,title --jq "[.[] | select(.title == env.HELD_TITLE)][0].number // empty")
+
+          if [ "${ACTION}" = "move" ] || { [ "${ACTION}" = "gate" ] && [ "${GATE_RESULT}" = "success" ]; }; then
+            if [ -n "${PREVIOUS}" ]; then
+              gh api -X PATCH "repos/${REPO}/git/refs/tags/v1" -f sha="${SHA}" -F force=true > /dev/null
+            else
+              gh api -X POST "repos/${REPO}/git/refs" -f ref=refs/tags/v1 -f sha="${SHA}" > /dev/null
+            fi
+            {
+              echo "### v1 moved"
+              echo
+              echo "\`${PREVIOUS:-none}\` → \`${SHA}\`: ${REASON}"
+              if [ -n "${IMAGE}" ]; then echo; echo "Booted \`${SUITES}\` on \`${IMAGE}\`."; fi
+              if [ -n "${UNGATED}" ]; then echo; echo "Not booted (no second image yet, #706): \`${UNGATED}\`."; fi
+              if [ -n "${FORCE_REASON}" ]; then echo; echo "Forced by @${ACTOR}: ${FORCE_REASON}"; fi
+            } >> "$GITHUB_STEP_SUMMARY"
+            if [ -n "${HELD}" ]; then
+              gh issue close "${HELD}" --comment "v1 moved to ${SHA} (${RUN_URL}); the hold is cleared."
+            fi
+            exit 0
+          fi
+
+          if [ "${ACTION}" = "gate" ]; then
+            WHY="the VM gate did not pass (e2e.yml result: ${GATE_RESULT}; suites: ${SUITES}; image: ${IMAGE})"
+          else
+            WHY="${REASON}"
+          fi
+          BODY=$(printf '%s\n\n%s\n\n%s\n\n%s\n' \
+            "v1 stays at \`${PREVIOUS:-none}\` and was **not** moved to \`${SHA}\`." \
+            "Why: ${WHY}." \
+            "Run: ${RUN_URL}" \
+            "To release it: fix main (the next push re-runs the gate), or after validating by hand run **Update v1 tag** on main with \`force\` and a reason.")
+          if [ -n "${HELD}" ]; then
+            gh issue comment "${HELD}" --body "${BODY}"
+          else
+            gh issue create --title "${HELD_TITLE}" --body "${BODY}"
+          fi
+          {
+            echo "### v1 held at \`${PREVIOUS:-none}\`"
+            echo
+            echo "${WHY}"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::v1 held at ${PREVIOUS:-none}: ${WHY}"
+          exit 1
