@@ -7,7 +7,7 @@
 # No self-hosted runners. Pure GHA ubuntu-latest.
 #
 # Inputs:
-#   image  — OCI image to test (default: ghcr.io/projectbluefin/dakota:latest)
+#   image  — OCI image to test (default: ghcr.io/projectbluefin/dakota:testing)
 #   suites — comma-separated suite names (default: smoke)
 #            common runs in SSH mode on the runner; GUI suites use qecore.
 
@@ -19,7 +19,7 @@ on:
       image:
         description: "OCI image to test"
         type: string
-        default: "ghcr.io/projectbluefin/dakota:latest"
+        default: "ghcr.io/projectbluefin/dakota:testing"
       target-image:
         description: "Full OCI ref to upgrade TO (optional). When set and lifecycle suite is running, stages this image via bootc switch before the test suite."
         type: string
