@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-02",
+  "generated_at": "2026-10-28",
   "schema_version": "1.0",
   "skills": [
     {
@@ -252,7 +252,7 @@
     {
       "id": "uefi-boot",
       "name": "uefi-boot",
-      "one_line_purpose": "Add or debug UEFI/OVMF reboot test paths.",
+      "one_line_purpose": "Add or debug UEFI/OVMF reboot tests and design desktop first-login qualification.",
       "entry_point": "docs/skills/test-authoring/uefi-boot/SKILL.md",
       "category": "test-authoring",
       "status": "active",
@@ -261,9 +261,9 @@
         "ovmf",
         "boot"
       ],
-      "description": "UEFI/OVMF reboot testing guidance. Load when adding or debugging UEFI boot paths in the e2e workflows.",
+      "description": "UEFI/OVMF reboot testing and desktop first-login qualification guidance. Load when adding or debugging UEFI boot paths in e2e workflows, or designing firmware-boot and native GIS/GDM first-login qualification.",
       "version": "1.0",
-      "last_updated": "2026-07-20",
+      "last_updated": "2026-10-28",
       "doc_type": "pattern"
     },
     {

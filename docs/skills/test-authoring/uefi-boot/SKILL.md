@@ -1,16 +1,16 @@
 ---
 name: uefi-boot
 version: "1.0"
-last_updated: "2026-07-20"
+last_updated: "2026-10-28"
 id: uefi-boot
-one_line_purpose: Add or debug UEFI/OVMF reboot test paths.
+one_line_purpose: Add or debug UEFI/OVMF reboot tests and design desktop first-login qualification.
 entry_point: docs/skills/test-authoring/uefi-boot/SKILL.md
 category: test-authoring
 mcp_compliance_level: partial
 status: active
 dependencies: []
 tags: [uefi, ovmf, boot]
-description: "UEFI/OVMF reboot testing guidance. Load when adding or debugging UEFI boot paths in the e2e workflows."
+description: "UEFI/OVMF reboot testing and desktop first-login qualification guidance. Load when adding or debugging UEFI boot paths in e2e workflows, or designing firmware-boot and native GIS/GDM first-login qualification."
 metadata:
   type: pattern
   audience: agents
@@ -18,7 +18,7 @@ metadata:
 ---
 # UEFI Boot via OVMF + systemd-boot
 
-Load when: working on migration tests that require VM reboots, modifying the QEMU boot pipeline, or debugging UEFI/systemd-boot issues in CI.
+Load when: working on migration tests that require VM reboots, modifying the QEMU boot pipeline, debugging UEFI/systemd-boot issues in CI, or designing firmware-boot / desktop first-login qualification (see the [desktop qualification contract](references/desktop-first-login.md)).
 
 ## Why UEFI boot matters
 
