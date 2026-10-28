@@ -7,7 +7,7 @@ every scenario was skipped/undefined/untested, so a smoke lane whose
 is a false green: nothing was executed, yet qualification passed.
 
 This gate is the verdict contract for the desktop suites in ``e2e.yml`` (KDE
-and the smoke/developer/dx/software/vanilla-gnome lanes); the ``gnome-e2e``
+and the smoke/developer/dx/software/vanilla-gnome/bazzite lanes); the ``gnome-e2e``
 action does not call it yet (a follow-up). It fails the job when
 the run cannot authorize qualification:
 

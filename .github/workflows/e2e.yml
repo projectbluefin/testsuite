@@ -1926,7 +1926,7 @@ jobs:
           (startsWith(env.SUITE_DIR, 'kde') ||
            env.SUITE_DIR == 'smoke' || env.SUITE_DIR == 'developer' ||
            env.SUITE_DIR == 'dx' || env.SUITE_DIR == 'software' ||
-           env.SUITE_DIR == 'vanilla-gnome') &&
+           env.SUITE_DIR == 'vanilla-gnome' || env.SUITE_DIR == 'bazzite') &&
           steps.run.outputs.behave_rc == '0'
         env:
           # Through env, not inline: the reason embeds strings read from the

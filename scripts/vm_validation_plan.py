@@ -102,7 +102,7 @@ RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     (".github/workflows/iso-*.yml", ("installer",)),
     # Helper scripts e2e.yml sparse-checks-out and runs per suite.
     ("scripts/install-kde-webdriver.sh", ("kde-smoke",)),
-    ("scripts/assert_kde_passed.py", ("kde-smoke",)),
+    ("scripts/assert_passed.py", ("kde-smoke", GUI)),
     # Run only inside the gnome-e2e composite action, never by e2e.yml.
     ("scripts/extension_validation.py", (ACTION,)),
     ("scripts/*", (GUI, SSH)),
