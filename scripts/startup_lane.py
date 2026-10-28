@@ -312,7 +312,9 @@ def judge_unit(unit: str, lane: dict, props: dict[str, str] | None, elapsed: int
     return PASS, f"{state} restarts={props.get('NRestarts', '0')}"
 
 
-def judge_flatpak(report: Report, sections, remote_from: str = "image") -> None:
+def judge_flatpak(report: Report, sections, remote_from: str = "image", elapsed: int = 0, deadline: int = 0) -> None:
+    # Until the owning unit's deadline, a missing remote or app is "not yet".
+    miss = FAIL if elapsed >= deadline else PENDING
     wanted = declared_preinstalls(sections)
     if not wanted:
         report.add("flatpak preinstall.d", FAIL, "image declares no preinstalled refs")
@@ -329,7 +331,7 @@ def judge_flatpak(report: Report, sections, remote_from: str = "image") -> None:
             "bootc install to-disk runs no installer",
         )
     for remote in declared:
-        status = PASS if remote in configured else FAIL
+        status = PASS if remote in configured else miss
         report.add(f"remote {remote}", status, "declared in remotes.d; configured" if status == PASS else "declared in remotes.d but not configured")
 
     installed: dict[str, tuple[str, str]] = {}
@@ -345,7 +347,7 @@ def judge_flatpak(report: Report, sections, remote_from: str = "image") -> None:
                 continue
             if not configured:
                 why += "; no system remote is configured, so flatpak preinstall has nothing to install it from"
-            report.add(f"flatpak {ref}", FAIL, why)
+            report.add(f"flatpak {ref}", miss, why)
             continue
         have_branch, origin = installed[ref]
         if branch and have_branch != branch:
@@ -409,8 +411,11 @@ def evaluate(inventory: dict, profile: str, evidence: str, elapsed: int, final: 
     }
     report = Report()
     flatpak_lane = None
+    booting = (section(sections, "is-system-running") or "").strip() == "starting"
     for unit, lane in sorted(required_units(inventory, profile).items()):
         status, detail = judge_unit(unit, lane, units.get(unit), elapsed)
+        if status == FAIL and booting and elapsed < lane["deadline_s"]:
+            status, detail = PENDING, f"{detail}; system still starting"
         if final and status == PENDING:
             status, detail = FAIL, f"{detail}; lane deadline reached"
         report.add(unit, status, detail)
@@ -422,7 +427,13 @@ def evaluate(inventory: dict, profile: str, evidence: str, elapsed: int, final: 
         if "flatpak" in lane.get("checks", []):
             flatpak_lane = lane
     if flatpak_lane is not None:
-        judge_flatpak(report, sections, flatpak_lane.get("flatpak_remote", "image"))
+        judge_flatpak(
+            report,
+            sections,
+            flatpak_lane.get("flatpak_remote", "image"),
+            elapsed,
+            0 if final else flatpak_lane["deadline_s"],
+        )
     for unit, why in sorted(deferred_units(inventory, profile).items()):
         report.add(unit, DEFERRED, why)
     return report

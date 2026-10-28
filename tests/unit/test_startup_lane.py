@@ -260,6 +260,48 @@ def test_flatpak_state_is_not_judged_until_preinstall_finishes(inventory):
     assert statuses(final)["flatpak-preinstall.service"] == lane.FAIL
 
 
+# flatpak-preinstall.service has deadline_s 1800 in the inventory.
+PAST_FLATPAK_DEADLINE = 1801
+
+
+@pytest.mark.parametrize(
+    "kwargs, subject",
+    [
+        ({"installed": ()}, "flatpak io.github.kolunmi.Bazaar"),
+        ({"remotes": (), "installed": ()}, "remote flathub"),
+    ],
+)
+def test_missing_flatpak_state_waits_for_the_preinstall_deadline(inventory, kwargs, subject):
+    text = evidence(**kwargs)
+    early = lane.evaluate(inventory, "bluefin", text, elapsed=120)
+    assert statuses(early)[subject] == lane.PENDING
+    assert early.verdict == lane.PENDING
+    late = lane.evaluate(inventory, "bluefin", text, elapsed=PAST_FLATPAK_DEADLINE)
+    assert statuses(late)[subject] == lane.FAIL
+    final = lane.evaluate(inventory, "bluefin", text, elapsed=120, final=True)
+    assert statuses(final)[subject] == lane.FAIL
+
+
+def test_wrong_flatpak_branch_fails_before_the_deadline(inventory):
+    text = evidence(installed=("io.github.kolunmi.Bazaar\tbeta\tflathub",))
+    report = lane.evaluate(inventory, "bluefin", text, elapsed=120)
+    assert statuses(report)["flatpak io.github.kolunmi.Bazaar"] == lane.FAIL
+
+
+def test_unit_failure_is_pending_while_the_system_is_still_starting(inventory):
+    system = [
+        unit("NetworkManager-wait-online.service"),
+        unit("brew-setup.service", active="inactive", sub="dead"),
+        unit("flatpak-preinstall.service", load="not-found"),
+    ]
+    text = evidence(system=system).replace("@@ is-system-running\nrunning", "@@ is-system-running\nstarting")
+    report = lane.evaluate(inventory, "bluefin", text, elapsed=114)
+    assert statuses(report)["flatpak-preinstall.service"] == lane.PENDING
+    assert lane.evaluate(inventory, "bluefin", text, elapsed=114, final=True).verdict == lane.FAIL
+    settled = text.replace("@@ is-system-running\nstarting", "@@ is-system-running\ndegraded")
+    assert lane.evaluate(inventory, "bluefin", settled, elapsed=114).verdict == lane.FAIL
+
+
 @pytest.mark.parametrize(
     "kwargs, subject, why",
     [
@@ -271,7 +313,7 @@ def test_flatpak_state_is_not_judged_until_preinstall_finishes(inventory):
     ],
 )
 def test_flatpak_contract_failures(inventory, kwargs, subject, why):
-    report = lane.evaluate(inventory, "bluefin", evidence(**kwargs), elapsed=600)
+    report = lane.evaluate(inventory, "bluefin", evidence(**kwargs), elapsed=PAST_FLATPAK_DEADLINE)
     finding = next(f for f in report.findings if f.subject == subject)
     assert finding.status == lane.FAIL
     assert why in finding.detail
@@ -286,7 +328,7 @@ def with_flatpak_remote(inventory, source):
 
 def test_image_provided_remote_missing_fails_the_ref(inventory):
     no_remote = evidence(remotes_declared=(), remotes=(), installed=())
-    report = lane.evaluate(with_flatpak_remote(inventory, "image"), "bluefin", no_remote, elapsed=600)
+    report = lane.evaluate(with_flatpak_remote(inventory, "image"), "bluefin", no_remote, elapsed=PAST_FLATPAK_DEADLINE)
     finding = next(f for f in report.findings if f.subject == "flatpak io.github.kolunmi.Bazaar")
     assert finding.status == lane.FAIL
     assert "no system remote is configured" in finding.detail
@@ -316,7 +358,7 @@ def test_installer_provided_remote_leaves_refs_not_qualified(inventory):
     ],
 )
 def test_installer_provided_remote_still_fails_real_gaps(inventory, kwargs, subject, why):
-    report = lane.evaluate(inventory, "bluefin", evidence(**kwargs), elapsed=600)
+    report = lane.evaluate(inventory, "bluefin", evidence(**kwargs), elapsed=PAST_FLATPAK_DEADLINE)
     finding = next(f for f in report.findings if f.subject == subject)
     assert finding.status == lane.FAIL
     assert why in finding.detail
