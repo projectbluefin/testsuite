@@ -3,6 +3,8 @@ import sys
 import types
 from unittest.mock import MagicMock
 
+import pytest
+
 
 # ---------------------------------------------------------------------------
 # Import helper
@@ -179,3 +181,66 @@ class TestSkipIfNoAtspi:
         context = MagicMock()
         m._skip_if_no_atspi(context)
         assert "AT-SPI" in context.scenario.skip.call_args[0][0]
+
+
+# ---------------------------------------------------------------------------
+# calculator_is_no_longer_running
+# ---------------------------------------------------------------------------
+
+class _RetryingRoot:
+    """``tree.root`` whose per-name lookup costs dogtail's default retry wait."""
+
+    def __init__(self, clock, apps=()):
+        self.clock = clock
+        self.apps = list(apps)
+        self.application_calls = []
+
+    def applications(self):
+        return list(self.apps)
+
+    def application(self, name):
+        self.application_calls.append(name)
+        self.clock.now += 10  # dogtail retries ~10s before raising
+        raise LookupError(name)
+
+
+class _Frame:
+    roleName = "frame"
+    showing = True
+
+
+class _App:
+    def __init__(self, name, frames=()):
+        self.name = name
+        self.frames = list(frames)
+
+    def findChildren(self, predicate):  # noqa: N802 - dogtail API
+        return [frame for frame in self.frames if predicate(frame)]
+
+
+class TestCalculatorIsNoLongerRunning:
+    def _run(self, monkeypatch, apps):
+        m = _import_calculator_steps()
+        clock = types.SimpleNamespace(now=0.0)
+        root = _RetryingRoot(clock, apps)
+        monkeypatch.setattr(m, "tree", types.SimpleNamespace(root=root))
+        monkeypatch.setattr(m, "sleep", lambda s: setattr(clock, "now", clock.now + s))
+        return m, clock, root
+
+    def test_missing_app_returns_without_retrying_lookup(self, monkeypatch):
+        m, clock, root = self._run(monkeypatch, [])
+        m.calculator_is_no_longer_running(MagicMock())
+        assert clock.now == 0.0
+        assert root.application_calls == []
+
+    def test_app_without_visible_frames_counts_as_closed(self, monkeypatch):
+        m, clock, root = self._run(monkeypatch, [_App("Calculator")])
+        m.calculator_is_no_longer_running(MagicMock())
+        assert clock.now == 0.0
+
+    def test_visible_app_fails_within_nominal_budget(self, monkeypatch):
+        m, clock, root = self._run(monkeypatch, [_App("gnome-calculator", [_Frame()])])
+        with pytest.raises(AssertionError, match="GNOME Calculator is still visible"):
+            m.calculator_is_no_longer_running(MagicMock())
+        assert clock.now == 10.0  # 20 polls x 0.5s, nothing multiplied
+        assert root.application_calls == []

@@ -2,6 +2,7 @@
 
 import importlib
 import sys
+from types import SimpleNamespace
 from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
@@ -126,3 +127,60 @@ class TestSettingsApp:
 
         result = self.mod._settings_app(timeout=1)
         assert result is app
+
+
+class _RetryingRoot:
+    """``tree.root`` whose per-name lookup costs dogtail's default retry wait."""
+
+    def __init__(self, clock, apps=()):
+        self.clock = clock
+        self.apps = list(apps)
+        self.application_calls = []
+
+    def applications(self):
+        return list(self.apps)
+
+    def application(self, name):
+        self.application_calls.append(name)
+        self.clock.now += 10  # dogtail retries ~10s before raising
+        raise LookupError(name)
+
+
+class _Frame:
+    roleName = "frame"
+    showing = True
+
+
+class _App:
+    def __init__(self, name, frames=()):
+        self.name = name
+        self.frames = list(frames)
+
+    def findChildren(self, predicate):  # noqa: N802 - dogtail API
+        return [frame for frame in self.frames if predicate(frame)]
+
+
+class TestSettingsIsNoLongerRunning:
+    def _run(self, monkeypatch, apps):
+        mod = _import_gnome_settings_steps()
+        clock = SimpleNamespace(now=0.0)
+        root = _RetryingRoot(clock, apps)
+        monkeypatch.setattr(mod, "tree", SimpleNamespace(root=root))
+        monkeypatch.setattr(mod, "sleep", lambda s: setattr(clock, "now", clock.now + s))
+        monkeypatch.setattr(mod.shutil, "which", lambda _cmd: None)
+        return mod, clock, root
+
+    def test_settings_like_name_without_exact_alias_does_not_retry_lookup(self, monkeypatch):
+        # The snapshot's substring match flags "running", but no exact alias is
+        # registered: the per-name check must not pay dogtail's retry per alias.
+        mod, clock, root = self._run(monkeypatch, [_App("Settings Daemon")])
+        mod.settings_is_no_longer_running(MagicMock())
+        assert clock.now == 0.5  # only the post-pkill settle
+        assert root.application_calls == []
+
+    def test_visible_settings_fails_within_nominal_budget(self, monkeypatch):
+        mod, clock, root = self._run(monkeypatch, [_App("Settings", [_Frame()])])
+        with pytest.raises(AssertionError, match="GNOME Settings is still visible"):
+            mod.settings_is_no_longer_running(MagicMock())
+        assert clock.now == 10.5  # settle + 20 polls x 0.5s, nothing multiplied
+        assert root.application_calls == []

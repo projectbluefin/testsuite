@@ -378,18 +378,24 @@ class TestTextEditorIsNoLongerRunning:
 
     def test_passes_when_app_not_found(self):
         tree_mock = MagicMock()
+        tree_mock.root.applications.return_value = []
         tree_mock.root.application.side_effect = RuntimeError("not found")
         with patch.object(self.m, "tree", tree_mock), \
-             patch("time.sleep"):
+             patch.object(self.m, "sleep") as sleep_mock:
             self.m.text_editor_is_no_longer_running(MagicMock())
+        sleep_mock.assert_not_called()
+        # tree.root.application(name) retries internally; a missing app must
+        # not multiply the close wait through it (#1044).
+        tree_mock.root.application.assert_not_called()
 
     def test_passes_when_app_has_no_visible_frames(self):
         app_mock = MagicMock()
+        app_mock.name = "Text Editor"
         app_mock.findChildren.return_value = []
         tree_mock = MagicMock()
-        tree_mock.root.application.return_value = app_mock
+        tree_mock.root.applications.return_value = [app_mock]
         with patch.object(self.m, "tree", tree_mock), \
-             patch("time.sleep"):
+             patch.object(self.m, "sleep"):
             self.m.text_editor_is_no_longer_running(MagicMock())
 
     def test_raises_when_app_stays_visible(self):
@@ -397,17 +403,27 @@ class TestTextEditorIsNoLongerRunning:
         frame.roleName = "frame"
         frame.showing = True
         app_mock = MagicMock()
+        app_mock.name = "gnome-text-editor"
 
         def find(pred):
             return [frame] if pred(frame) else []
 
         app_mock.findChildren.side_effect = find
         tree_mock = MagicMock()
-        tree_mock.root.application.return_value = app_mock
+        tree_mock.root.applications.return_value = [app_mock]
         with patch.object(self.m, "tree", tree_mock), \
-             patch("time.sleep"):
+             patch.object(self.m, "sleep"):
             with pytest.raises(AssertionError, match="GNOME Text Editor is still visible"):
                 self.m.text_editor_is_no_longer_running(MagicMock())
+        tree_mock.root.application.assert_not_called()
+
+    def test_snapshot_failure_counts_as_closed(self):
+        tree_mock = MagicMock()
+        tree_mock.root.applications.side_effect = RuntimeError("registry busy")
+        with patch.object(self.m, "tree", tree_mock), \
+             patch.object(self.m, "sleep"):
+            self.m.text_editor_is_no_longer_running(MagicMock())
+        tree_mock.root.application.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

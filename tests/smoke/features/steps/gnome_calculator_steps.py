@@ -120,12 +120,30 @@ def calculator_window_is_accessible(context) -> None:
     raise AssertionError("GNOME Calculator window was not accessible")
 
 
+def _app_no_retry(name: str):
+    """Look up one top-level application by exact name without dogtail's retries.
+
+    ``tree.root.application(name)`` retries internally, so calling it per alias
+    inside a poll loop multiplies the caller's timeout when the app is absent.
+    Scan the single-shot ``applications()`` snapshot instead.
+    """
+    try:
+        for app in tree.root.applications():
+            if (getattr(app, "name", "") or "").strip("'\" ") == name:
+                return app
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
 @step("Calculator is no longer running")
 def calculator_is_no_longer_running(context) -> None:
     for _ in range(20):
         for name in CALCULATOR_APP_NAMES:
             try:
-                app = tree.root.application(name)
+                app = _app_no_retry(name)
+                if app is None:
+                    continue
                 frames = app.findChildren(lambda n: n.roleName in {"frame", "filler"} and n.showing)
                 if frames:
                     break

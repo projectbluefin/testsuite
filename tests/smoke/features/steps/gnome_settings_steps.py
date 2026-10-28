@@ -145,6 +145,22 @@ def settings_window_is_accessible(context) -> None:
     context.settings_window = _settings_window()
 
 
+def _app_no_retry(name: str):
+    """Look up one top-level application by exact name without dogtail's retries.
+
+    ``tree.root.application(name)`` retries internally, so calling it per alias
+    inside a poll loop multiplies the caller's timeout when the app is absent.
+    Scan the single-shot ``applications()`` snapshot instead.
+    """
+    try:
+        for app in tree.root.applications():
+            if (getattr(app, "name", "") or "").strip("'\" ") == name:
+                return app
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
 @step("Settings is no longer running")
 def settings_is_no_longer_running(context) -> None:
     try:
@@ -174,7 +190,9 @@ def settings_is_no_longer_running(context) -> None:
 
         for name in SETTINGS_APP_NAMES:
             try:
-                app = tree.root.application(name)
+                app = _app_no_retry(name)
+                if app is None:
+                    continue
                 frames = app.findChildren(lambda n: (getattr(n, "roleName", None) or getattr(n, "get_role_name", lambda: "")()) in {"frame", "filler"} and getattr(n, "showing", True))
                 if frames:
                     running = True
