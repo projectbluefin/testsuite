@@ -83,6 +83,8 @@ RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("scripts/update_coverage_snapshot.py", ()),
     ("scripts/generate_badges.py", ()),
     ("scripts/v1_gate.py", ()),
+    ("scripts/v1_gate_compare.py", ()),
+    ("scripts/vm_validation_plan.py", ()),
     # Shared helpers: route by the path that imports them.
     ("tests/shared/kde_*", ("kde-smoke",)),
     ("tests/shared/extension_*", ("extensions",)),

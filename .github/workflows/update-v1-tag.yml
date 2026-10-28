@@ -7,6 +7,12 @@
 # against a digest-pinned image, and moves v1 only when they pass. e2e.yml's
 # own fail-closed verdict (scripts/assert_passed.py, #1022) decides "pass".
 #
+# The gate catches testsuite changes that break the suites, not bugs in the
+# image under test. When the candidate fails, the same suites boot again with
+# the tests at the current v1 on the same digest (the baseline), and
+# scripts/v1_gate_compare.py moves v1 only if every candidate failure also
+# fails at v1. Anything it cannot explain holds v1.
+#
 # The range starts at v1, not at the push's previous commit: if a newer push
 # cancels a gated run, the next run still covers the cancelled change.
 #
@@ -47,7 +53,8 @@ concurrency:
 env:
   # Image the gate boots. Resolved to a digest at plan time so the run records
   # exactly what it tested. Override with the V1_GATE_IMAGE repository variable.
-  GATE_IMAGE: ${{ vars.V1_GATE_IMAGE || 'ghcr.io/projectbluefin/dakota:latest' }}
+  # dakota:testing is what Dakota publishes now; dakota:latest stopped in June.
+  GATE_IMAGE: ${{ vars.V1_GATE_IMAGE || 'ghcr.io/projectbluefin/dakota:testing' }}
 
 jobs:
   plan:
@@ -64,6 +71,7 @@ jobs:
       ungated: ${{ steps.plan.outputs.ungated }}
       reason: ${{ steps.plan.outputs.reason }}
       image: ${{ steps.image.outputs.image }}
+      baseline_image: ${{ steps.image.outputs.baseline_image }}
     steps:
       - name: Refuse manual runs off main
         if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main'
@@ -127,13 +135,21 @@ jobs:
         if: steps.plan.outputs.action == 'gate'
         run: |
           set -euo pipefail
-          DIGEST=$(skopeo inspect --format '{{.Digest}}' "docker://${GATE_IMAGE}")
+          NAME="${GATE_IMAGE%@*}"
+          LAST="${NAME##*/}"
+          if [[ "${LAST}" == *:* ]]; then REPO="${NAME%:*}"; else REPO="${NAME}"; NAME="${NAME}:latest"; fi
+          DIGEST=$(skopeo inspect --format '{{.Digest}}' "docker://${NAME}")
           case "${DIGEST}" in
             sha256:*) ;;
-            *) echo "::error::Could not resolve a digest for ${GATE_IMAGE}"; exit 1 ;;
+            *) echo "::error::Could not resolve a digest for ${NAME}"; exit 1 ;;
           esac
-          echo "image=${GATE_IMAGE}@${DIGEST}" >> "$GITHUB_OUTPUT"
-          echo "Gate image: \`${GATE_IMAGE}@${DIGEST}\`" >> "$GITHUB_STEP_SUMMARY"
+          # Same digest, spelled without the tag for the baseline run, so the two
+          # runs' e2e.yml artifact names (derived from the image string) differ.
+          {
+            echo "image=${NAME}@${DIGEST}"
+            echo "baseline_image=${REPO}@${DIGEST}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Gate image: \`${NAME}@${DIGEST}\`" >> "$GITHUB_STEP_SUMMARY"
 
   gate:
     name: Boot merged tests
@@ -149,15 +165,33 @@ jobs:
       test_ref: ${{ needs.plan.outputs.sha }}
       test_repository: ${{ github.repository }}
 
+  baseline:
+    name: Boot v1 tests (baseline)
+    needs: [plan, gate]
+    if: >-
+      always() && !cancelled() &&
+      needs.plan.outputs.action == 'gate' && needs.gate.result == 'failure' &&
+      needs.plan.outputs.previous != ''
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/e2e.yml
+    with:
+      image: ${{ needs.plan.outputs.baseline_image }}
+      suites: ${{ needs.plan.outputs.suites }}
+      test_ref: ${{ needs.plan.outputs.previous }}
+      test_repository: ${{ github.repository }}
+
   publish:
     name: Move or hold v1
-    needs: [plan, gate]
+    needs: [plan, gate, baseline]
     if: >-
       always() && !cancelled() &&
       needs.plan.result == 'success' && needs.plan.outputs.action != 'none'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
+      actions: read
       contents: write
       issues: write
     env:
@@ -168,22 +202,59 @@ jobs:
       PREVIOUS: ${{ needs.plan.outputs.previous }}
       ACTION: ${{ needs.plan.outputs.action }}
       GATE_RESULT: ${{ needs.gate.result }}
+      BASELINE_RESULT: ${{ needs.baseline.result }}
       SUITES: ${{ needs.plan.outputs.suites }}
       UNGATED: ${{ needs.plan.outputs.ungated }}
       REASON: ${{ needs.plan.outputs.reason }}
       IMAGE: ${{ needs.plan.outputs.image }}
+      BASELINE_IMAGE: ${{ needs.plan.outputs.baseline_image }}
       FORCE_REASON: ${{ inputs.reason }}
       ACTOR: ${{ github.actor }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
       HELD_TITLE: v1 tag held by the post-merge VM gate
     steps:
+      - name: Checkout the comparison script
+        if: env.GATE_RESULT == 'failure' && (env.BASELINE_RESULT == 'success' || env.BASELINE_RESULT == 'failure')
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          persist-credentials: false
+          sparse-checkout: scripts/v1_gate_compare.py
+          sparse-checkout-cone-mode: false
+
+      - name: Download candidate and baseline results
+        if: env.GATE_RESULT == 'failure' && (env.BASELINE_RESULT == 'success' || env.BASELINE_RESULT == 'failure')
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: e2e-*
+          path: artifacts
+
+      - name: Compare candidate failures with v1
+        id: compare
+        if: env.GATE_RESULT == 'failure' && (env.BASELINE_RESULT == 'success' || env.BASELINE_RESULT == 'failure')
+        run: |
+          set -euo pipefail
+          python3 scripts/v1_gate_compare.py artifacts "${IMAGE}" "${BASELINE_IMAGE}" \
+            --summary compare.md | tee -a "$GITHUB_OUTPUT"
+          cat compare.md >> "$GITHUB_STEP_SUMMARY"
+
       - name: Move or hold v1
+        env:
+          COMPARE: ${{ steps.compare.outputs.verdict }}
         run: |
           set -euo pipefail
           HELD=$(gh issue list --state open --search "\"${HELD_TITLE}\" in:title" \
             --json number,title --jq "[.[] | select(.title == env.HELD_TITLE)][0].number // empty")
 
           if [ "${ACTION}" = "move" ] || { [ "${ACTION}" = "gate" ] && [ "${GATE_RESULT}" = "success" ]; }; then
+            :
+          elif [ "${ACTION}" = "gate" ] && [ "${COMPARE}" = "move" ]; then
+            REASON="${REASON}; every candidate failure also fails at v1 (see the comparison in this run's summary)"
+          else
+            MOVE=no
+          fi
+
+          if [ "${MOVE:-yes}" = "yes" ]; then
             if [ -n "${PREVIOUS}" ]; then
               gh api -X PATCH "repos/${REPO}/git/refs/tags/v1" -f sha="${SHA}" -F force=true > /dev/null
             else
@@ -203,8 +274,10 @@ jobs:
             exit 0
           fi
 
-          if [ "${ACTION}" = "gate" ]; then
-            WHY="the VM gate did not pass (e2e.yml result: ${GATE_RESULT}; suites: ${SUITES}; image: ${IMAGE})"
+          if [ "${ACTION}" = "gate" ] && [ -s compare.md ]; then
+            WHY="the VM gate found failures v1 does not explain (suites: ${SUITES}; image: ${IMAGE}). $(sed -n '/^\*\*Not explained by v1:\*\*/,/^$/p' compare.md | { grep -E '^- ' || true; } | head -20 | tr '\n' ' ')"
+          elif [ "${ACTION}" = "gate" ]; then
+            WHY="the VM gate did not pass (e2e.yml result: ${GATE_RESULT}; baseline: ${BASELINE_RESULT:-not run}; suites: ${SUITES}; image: ${IMAGE})"
           else
             WHY="${REASON}"
           fi

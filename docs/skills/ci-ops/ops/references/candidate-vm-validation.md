@@ -85,8 +85,14 @@ and `.../check-runs`.
    - `move`: nothing reaches a VM (docs, unit tests, repo tooling).
    - `gate`: boot the planned suites through `e2e.yml` at the merged SHA,
      on `GATE_IMAGE` pinned by digest (repository variable `V1_GATE_IMAGE`,
-     default `ghcr.io/projectbluefin/dakota:latest`). `v1` moves only if the
+     default `ghcr.io/projectbluefin/dakota:testing`). `v1` moves if the
      call succeeds, which includes the #1022 `assert_passed.py` verdict.
+     If it fails, the same suites boot again with the tests at the current
+     `v1` on the same digest (the baseline), and
+     `scripts/v1_gate_compare.py` moves `v1` only when every failing
+     scenario also fails at `v1`. A new failing scenario, a suite that
+     failed without a failing scenario recorded, or a missing baseline
+     holds `v1`. The gate catches testsuite regressions, not image bugs.
    - `hold`: the plan needs a lane `e2e.yml` cannot boot (`composite_action`
      or `no_hosted_lane`).
 3. On a hold or a failed gate, fails the run and opens (or comments on) the
