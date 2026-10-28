@@ -1,6 +1,6 @@
 ---
 name: startup-service-inventory
-description: "Which units the fast e2e lane masks, why, and which ones still need a startup-qualification lane."
+description: "Which units the fast e2e lane masks, why, and how the startup-qualification lane runs and judges the shipped first-boot ones."
 metadata:
   type: reference
   audience: agents
@@ -42,9 +42,74 @@ updating the inventory in the same PR.
   `brew install`/dnf installs. Those substitutes must not satisfy startup
   assertions.
 
+## Startup-qualification lane
+
+`.github/workflows/startup-qualification.yml` boots a fresh disk of one image
+with every required `startup_contract` unit left as shipped. It runs on
+`workflow_dispatch` (inputs `image`, `profile`, `negative_control`) and on PRs
+that touch the lane's own files. It is not a release gate.
+
+- `scripts/startup_lane.py plan --profile P` turns the inventory into the
+  run: kernel masks (only `vm_inapplicable`, `ci_noise` and `deferred` units),
+  system and user units to observe, paths they must produce, extra checks, and
+  the longest deadline. The workflow has no hard-coded `systemd.mask=`; a unit
+  test enforces that and bans substitute installs (`flatpak install`,
+  `brew install`, autologin) in the workflow.
+- `scripts/startup_lane_collect.sh` runs in the guest over SSH and prints
+  `@@ section` blocks: `systemctl show` for the units, produced paths, the
+  image's own `preinstall.d` files, `remotes.d` names, configured remotes,
+  installed system Flatpaks, and tmpfiles.d permission-override links with the
+  app's effective permissions. It only reads state.
+- `startup_lane.py evaluate` judges that evidence. The workflow polls every
+  20s until nothing is pending; each unit fails once its `deadline_s` (seconds
+  after QEMU start) passes. Exit 0 pass, 1 fail, 3 still pending.
+- The `broken` matrix job adds `ExecStartPre=/bin/false` to
+  `NetworkManager-wait-online.service` (required on every profile) and passes
+  only if the run goes red for that unit (`--expect-failure`).
+
+Each `startup_contract` entry carries a `startup_lane` block (`scope`,
+`expect`, `deadline_s`, `produces`, `checks`, or `deferred`); the header of
+`startup_service_inventory.yaml` defines the keys and
+`tests/unit/test_startup_lane.py` validates them.
+
+### Judging gotchas
+
+- A oneshot whose `Condition*=` fails is reported by systemd as
+  `inactive/dead result=success`. `brew-setup.service` does exactly that when
+  `/usr/share/homebrew.tar.zst` is missing. The lane treats
+  `ConditionResult=no` as a failure for a required unit, and
+  `ConditionTimestampMonotonic=0` as "never started".
+- `brew-setup.service` has no `RemainAfterExit`, so success is
+  `inactive/dead`, not `active/exited`. `flatpak-preinstall.service` retries
+  (`Restart=on-failure`); `auto-restart` is pending, not failed, until its
+  deadline.
+- `podman-auto-update.{service,timer}` are enabled per user (`--global`), so
+  the lane reads them with `systemctl --user` in the SSH session. The service
+  only has to be loadable and not failed; the timer starts it later.
+- Flatpak state is judged only after `flatpak-preinstall.service` passes.
+  `/etc/flatpak/preinstall.d` files override `/usr/share` ones with the same
+  name, and `Install=false` drops a ref. Each declared ref must be installed
+  system-wide, on the declared branch, from a configured remote.
+- Permission overrides ship as tmpfiles.d `L` links into
+  `/var/lib/flatpak/overrides/`. The link must resolve to the shipped file;
+  for an installed app every override entry must show in
+  `flatpak info --show-permissions` (`!token` must be absent).
+
+### Harness differences from a real install
+
+Test user `bluefin-test` (UID 1001, in `wheel`) with an SSH key, passwordless
+sudo, sshd enabled, `selinux=0` (the enforcing lane is #1024), direct-kernel
+boot, and SLIRP networking. No autologin, no session or dconf config, no
+Flatpak, brew or package sideloads.
+
 ## Still open (#1025)
 
-The representative startup lane itself (new job or input, bounded deadlines
-per `startup_contract` unit, Flatpak remotes/apps/permissions from the shipped
-preinstall, greenboot with a real boot-counting path per #706) is a new CI
-lane and needs maintainer design approval before implementation.
+- Greenboot (`deferred`): automatic rollback needs a boot-counting bootloader
+  path, which direct-kernel boot lacks (#706). The lane keeps both units
+  masked and lists them as `not qualified`.
+- Re-enabling the pending system-Flatpak permission and brew scenarios needs
+  runtime evidence from this lane first; record each blocker individually.
+- User-session first-login paths (`ublue-user-setup`, `brew-preinstall`,
+  Brewfile Flatpaks) need a logged-in session and belong with #1026.
+- Making the lane a consumer or promotion requirement is a release-policy
+  decision (#1021, #1022).

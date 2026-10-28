@@ -24,6 +24,22 @@
 #
 # Profiles are the image families whose build enables the unit (evidence
 # cites the enabling build file). `all` means it is part of the shared base.
+#
+# startup_lane (startup_contract only) tells the startup-qualification lane
+# (.github/workflows/startup-qualification.yml, scripts/startup_lane.py) how to
+# judge the unit on a profile that enables it:
+#   scope:      system (default) or user — which systemd manager runs it.
+#   expect:     completed — ran its condition checks and exited successfully;
+#               active    — is running (a daemon) or waiting (a timer);
+#               loaded    — shipped, not masked and not failed (started later
+#                           by a timer, so not expected to run at boot).
+#   deadline_s: seconds after VM start by which the unit must have finished.
+#   produces:   paths that must exist once the unit has run.
+#   checks:     extra state checks (flatpak: the image's own preinstall,
+#               remotes and permission overrides).
+#   deferred:   why the lane cannot qualify it yet. The lane keeps the unit
+#               masked and lists it as not qualified; it never passes it.
+# vm_inapplicable and ci_noise units stay masked in the startup lane too.
 
 units:
   # --- startup_contract -------------------------------------------------------
@@ -37,6 +53,10 @@ units:
       - ublue-os/bazzite Containerfile (systemctl enable brew-setup.service)
     fast_lane_substitute: e2e.yml installs brew CLI tools directly, or falls back to dnf
     blocks: developer brew/bctl/mise scenarios, common ujust changelogs (#487)
+    startup_lane:
+      expect: completed
+      deadline_s: 900
+      produces: [/home/linuxbrew/.linuxbrew/bin/brew, /etc/.linuxbrew]
 
   flatpak-preinstall.service:
     category: startup_contract
@@ -48,6 +68,10 @@ units:
       - ublue-os/aurora system_files/shared/usr/lib/systemd/system-preset/89-aurora.preset
     fast_lane_substitute: e2e.yml sideloads flatpak-app-list.txt from a runner cache into the system installation
     blocks: smoke flatpak_permissions system-wide installs (x39), common flatpak model/state and services scenarios
+    startup_lane:
+      expect: completed
+      deadline_s: 1800
+      checks: [flatpak]
 
   NetworkManager-wait-online.service:
     category: startup_contract
@@ -57,6 +81,9 @@ units:
       - flatpak-preinstall.service is ordered After=/Wants=network-online.target, which this unit gates
     fast_lane_substitute: none; network-online.target is reached without waiting for a connection
     blocks: an honest ordering for flatpak-preinstall.service
+    startup_lane:
+      expect: completed
+      deadline_s: 300
 
   firewalld.service:
     category: startup_contract
@@ -65,6 +92,9 @@ units:
     evidence:
       - ublue-os/bluefin-lts build_scripts/40-services.sh (systemctl enable firewalld.service)
     fast_lane_substitute: none; firewall state is never observed
+    startup_lane:
+      expect: active
+      deadline_s: 300
 
   podman-auto-update.service:
     category: startup_contract
@@ -78,6 +108,10 @@ units:
       The images enable the user-level timer (--global). Both mask sites target
       the system manager, so the shipped user timer is probably untouched; the
       startup lane must observe the user unit, not assume the mask covers it.
+    startup_lane:
+      scope: user
+      expect: loaded
+      deadline_s: 300
 
   podman-auto-update.timer:
     category: startup_contract
@@ -86,6 +120,10 @@ units:
     evidence:
       - see podman-auto-update.service
     fast_lane_substitute: none
+    startup_lane:
+      scope: user
+      expect: active
+      deadline_s: 300
 
   greenboot-healthcheck.service:
     category: startup_contract
@@ -97,6 +135,10 @@ units:
     notes: >-
       Automatic rollback needs a real bootloader boot-counting path; the fast
       lane boots a direct kernel, so it cannot stand in for it (#706).
+    startup_lane:
+      deferred: >-
+        needs a bootloader boot-counting path; the startup lane boots a direct
+        kernel too, so it keeps this unit masked and reports it unqualified (#706)
 
   greenboot-set-rollback-trigger.service:
     category: startup_contract
@@ -106,6 +148,10 @@ units:
       - ublue-os/bazzite Containerfile (systemctl enable greenboot-set-rollback-trigger.service)
     fast_lane_substitute: none
     notes: see greenboot-healthcheck.service
+    startup_lane:
+      deferred: >-
+        needs a bootloader boot-counting path; the startup lane boots a direct
+        kernel too, so it keeps this unit masked and reports it unqualified (#706)
 
   bazzite-hardware-setup.service:
     category: startup_contract
@@ -118,6 +164,9 @@ units:
     notes: >-
       Runs on every boot, including generic hardware. The startup lane must say
       which of its branches are hardware-specific before treating any as inapplicable.
+    startup_lane:
+      expect: completed
+      deadline_s: 600
 
   # --- vm_inapplicable --------------------------------------------------------
   wpa_supplicant.service:

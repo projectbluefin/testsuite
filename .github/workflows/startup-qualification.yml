@@ -1,0 +1,263 @@
+# Startup qualification — shipped first-boot services and system Flatpak state
+#
+# The fast desktop lane (e2e.yml) masks first-boot services and sideloads its
+# own Flatpaks, so a green run there says nothing about the image's startup
+# contract (testsuite#1025). This lane boots a fresh disk with every
+# startup_contract unit from startup_service_inventory.yaml left as shipped,
+# waits for each one within its inventory deadline, and asserts the state the
+# image itself declares: Homebrew unpacked, preinstall.d apps installed
+# system-wide from configured remotes, tmpfiles.d permission overrides in
+# effect. scripts/startup_lane.py owns the plan and the verdict.
+#
+# Harness differences from a real install, all limited to reaching the guest:
+# a test user with SSH key and passwordless sudo, sshd enabled, selinux=0, and
+# direct-kernel boot. No autologin, no session config, no Flatpak or brew
+# sideloads. Units still masked: vm_inapplicable, ci_noise, and deferred units
+# (greenboot needs a boot-counting bootloader, #706).
+#
+# The "broken" job is the negative control: it adds ExecStartPre=/bin/false to
+# one required unit and passes only if the lane goes red for that unit.
+#
+# Not a release gate. Wiring it into consumers or promotion is a separate
+# maintainer decision (#1021, #1022).
+
+name: Startup Qualification
+
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: "OCI image to qualify"
+        type: string
+        default: "ghcr.io/projectbluefin/bluefin:stable"
+      profile:
+        description: "Inventory profile the image belongs to (selects required units)"
+        type: choice
+        options: [bluefin, bluefin-lts, aurora, bazzite]
+        default: bluefin
+      negative_control:
+        description: "Also run the deliberately broken control job"
+        type: choice
+        options: [run, skip]
+        default: run
+  pull_request:
+    paths:
+      - .github/workflows/startup-qualification.yml
+      - scripts/startup_lane.py
+      - scripts/startup_lane_collect.sh
+      - startup_service_inventory.yaml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: startup-qualification-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  startup:
+    name: startup (${{ matrix.control }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        control: ${{ fromJSON(inputs.negative_control == 'skip' && '["candidate"]' || '["candidate","broken"]') }}
+
+    env:
+      IMAGE: ${{ inputs.image || 'ghcr.io/projectbluefin/bluefin:stable' }}
+      PROFILE: ${{ inputs.profile || 'bluefin' }}
+      CONTROL: ${{ matrix.control }}
+      SSH_COMMON: "-i /tmp/vm_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ControlMaster=auto -o ControlPersist=600 -o ControlPath=/tmp/ssh-ctrl-%C -o ConnectTimeout=3"
+
+    steps:
+      - name: Checkout testsuite
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Plan required units
+        run: |
+          python3 -c 'import yaml' 2>/dev/null || sudo apt-get install -y python3-yaml
+          python3 scripts/startup_lane.py plan --profile "${PROFILE}" | tee -a "$GITHUB_ENV"
+
+      - name: Free disk space
+        uses: ublue-os/remove-unwanted-software@cc0becac701cf642c8f0a6613bbdaf5dc36b259e # v9
+
+      - name: Enable KVM access
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | \
+            sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+          ls -la /dev/kvm
+
+      - name: Install QEMU and pull OCI image
+        run: |
+          sudo podman pull "${IMAGE}" &
+          PULL_PID=$!
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends qemu-system-x86
+          wait $PULL_PID
+          ssh-keygen -t ed25519 -f /tmp/vm_key -N "" -C "startup@gha"
+
+      # Same install and direct-kernel preparation as e2e.yml, minus every
+      # desktop/session injection and every service mask the plan does not list.
+      - name: Install OCI image to disk
+        run: |
+          fallocate -l 40G disk.raw
+          BOOTLOADER_FLAG=""
+          if sudo podman run --rm --quiet "${IMAGE}" bootc install to-disk --help 2>&1 | grep -q "\-\-bootloader"; then
+            BOOTLOADER_FLAG="--bootloader systemd"
+          fi
+          set +e
+          sudo podman run --rm --privileged --pid=host \
+            --security-opt label=type:unconfined_t \
+            -v /var/lib/containers:/var/lib/containers -v /dev:/dev -v "$(pwd):/data" \
+            "${IMAGE}" bootc install to-disk --via-loopback /data/disk.raw \
+              --filesystem ext4 --wipe ${BOOTLOADER_FLAG} 2>&1 | tee bootc-install.log
+          echo "bootc install exited ${PIPESTATUS[0]} (bootloader step may fail; deployment checked below)"
+          set -e
+
+          LOOP=$(sudo losetup -f --show -P disk.raw)
+          sudo mkdir -p /mnt/root
+          ROOT_UUID=$(sudo blkid -s UUID -o value "${LOOP}p3")
+          sudo mount "${LOOP}p3" /mnt/root
+          DEPLOY=$(sudo find /mnt/root/ostree/deploy/default/deploy/ -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | head -1)
+          [[ -n "${DEPLOY}" ]] || { echo "ERROR: no ostree deployment written"; cat bootc-install.log; exit 1; }
+          D="/mnt/root/ostree/deploy/default/deploy/${DEPLOY}"
+
+          KVER=""
+          for kv in $(ls "${D}/usr/lib/modules/" | sort -V); do
+            [[ -f "${D}/usr/lib/modules/${kv}/vmlinuz" ]] && KVER="${kv}"
+          done
+          if [[ -n "${KVER}" ]]; then
+            sudo cp "${D}/usr/lib/modules/${KVER}/vmlinuz" ./vmlinuz
+            sudo cp "${D}/usr/lib/modules/${KVER}/initramfs.img" ./initramfs.img
+          else
+            sudo mkdir -p /mnt/boot && sudo mount "${LOOP}p2" /mnt/boot
+            sudo cp "$(sudo find /mnt/boot -name 'vmlinuz*' | grep -v '\.efi$' | sort -V | tail -1)" ./vmlinuz
+            sudo cp "$(sudo find /mnt/boot -name 'initramfs*.img' | sort -V | tail -1)" ./initramfs.img
+            sudo umount /mnt/boot
+          fi
+          sudo chown runner:runner ./vmlinuz ./initramfs.img
+
+          BOOT_ENTRY=$(sudo find /mnt/root/ostree -maxdepth 4 -type l -name '0' | grep -E '/boot\.[0-9]' | grep '/default/' | head -1)
+          if [[ -z "${BOOT_ENTRY}" ]]; then
+            BOOT_DIR="/mnt/root/ostree/boot.0/default/${DEPLOY%.*}"
+            sudo mkdir -p "${BOOT_DIR}"
+            sudo ln -sfT "../../../deploy/default/deploy/${DEPLOY}" "${BOOT_DIR}/${DEPLOY##*.}"
+            BOOT_ENTRY="${BOOT_DIR}/${DEPLOY##*.}"
+          fi
+          OSTREE_PATH="${BOOT_ENTRY#/mnt/root}"
+          # ostree-system-generator only parses /ostree/boot.[01]/... (see e2e.yml).
+          if [[ "${OSTREE_PATH}" =~ /ostree/(boot\.[0-9]+)\.[0-9]+ ]]; then
+            VERSIONED=$(echo "${OSTREE_PATH}" | grep -oE 'boot\.[0-9]+\.[0-9]+')
+            [[ -e "/mnt/root/ostree/${BASH_REMATCH[1]}" ]] || sudo ln -s "${VERSIONED}" "/mnt/root/ostree/${BASH_REMATCH[1]}"
+            OSTREE_PATH="${OSTREE_PATH/${VERSIONED}/${BASH_REMATCH[1]}}"
+          fi
+
+          # Masks come only from the plan: never a required startup unit.
+          echo "KERNEL_ARGS=root=UUID=${ROOT_UUID} rw ostree=${OSTREE_PATH} systemd.firstboot=no selinux=0 console=ttyS0,115200 systemd.journald.forward_to_console=1 ${KERNEL_MASKS} systemd.wants=sshd.service" >> "$GITHUB_ENV"
+
+          # Guest access only: test user, sshd, key, sudo. Nothing that
+          # changes what first boot installs or configures.
+          for DEP in $(sudo find /mnt/root/ostree/deploy/default/deploy -maxdepth 1 -mindepth 1 -type d); do
+            sudo mkdir -p "${DEP}/etc/systemd/system/multi-user.target.wants/" "${DEP}/etc/ssh/sshd_config.d/" "${DEP}/etc/tmpfiles.d/"
+            sudo ln -sf /usr/lib/systemd/system/sshd.service "${DEP}/etc/systemd/system/multi-user.target.wants/sshd.service"
+            sudo ssh-keygen -A -f "${DEP}" 2>/dev/null || true
+            if ! sudo grep -q '^bluefin-test:' "${DEP}/etc/passwd"; then
+              echo 'bluefin-test:x:1001:1001:Startup Test:/var/home/bluefin-test:/bin/bash' | sudo tee -a "${DEP}/etc/passwd"
+              echo 'bluefin-test:*:19000:0:99999:7:::' | sudo tee -a "${DEP}/etc/shadow"
+              echo 'bluefin-test:x:1001:' | sudo tee -a "${DEP}/etc/group"
+              # Administrator like a real first-run account (see e2e.yml).
+              sudo sed -i -E '/^wheel:/{s/([^:])$/\1,bluefin-test/;s/:$/:bluefin-test/}' "${DEP}/etc/group"
+            fi
+            printf 'PubkeyAuthentication yes\nAuthorizedKeysCommand /bin/cat /etc/ssh/ci-authorized-keys\nAuthorizedKeysCommandUser root\n' | \
+              sudo tee "${DEP}/etc/ssh/sshd_config.d/00-ci-auth.conf"
+            sudo install -m 644 /tmp/vm_key.pub "${DEP}/etc/ssh/ci-authorized-keys"
+            printf 'd /var/home/bluefin-test 0700 1001 1001 -\n' | sudo tee "${DEP}/etc/tmpfiles.d/ci-user.conf"
+            echo 'bluefin-test ALL=(ALL) NOPASSWD:ALL' | sudo tee "${DEP}/etc/sudoers.d/zz-bluefin-test"
+            sudo chmod 440 "${DEP}/etc/sudoers.d/zz-bluefin-test"
+
+            if [[ "${CONTROL}" == "broken" ]]; then
+              sudo mkdir -p "${DEP}/etc/systemd/system/${NEGATIVE_CONTROL_UNIT}.d"
+              printf '[Service]\nExecStartPre=/bin/false\n' | \
+                sudo tee "${DEP}/etc/systemd/system/${NEGATIVE_CONTROL_UNIT}.d/99-negative-control.conf"
+            fi
+          done
+
+          sudo umount /mnt/root
+          sudo losetup -d "${LOOP}"
+          sudo podman rmi "${IMAGE}" 2>/dev/null || true
+
+      - name: Boot VM with QEMU + KVM
+        run: |
+          touch vm-serial.log && chmod 666 vm-serial.log
+          echo "BOOT_EPOCH=$(date +%s)" >> "$GITHUB_ENV"
+          sudo qemu-system-x86_64 \
+            -machine q35,accel=kvm -cpu host -m 4096 -smp 4 \
+            -kernel ./vmlinuz -initrd ./initramfs.img -append "${KERNEL_ARGS}" \
+            -object iothread,id=ioth0 \
+            -drive if=none,id=disk,file=disk.raw,format=raw,cache=unsafe,aio=threads,discard=unmap \
+            -device virtio-blk-pci,drive=disk,iothread=ioth0 \
+            -netdev user,id=net0,hostfwd=tcp::2222-:22 -device virtio-net-pci,netdev=net0 \
+            -device virtio-gpu-pci -display none \
+            -serial file:"$(pwd)/vm-serial.log" -daemonize -pidfile /tmp/qemu.pid
+
+      - name: Wait for SSH
+        run: |
+          DEADLINE=$((SECONDS + 900))
+          while [ $SECONDS -lt $DEADLINE ]; do
+            if ssh ${SSH_COMMON} -p 2222 bluefin-test@127.0.0.1 true 2>/dev/null; then
+              echo "SSH ready $(( $(date +%s) - BOOT_EPOCH ))s after boot"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "ERROR: SSH not ready within 15 minutes"; tail -100 vm-serial.log; exit 1
+
+      - name: Wait for shipped startup units and judge
+        run: |
+          EXPECT=()
+          [[ "${CONTROL}" == "broken" ]] && EXPECT=(--expect-failure "${NEGATIVE_CONTROL_UNIT}")
+          LIMIT=$((STARTUP_DEADLINE_S + 60))
+          while :; do
+            ssh ${SSH_COMMON} -p 2222 bluefin-test@127.0.0.1 \
+              "SYSTEM_UNITS='${SYSTEM_UNITS}' USER_UNITS='${USER_UNITS}' PRODUCES='${PRODUCES}' CHECKS='${CHECKS}' bash -s" \
+              < scripts/startup_lane_collect.sh > evidence.txt 2>&1 || true
+            ELAPSED=$(( $(date +%s) - BOOT_EPOCH ))
+            FINAL=()
+            [[ ${ELAPSED} -ge ${LIMIT} ]] && FINAL=(--final)
+            set +e
+            python3 scripts/startup_lane.py evaluate --profile "${PROFILE}" \
+              --evidence evidence.txt --elapsed "${ELAPSED}" --report report.md \
+              "${FINAL[@]}" "${EXPECT[@]}" > /dev/null
+            RC=$?
+            set -e
+            echo "t=${ELAPSED}s rc=${RC}"
+            [[ ${RC} -ne 3 ]] && break
+            sleep 20
+          done
+          cat report.md
+          cat report.md >> "$GITHUB_STEP_SUMMARY"
+          echo "Image: \`${IMAGE}\` · control: ${CONTROL}" >> "$GITHUB_STEP_SUMMARY"
+          exit ${RC}
+
+      - name: Collect unit journals
+        if: always()
+        run: |
+          ssh ${SSH_COMMON} -p 2222 bluefin-test@127.0.0.1 \
+            "systemctl --failed --no-pager; sudo journalctl -b --no-pager $(printf -- '-u %s ' ${SYSTEM_UNITS}); journalctl --user -b --no-pager $(printf -- '-u %s ' ${USER_UNITS})" \
+            > unit-journals.txt 2>&1 || true
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: startup-qualification-${{ matrix.control }}
+          path: |
+            evidence.txt
+            report.md
+            unit-journals.txt
+            vm-serial.log
+            bootc-install.log
+          if-no-files-found: ignore
+          retention-days: 14
