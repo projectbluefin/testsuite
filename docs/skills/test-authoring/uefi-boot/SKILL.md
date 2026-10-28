@@ -105,7 +105,7 @@ This is the core mechanism that migration tests validate.
 - **Boot time is longer** — OVMF firmware initialization adds ~10-15s over direct kernel boot. The SSH wait deadline should be 600s for initial boot (vs 900s for direct boot, which needs extra time for different reasons).
 - **--bootloader flag requires bootc >= 0.1.13** — older images fail. Always probe `--help` before using.
 - **Service masking via kernel args is lost** — with direct boot, services are masked via `systemd.mask=...` in `-append`. With UEFI boot, masking must be done on-disk (symlink to `/dev/null` in the deployment's `/etc/systemd/system/`) — which `e2e.yml` already does.
-- **selinux=0 kernel arg is lost** — must be set in BLS entries or on-disk config instead. For migration tests with SELinux enforcing (Epic E04), this is actually correct behavior.
+- **SELinux stays enforcing** — `e2e.yml` no longer passes `selinux=0`, so direct and UEFI boot both run enforcing. Do not re-add the bypass in BLS entries or on-disk config; harness files are labeled before unmount instead. See [selinux-enforcing.md](../../ci-ops/e2e-workflow/references/selinux-enforcing.md).
 
 ## GRUB 2 vs systemd-boot Unified Virtualization Strategy
 

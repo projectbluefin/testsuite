@@ -241,6 +241,9 @@ jobs:
             scripts/install-kde-webdriver.sh
             scripts/e2e_summary.py
             scripts/image_slug.py
+            scripts/selinux_collect_avc.sh
+            scripts/selinux_qualify.py
+            selinux_allowlist.yaml
           sparse-checkout-cone-mode: false
 
       # smoke-a/smoke-b, common-a/common-b, and kde-smoke-a/kde-smoke-b are
@@ -535,8 +538,32 @@ jobs:
           #
           # systemd.journald.forward_to_console=1 — forward full journal to serial for
           #   diagnostics when SSH fails (output captured in vm-serial.log artifact).
-          KERNEL_ARGS="root=UUID=${ROOT_UUID} rw ostree=${OSTREE_PATH} systemd.firstboot=no selinux=0 console=ttyS0,115200 systemd.journald.forward_to_console=1 systemd.mask=brew-setup.service systemd.mask=NetworkManager-wait-online.service systemd.mask=firewalld.service systemd.mask=wpa_supplicant.service systemd.mask=flatpak-preinstall.service systemd.mask=podman-auto-update.service systemd.mask=podman-auto-update.timer systemd.mask=malcontent-webd.service systemd.mask=malcontent-webd-update.service systemd.mask=malcontent-control.service systemd.mask=speech-dispatcherd.service systemd.mask=avahi-daemon.service systemd.mask=avahi-daemon.socket systemd.mask=cups.service systemd.mask=cups.path systemd.mask=cups.socket systemd.mask=cups.browsed.service systemd.mask=blueman-mechanism.service systemd.mask=gnome-remote-desktop.service systemd.mask=bazzite-hardware-setup.service systemd.mask=greenboot-healthcheck.service systemd.mask=greenboot-set-rollback-trigger.service systemd.mask=systemd-udev-settle.service systemd.wants=sshd.service"
+          KERNEL_ARGS="root=UUID=${ROOT_UUID} rw ostree=${OSTREE_PATH} systemd.firstboot=no console=ttyS0,115200 systemd.journald.forward_to_console=1 systemd.mask=brew-setup.service systemd.mask=NetworkManager-wait-online.service systemd.mask=firewalld.service systemd.mask=wpa_supplicant.service systemd.mask=flatpak-preinstall.service systemd.mask=podman-auto-update.service systemd.mask=podman-auto-update.timer systemd.mask=malcontent-webd.service systemd.mask=malcontent-webd-update.service systemd.mask=malcontent-control.service systemd.mask=speech-dispatcherd.service systemd.mask=avahi-daemon.service systemd.mask=avahi-daemon.socket systemd.mask=cups.service systemd.mask=cups.path systemd.mask=cups.socket systemd.mask=cups.browsed.service systemd.mask=blueman-mechanism.service systemd.mask=gnome-remote-desktop.service systemd.mask=bazzite-hardware-setup.service systemd.mask=greenboot-healthcheck.service systemd.mask=greenboot-set-rollback-trigger.service systemd.mask=systemd-udev-settle.service systemd.wants=sshd.service"
           echo "KERNEL_ARGS=${KERNEL_ARGS}" >> "$GITHUB_ENV"
+          # SELinux: the guest boots with the candidate's own mode, which must
+          # be enforcing whenever the image ships a policy store (#1024).
+          # bootc labels everything it installs, but files written below on
+          # this non-SELinux runner carry no label and would be unlabeled_t in
+          # the guest. Record what is already unlabeled first: that is
+          # candidate-owned and is left alone so its defects stay visible.
+          SELINUX_INFO=$(sudo python3 -I scripts/selinux_qualify.py expected-mode "${D}")
+          SELINUX_EXPECTED="${SELINUX_INFO% *}"
+          SELINUX_POLICY="${SELINUX_INFO#* }"
+          echo "SELinux: expected=${SELINUX_EXPECTED} policy=${SELINUX_POLICY}"
+          echo "SELINUX_EXPECTED=${SELINUX_EXPECTED}" >> "$GITHUB_ENV"
+          SELINUX_DIR="$(pwd)/results/selinux"
+          STATEROOT="/mnt/root/ostree/deploy/default"
+          mkdir -p "${SELINUX_DIR}"
+          if [[ "${SELINUX_EXPECTED}" == enforcing ]]; then
+            for DEP in $(sudo find "${STATEROOT}/deploy" -maxdepth 1 -mindepth 1 -type d 2>/dev/null); do
+              sudo python3 -I scripts/selinux_qualify.py unlabeled --root "${DEP}" "${DEP}/etc" \
+                > "${SELINUX_DIR}/baseline-unlabeled-$(basename "${DEP}").txt"
+            done
+            sudo python3 -I scripts/selinux_qualify.py unlabeled --root "${STATEROOT}" "${VAR}" \
+              > "${SELINUX_DIR}/baseline-unlabeled-var.txt"
+            echo "Unlabeled before harness changes (candidate-owned, not relabeled):"
+            wc -l "${SELINUX_DIR}"/baseline-unlabeled-*.txt
+          fi
 
           # Apply user + sshd config to ALL deployments in this stateroot.
           # bootc may deploy with a different checksum than what `ls|head-1`
@@ -697,6 +724,42 @@ jobs:
             sudo chmod 644 "${DEP}/etc/ssh/ci-authorized-keys"
           done
 
+          # Label exactly the files the harness added, using the candidate's own
+          # setfiles and file_contexts so the result matches what the guest
+          # policy expects. -m: this runner's mounts carry no seclabel flag.
+          if [[ "${SELINUX_EXPECTED}" == enforcing ]]; then
+            label_harness_files() {  # ROOT FILE_CONTEXTS BASELINE LIST SCAN_PATH
+              sudo python3 -I scripts/selinux_qualify.py unlabeled --root "$1" --exclude "$3" "$5" > "$4"
+              if [[ -s "$4" ]]; then
+                sudo podman run --rm --privileged --network none \
+                  --security-opt label=disable \
+                  -v /mnt/root:/mnt/root \
+                  -v "${SELINUX_DIR}:${SELINUX_DIR}:ro" \
+                  "${IMAGE}" setfiles -m -F -r "$1" -f "$4" "$2"
+              fi
+              LEFT=$(sudo python3 -I scripts/selinux_qualify.py unlabeled --root "$1" --exclude "$3" "$5")
+              if [[ -n "${LEFT}" ]]; then
+                echo "::error::harness files still unlabeled after setfiles:"
+                echo "${LEFT}"
+                exit 1
+              fi
+            }
+            for DEP in $(sudo find "${STATEROOT}/deploy" -maxdepth 1 -mindepth 1 -type d 2>/dev/null); do
+              NAME=$(basename "${DEP}")
+              label_harness_files "${DEP}" \
+                "${DEP}/etc/selinux/${SELINUX_POLICY}/contexts/files/file_contexts" \
+                "${SELINUX_DIR}/baseline-unlabeled-${NAME}.txt" \
+                "${SELINUX_DIR}/harness-labeled-${NAME}.txt" \
+                "${DEP}/etc"
+            done
+            label_harness_files "${STATEROOT}" \
+              "${D}/etc/selinux/${SELINUX_POLICY}/contexts/files/file_contexts" \
+              "${SELINUX_DIR}/baseline-unlabeled-var.txt" \
+              "${SELINUX_DIR}/harness-labeled-var.txt" \
+              "${VAR}"
+            echo "Harness files labeled with the candidate policy:"
+            wc -l "${SELINUX_DIR}"/harness-labeled-*.txt
+          fi
           # Pre-boot diagnostics: confirm key files and sshd drop-in are correct.
           echo "=== ci-authorized-keys ==="
           for DEP in $(sudo find /mnt/root/ostree/deploy/default/deploy \
@@ -751,7 +814,7 @@ jobs:
           [[ -S /tmp/qemu-monitor.sock ]] && echo "QEMU monitor socket ready." \
             || echo "WARNING: QEMU monitor socket not found after 5s"
 
-      # selinux=0 + pre-generated host keys + masked slow services = SSH ready in ~90s
+      # Pre-generated host keys + masked slow services = SSH ready in ~90s
       - name: Wait for SSH
         run: |
           SSH_COMMON="-i /tmp/vm_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ControlMaster=auto -o ControlPersist=600 -o ControlPath=/tmp/ssh-ctrl-%C -o ConnectTimeout=3"
@@ -773,6 +836,21 @@ jobs:
           echo "=== dbus / ostree lines in serial log ==="
           grep -i "dbus\|broker\|ostree-system\|composefs\|FAILED\|Error" "$(pwd)/vm-serial.log" 2>/dev/null | tail -40 || echo "(none found)"
           exit 1
+
+      # Fail early if the guest is not enforcing: every later result would be
+      # a qualification of the wrong security posture.
+      - name: Verify SELinux enforcing
+        run: |
+          SSH_COMMON="-i /tmp/vm_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ControlMaster=auto -o ControlPersist=600 -o ControlPath=/tmp/ssh-ctrl-%C -o ConnectTimeout=3"
+          SSH="ssh ${SSH_COMMON} -p 2222 bluefin-test@127.0.0.1"
+          mkdir -p results/selinux
+          OBSERVED=$($SSH "getenforce 2>/dev/null" || true)
+          echo "image=${BASE_IMAGE} booted=${IMAGE} expected=${SELINUX_EXPECTED:-enforcing} after-boot=${OBSERVED:-none}" \
+            | tee results/selinux/mode.txt
+          $SSH "sestatus 2>&1; id -Z; ls -Z /etc/group /etc/ssh/ci-authorized-keys /etc/ssh/sshd_config.d/00-ci-auth.conf /etc/sudoers.d/zz-bluefin-test ~/.ssh/authorized_keys 2>&1" \
+            > results/selinux/contexts-boot.txt 2>&1 || true
+          cat results/selinux/contexts-boot.txt
+          python3 scripts/selinux_qualify.py check-mode "${SELINUX_EXPECTED:-enforcing}" "${OBSERVED}"
 
       - name: Pre-stage target image via bootc switch
         if: ${{ inputs.target-image != '' && contains(inputs.suites, 'lifecycle') && env.SUITE == 'lifecycle' }}
@@ -1481,6 +1559,45 @@ jobs:
           fi
 
           echo "behave_rc=${BEHAVE_RC}" >> "$GITHUB_OUTPUT"
+
+      # Runs after the suite, so it also covers the state after any lifecycle
+      # reboot. A canary denial then proves the collection path reaches the
+      # verdict; without it a clean gate could mean "no logs" rather than
+      # "no denials".
+      - name: SELinux denial gate
+        if: always() && steps.run.conclusion != 'skipped' && env.SELINUX_EXPECTED == 'enforcing'
+        run: |
+          # Fresh connection: the VM may have rebooted during the suite.
+          SSH="ssh -i /tmp/vm_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ControlMaster=no -o ConnectTimeout=10 -p 2222 bluefin-test@127.0.0.1"
+          D=results/selinux
+          mkdir -p "${D}"
+          DEADLINE=$((SECONDS + 300))
+          until $SSH true 2>/dev/null; do
+            [[ $SECONDS -lt $DEADLINE ]] || { echo "::error::VM unreachable for the SELinux gate"; exit 1; }
+            sleep 5
+          done
+          OBSERVED=$($SSH "getenforce 2>/dev/null" || true)
+          echo "after-run=${OBSERVED:-none}" | tee -a "${D}/mode.txt"
+          RC=0
+          python3 scripts/selinux_qualify.py check-mode enforcing "${OBSERVED}" || RC=1
+          $SSH 'sudo bash -s' < scripts/selinux_collect_avc.sh > "${D}/avc-scenario.log"
+          python3 scripts/selinux_qualify.py gate "${D}/avc-scenario.log" \
+            --allowlist selinux_allowlist.yaml --json "${D}/avc-verdict.json" || RC=1
+          # Canary: start a transient unit in httpd_t, which may not run
+          # /usr/bin/cat or read shadow_t. Output goes nowhere.
+          $SSH "sudo timeout 60 systemd-run --quiet --wait --collect -p StandardOutput=null -p StandardError=null -p SELinuxContext=system_u:system_r:httpd_t:s0 /usr/bin/cat /etc/shadow" || true
+          sleep 3
+          $SSH 'sudo bash -s' < scripts/selinux_collect_avc.sh > "${D}/avc-after-canary.log"
+          python3 scripts/selinux_qualify.py canary "${D}/avc-scenario.log" "${D}/avc-after-canary.log" \
+            --allowlist selinux_allowlist.yaml --json "${D}/canary.json" || RC=1
+          {
+            echo "### SELinux qualification: $([[ ${RC} -eq 0 ]] && echo passed || echo FAILED)"
+            echo '```'
+            cat "${D}/mode.txt"
+            python3 scripts/selinux_qualify.py gate "${D}/avc-scenario.log" --allowlist selinux_allowlist.yaml 2>&1 | sed -E 's/^::[a-z]+:://' || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "${RC}"
 
       - name: Capture post-upgrade desktop screenshot
         if: always() && env.SUITE == 'lifecycle'
