@@ -8,7 +8,7 @@ metadata:
 ---
 # Candidate-VM validation before `v1` distribution
 
-`update-v1-tag.yml` force-pushes `v1` to every new `main` commit, and
+Until #1027, `update-v1-tag.yml` force-pushed `v1` to every new `main` commit, and
 consumers call `e2e.yml@v1`. A merged test or workflow change therefore reaches
 consumer qualification gates without ever booting. Lint, `behave --dry-run`
 and unit tests cannot prove GNOME/AT-SPI startup, runner-side SSH probes,
@@ -61,7 +61,7 @@ not `main`/`v1`. Pin `image` by digest (`ghcr.io/...@sha256:...`) so the
 candidate identity is immutable, and pass `test_ref` as the head SHA rather than
 the branch name. Never rely on `e2e.yml`'s `test_ref: main` default for this.
 
-## Audited signal state (2026-10-28, `main` 3e5d45ad)
+## Audited signal state before the gate (2026-10-28, `main` 3e5d45ad)
 
 - Combined commit status: no statuses at all. No ghost-lab or other external
   lab context is posted to testsuite commits, so there is no existing external
@@ -75,10 +75,32 @@ the branch name. Never rely on `e2e.yml`'s `test_ref: main` default for this.
 Re-check before relying on this: `gh api repos/projectbluefin/testsuite/commits/<sha>/status`
 and `.../check-runs`.
 
-## Not done here (maintainer decisions, #1027)
+## The post-merge `v1` gate (Option A, #1027)
 
-Running the plan as a required check, gating `update-v1-tag.yml` on an observed
-good VM verdict, and any secret/permission split between read-only VM jobs and
-trusted publication all change required checks, `v1` publication policy or CI
-permissions. Those need explicit maintainer approval; the verdict must reuse the
-fail-closed contract from #1022.
+`update-v1-tag.yml` no longer moves `v1` on every push. On a push to `main` it:
+
+1. Plans the range `v1..main` (not just the last push, so a cancelled run's
+   change is still covered) with `scripts/vm_validation_plan.py`.
+2. Turns the plan into an action with `scripts/v1_gate.py`:
+   - `move`: nothing reaches a VM (docs, unit tests, repo tooling).
+   - `gate`: boot the planned suites through `e2e.yml` at the merged SHA,
+     on `GATE_IMAGE` pinned by digest (repository variable `V1_GATE_IMAGE`,
+     default `ghcr.io/projectbluefin/dakota:latest`). `v1` moves only if the
+     call succeeds, which includes the #1022 `assert_passed.py` verdict.
+   - `hold`: the plan needs a lane `e2e.yml` cannot boot (`composite_action`
+     or `no_hosted_lane`).
+3. On a hold or a failed gate, fails the run and opens (or comments on) the
+   issue **"v1 tag held by the post-merge VM gate"** naming the held SHA. The
+   next successful move closes it.
+
+`lifecycle` is planned but not booted (`UNGATED_SUITES`): its upgrade
+scenarios need a second, newer image to upgrade to (#706, #1023), and on one
+image `bootc upgrade` is a no-op that #1039 fails on purpose. The run summary
+lists it as not booted. Remove it from `UNGATED_SUITES` once #706 lands.
+
+`e2e.yml`'s `test_ref` now defaults to `v1`, so consumers calling
+`e2e.yml@v1` without a `test_ref` run the gated tests, not whatever is on
+`main`.
+
+**Emergency:** run **Update v1 tag** by hand on `main` with `force` and a
+`reason`. It moves `v1` to `main` without booting and records who and why.
