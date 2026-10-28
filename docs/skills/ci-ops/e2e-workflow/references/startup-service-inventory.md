@@ -102,8 +102,18 @@ sudo, sshd enabled, `selinux=0` (the enforcing lane is #1024), direct-kernel
 boot, and SLIRP networking. No autologin, no session or dconf config, no
 Flatpak, brew or package sideloads.
 
+The image goes on disk with `bootc install to-disk`, not an installer, so the
+lane sees no Flatpak remote an installer might add. That is deliberate: it
+checks what the image alone declares.
+
 ## Still open (#1025)
 
+- First hosted run (2026-10-28, `bluefin:stable`): every unit passed, but
+  `io.github.kolunmi.Bazaar` was not installed. The image ships
+  `bazaar.preinstall` and no `remotes.d` file, so with no system remote
+  `flatpak preinstall` logs "Nothing to do" and exits 0. Either the image ships
+  the Flathub remote or the contract documents that only installers provide
+  it; that is a maintainer decision, not a lane bug.
 - Greenboot (`deferred`): automatic rollback needs a boot-counting bootloader
   path, which direct-kernel boot lacks (#706). The lane keeps both units
   masked and lists them as `not qualified`.

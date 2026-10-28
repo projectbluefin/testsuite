@@ -258,6 +258,11 @@ def test_flatpak_state_is_not_judged_until_preinstall_finishes(inventory):
         ({"installed": ("io.github.kolunmi.Bazaar\tbeta\tflathub",)}, "flatpak io.github.kolunmi.Bazaar", "asks for stable"),
         ({"installed": ("io.github.kolunmi.Bazaar\tstable\tsideload",)}, "flatpak io.github.kolunmi.Bazaar", "not configured"),
         ({"remotes": ()}, "remote flathub", "not configured"),
+        (
+            {"remotes_declared": (), "remotes": (), "installed": ()},
+            "flatpak io.github.kolunmi.Bazaar",
+            "no system remote is configured",
+        ),
         ({"preinstall": []}, "flatpak preinstall.d", "declares no preinstalled refs"),
     ],
 )

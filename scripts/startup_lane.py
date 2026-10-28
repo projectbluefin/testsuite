@@ -321,7 +321,10 @@ def judge_flatpak(report: Report, sections) -> None:
             installed[cols[0]] = (cols[1], cols[2])
     for ref, branch in sorted(wanted.items()):
         if ref not in installed:
-            report.add(f"flatpak {ref}", FAIL, "declared in preinstall.d but not installed system-wide")
+            why = "declared in preinstall.d but not installed system-wide"
+            if not configured:
+                why += "; no system remote is configured, so flatpak preinstall has nothing to install it from"
+            report.add(f"flatpak {ref}", FAIL, why)
             continue
         have_branch, origin = installed[ref]
         if branch and have_branch != branch:
