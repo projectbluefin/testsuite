@@ -57,6 +57,17 @@ Missing, hidden, or nonmatching windows still fail; delayed matching windows may
 before the deadline. Sleep is capped to the remaining budget. An in-flight native
 AT-SPI/D-Bus call cannot be preempted by this deadline; no library retry is added on top.
 
+Close waits ("X is no longer running") follow the same rule: each poll takes one
+snapshot, keeps the apps whose names match, and checks them for a visible frame.
+Do not fall back to a per-alias `tree.root.application(name)` or
+`tree.root.findChild(pred, recursive=False, retry=False)`. The first retries for
+seconds per missing alias. The second raises `TypeError` on the dogtail 2.0.3 the
+VMs install (`findChild(self, predicate, retry=True)` has no `recursive`), and a
+blanket `except` then turns that into a false "closed". `MagicMock` roots hide both
+problems, so timing tests should use a fake root with dogtail 2.0.3's real
+signatures and a fake clock (see `_Dogtail203Root` in
+`tests/unit/test_gnome_files_steps.py`).
+
 A scenario-level `@retry` tag does not replace helper polling: it re-launches the
 whole scenario and may open another app instance. Use it only for infrastructure
 flakiness, not application registration lag.
