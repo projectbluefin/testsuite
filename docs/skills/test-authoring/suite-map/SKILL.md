@@ -238,7 +238,7 @@ Why the `@pending`/`@future` scenarios above cannot run today.
 | flatpak_permissions system-wide installs (×39) | smoke | `@pending` | `flatpak-preinstall.service` masked in `e2e.yml` and `/var/lib/flatpak` never seeded |
 | common flatpak model/state (×4) | common | `@pending` | flatpak-preinstall.service masked in CI; /var not preserved from OCI build |
 | common dconf (×4) | common | `@pending` | gsettings/dconf schema defaults; Ptyxis palette is user-session state |
-| common immutable (×2) | common | `@pending` | rpm-ostree/bootc status failing in fresh QEMU bootc install (#838) |
+| common immutable (×2) | common | `@pending` | Awaiting a lab boot of a current image (#838). Earlier failures were likely the non-root SSH user running `bootc status` without `sudo`, hidden by `2>/dev/null`; commands now match the lifecycle suite's `sudo bootc status --format=json` |
 | common ujust changelogs (×1) | common | `@pending` | glow not available (brew-setup.service masked in CI, #487) |
 | common scripts ublue-update timer (×1) | common | `@pending` | ublue-update.timer not enabled in CI images |
 | common services flatpak (×2) | common | `@pending` | flatpak-preinstall.service masked; /var/lib/flatpak not seeded |
