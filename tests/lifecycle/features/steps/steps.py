@@ -219,34 +219,108 @@ def active_matches_original(context):
     )
 
 
+_UPGRADE_STAGED_MARKERS = ("Queued for next boot", "Staged update present")
+
+
 @step("bootc upgrade output indicates image was staged")
 def upgrade_output_staged(context):
-    """Verify bootc upgrade stdout shows a new image was queued for next boot.
+    """Verify bootc upgrade staged a distinct image for the next boot.
 
-    ``bootc upgrade`` exits 0 in two distinct cases:
+    ``bootc upgrade`` exits 0 in three distinct cases:
       - New image available: output contains "Queued for next boot: <ref>"
+      - Staged deployment already matches the fetched image: output contains
+        "Staged update present, not changed" (e.g. an earlier scenario on the
+        same VM, or CI pre-staging via ``bootc switch``, staged it already)
       - Already up-to-date: output contains "No update available."
 
-    When the upgrade is a no-op, any stale staged deployment left over from a
-    prior run would cause reboot-dependent scenarios to false-pass: the stale
-    staged digest matches the booted digest after rebooting into it, /etc files
-    trivially survive a same-image reboot, and ostree still shows two entries.
+    The first two both leave a staged candidate for the next boot and pass;
+    digest identity is proven separately by "Capture staged image digest as
+    upgrade target" and the post-reboot digest assertions.
 
-    If no staging happened, fail hard so CI does not silently report a
-    passing upgrade path when no upgrade actually occurred.
+    This step is a mandatory qualification gate. The upgrade lifecycle
+    scenarios that call it prove a real upgrade and rollback: the booted
+    digest must change to a staged candidate, and rollback must later restore
+    the original. A no-op upgrade (already at latest) changes nothing, so it
+    must fail here — otherwise the scenario reports a passing upgrade path
+    while exercising neither upgrade nor rollback.
+
+    A no-op is a real, expected condition only for the dedicated idempotency
+    scenario (``@upgrade @idempotent``), which never calls this step and
+    instead uses "If bootc upgrade output indicates image was staged, reboot
+    VM and wait for SSH" to reboot only when something was actually staged.
     """
     output = getattr(context, "command_stdout", "")
-    if "Queued for next boot" not in output:
-        # Skip rather than fail: when CI images are already at latest,
-        # bootc upgrade is always a no-op and these upgrade scenarios
-        # can never pass. Skipping the whole scenario avoids persistent
-        # red noise; the migration scenarios still exercise bootc switch.
-        _skip_current_scenario(
-            context,
-            "bootc upgrade was a no-op — booted image is already at the latest digest. "
-            "Skip upgrade-dependent scenarios; use a pinned older digest as the base image "
-            f"to exercise upgrade paths. bootc output: {output!r}",
+    if not any(marker in output for marker in _UPGRADE_STAGED_MARKERS):
+        raise AssertionError(
+            "bootc upgrade did not stage a new image — this mandatory lifecycle "
+            "qualification requires a real upgrade to a distinct candidate digest, "
+            "but the upgrade was a no-op. Use a pinned older digest as the base "
+            "image to exercise upgrade paths. bootc output: " + repr(output)
         )
+
+
+def _deployment_digest(deployment):
+    return ((deployment or {}).get("image") or {}).get("imageDigest", "")
+
+
+def _read_bootc_status(context):
+    stdout, rc = run_ssh(context, "sudo bootc status --format=json")
+    assert rc == 0, f"sudo bootc status --format=json exited {rc}: {stdout!r}"
+    return _parse_bootc_status(context)
+
+
+@step("VM is restored to the pre-upgrade baseline deployment")
+def restore_pre_upgrade_baseline(context):
+    """Return the VM to the state it was in before the first upgrade scenario.
+
+    Lifecycle scenarios share one VM and are not isolated: a scenario that
+    reboots into the upgrade candidate leaves the VM already at latest, so the
+    next scenario's ``bootc upgrade`` would be a no-op and fail the mandatory
+    "bootc upgrade output indicates image was staged" gate. Every scenario
+    that calls that gate starts with this step so each one gets a real upgrade.
+
+    The first call records the booted digest as the baseline. Later calls
+    roll back (and reboot) when the booted digest has moved off the baseline.
+    Nothing is re-staged: if CI pre-staged the candidate via ``bootc switch``,
+    the host spec already tracks that ref, so the scenario's own
+    ``bootc upgrade`` stages the candidate again.
+
+    Recovery needs the baseline to be the booted or rollback deployment. A
+    scenario that moves the VM to a third image (e.g. a migration
+    ``bootc switch`` run in the same behave invocation) leaves it
+    unreachable, and the step fails rather than guessing.
+    """
+    baseline = getattr(context, "lifecycle_baseline", None)
+    if not isinstance(baseline, dict):
+        baseline = {}
+        context.lifecycle_baseline = baseline
+
+    status = _read_bootc_status(context)
+    booted_digest = _deployment_digest(status.get("booted"))
+    assert booted_digest, f"Could not read booted imageDigest from bootc status: {status}"
+
+    if not baseline.get("digest"):
+        baseline["digest"] = booted_digest
+        print(f"Recorded pre-upgrade baseline: booted={booted_digest}", flush=True)
+        return
+
+    if booted_digest != baseline["digest"]:
+        rollback_digest = _deployment_digest(status.get("rollback"))
+        assert rollback_digest == baseline["digest"], (
+            "Cannot restore pre-upgrade baseline: booted digest "
+            f"{booted_digest!r} and rollback digest {rollback_digest!r} both differ "
+            f"from baseline {baseline['digest']!r}. Run this scenario on a fresh VM."
+        )
+        stdout, rc = run_ssh(context, "sudo bootc rollback")
+        assert rc == 0, f"sudo bootc rollback exited {rc}: {stdout!r}"
+        reboot_and_wait(context)
+        status = _read_bootc_status(context)
+        booted_digest = _deployment_digest(status.get("booted"))
+        assert booted_digest == baseline["digest"], (
+            f"Rollback did not restore baseline: booted {booted_digest!r} != "
+            f"{baseline['digest']!r}"
+        )
+        print(f"Restored pre-upgrade baseline {booted_digest}", flush=True)
 
 
 @step('Active image reference contains "{fragment}"')
@@ -335,7 +409,7 @@ def os_release_reports_fedora_bluefin_identity(context):
 @step("If bootc upgrade output indicates image was staged, reboot VM and wait for SSH")
 def maybe_reboot_after_upgrade(context):
     output = getattr(context, "command_stdout", "")
-    if "Queued for next boot" in output:
+    if any(marker in output for marker in _UPGRADE_STAGED_MARKERS):
         reboot_and_wait(context)
 
 

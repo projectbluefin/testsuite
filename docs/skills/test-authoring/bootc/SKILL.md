@@ -68,6 +68,63 @@ expected_upgrade_digest = get_staged_digest(context)
 
 Without step 3, the post-reboot assertion has nothing to compare against and silently passes or skips.
 
+## Upgrade-staged is a mandatory qualification gate
+
+The step **`bootc upgrade output indicates image was staged`** (in
+`tests/lifecycle/features/steps/steps.py`) is the gate that stops a run from
+passing without doing an upgrade. `bootc upgrade` exits 0 in three cases:
+
+- it stages a new image (output contains `Queued for next boot: <ref>`) — **staged, passes**;
+- a staged deployment already matches the fetched image (output contains
+  `Staged update present, not changed`) — **staged, passes**. This happens when
+  an earlier scenario on the same VM already staged the upgrade without
+  rebooting, or when CI pre-staged the candidate with `bootc switch`. Digest
+  identity is still proven by `Capture staged image digest as upgrade target`
+  and the post-reboot digest assertions;
+- it is a no-op (output contains `No update available.`) — **fails**.
+
+This step must **fail** on a no-op, not skip it. The upgrade/rollback lifecycle
+scenarios call it to prove a real change: the booted digest must move to a
+staged candidate, and rollback must later restore the original. If the step
+skipped on a no-op, a run could report a passing upgrade path while exercising
+neither upgrade nor rollback.
+
+The only scenario that legitimately gets a no-op is `@upgrade @idempotent`
+("bootc upgrade is idempotent when already at latest"). It never calls this
+step; it uses `If bootc upgrade output indicates image was staged, reboot VM
+and wait for SSH` instead, which reboots only when something was actually
+staged. That distinction — a mandatory step that fails on no-op, versus an
+optional helper that reboots only when staged — is what keeps coverage from
+silently narrowing.
+
+When you need a mandatory step to prove a real change, fail with an
+`AssertionError` that names the observed output; do not `scenario.skip()`.
+
+### Every gated scenario starts from the pre-upgrade baseline
+
+Lifecycle scenarios share one VM and are not isolated. Once a scenario reboots
+into the candidate, the VM is already at latest and the next `bootc upgrade`
+is a no-op, which fails the gate above. So every scenario that calls
+`bootc upgrade output indicates image was staged` must start with:
+
+```gherkin
+* VM is restored to the pre-upgrade baseline deployment
+```
+
+The first call records the booted digest as the baseline. Later calls run
+`bootc rollback` + reboot when the booted digest has left the baseline. The
+step does not re-stage anything: after CI pre-stages with `bootc switch
+<target>`, the host spec already tracks `<target>`, so a second `bootc switch`
+is a no-op ("Image specification is unchanged.") and the scenario's own
+`bootc upgrade` stages the candidate. The baseline lives in
+`context.lifecycle_baseline`, set in `before_all` so it survives across
+scenarios. If neither booted nor rollback deployment is the baseline (for
+example, a migration `bootc switch` ran earlier in the same behave run), the
+step fails — run that scenario on a fresh VM.
+
+`If bootc upgrade output indicates image was staged, reboot VM and wait for
+SSH` shares the same staged markers (`_UPGRADE_STAGED_MARKERS`) as the gate.
+
 ## ostree admin status parsing
 
 ```

@@ -29,6 +29,10 @@ def before_all(context):
     context.initial_version_id = None
     context.current_version_id = None
     context.migration_source_ref = None
+    # Run-scoped (set at the root layer so it survives across scenarios):
+    # the pre-upgrade VM state that "VM is restored to the pre-upgrade
+    # baseline deployment" returns to before each gated upgrade scenario.
+    context.lifecycle_baseline = {}
     # Central toggle: set ZSTD_CHUNKED=false to skip @zstd_chunked scenarios
     # when the target image does not yet ship with zstd:chunked compression.
     # Flip to true once projectbluefin/bluefin ships zstd:chunked layers.

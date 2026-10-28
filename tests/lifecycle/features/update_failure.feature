@@ -23,6 +23,7 @@ Feature: Update failure and rollback guard
     # After a successful upgrade + reboot, .status.rollback must be non-null.
     # This deployment is what bootc rollback uses; its absence means the
     # rollback guard is broken.
+    * VM is restored to the pre-upgrade baseline deployment
     * Capture booted image digest for rollback verification
     * Run long SSH command: "sudo bootc upgrade"
     * SSH command return code is "0"
@@ -34,6 +35,7 @@ Feature: Update failure and rollback guard
 
   @lifecycle @rollback @status
   Scenario: bootc rollback restores the previous deployment after an upgrade
+    * VM is restored to the pre-upgrade baseline deployment
     * Capture booted image digest for rollback verification
     * Run long SSH command: "sudo bootc upgrade"
     * SSH command return code is "0"
@@ -54,6 +56,7 @@ Feature: Update failure and rollback guard
     # `bootc upgrade` stages a deployment; `bootc rollback` before rebooting
     # discards the staged deployment.  This guards the cancel-before-reboot
     # path that power users rely on when they want to abort an update.
+    * VM is restored to the pre-upgrade baseline deployment
     * Capture booted image digest for rollback verification
     * Run long SSH command: "sudo bootc upgrade"
     * SSH command return code is "0"
@@ -68,6 +71,7 @@ Feature: Update failure and rollback guard
 
   @lifecycle @rollback @update_failure
   Scenario: Forcing rollback via bootc rollback after upgrade lands on previous image
+    * VM is restored to the pre-upgrade baseline deployment
     * Capture booted image digest for rollback verification
     * Run long SSH command: "sudo bootc upgrade"
     * SSH command return code is "0"
@@ -99,6 +103,7 @@ Feature: Update failure and rollback guard
     #   3. greenboot health check fails (deliberately broken health check script).
     #   4. After max-boot-attempts (3), grub2 reverts to previous deployment.
     #   5. bootc status shows the original digest as active, rollback marker cleared.
+    * VM is restored to the pre-upgrade baseline deployment
     * Capture booted image digest for rollback verification
     * Plant a failing greenboot health check
     * Run long SSH command: "sudo bootc upgrade"
