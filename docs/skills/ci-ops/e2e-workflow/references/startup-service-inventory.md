@@ -106,14 +106,26 @@ The image goes on disk with `bootc install to-disk`, not an installer, so the
 lane sees no Flatpak remote an installer might add. That is deliberate: it
 checks what the image alone declares.
 
+`flatpak_remote: installer` on `flatpak-preinstall.service` records that
+Bluefin's system Flathub remote comes from installers, not the image: the
+`install-flatpaks.sh` that the projectbluefin/iso Justfile writes, and the
+`install-system-flatpaks` ujust recipe, both run
+`flatpak remote-add --system flathub`. When the image ships no `remotes.d` file
+and no system remote is configured, the lane reports `flatpak remote` and each
+uninstalled preinstall ref as `not qualified` instead of failing them. A
+shipped or configured remote turns the full checks back on, so a missing ref,
+wrong branch or unknown origin still fails.
+
 ## Still open (#1025)
 
 - First hosted run (2026-10-28, `bluefin:stable`): every unit passed, but
   `io.github.kolunmi.Bazaar` was not installed. The image ships
   `bazaar.preinstall` and no `remotes.d` file, so with no system remote
-  `flatpak preinstall` logs "Nothing to do" and exits 0. Either the image ships
-  the Flathub remote or the contract documents that only installers provide
-  it; that is a maintainer decision, not a lane bug.
+  `flatpak preinstall` logs "Nothing to do" and exits 0. The inventory now
+  records the remote as installer-provided (see above), so on this path
+  Bluefin's preinstall refs are `not qualified`. Qualifying them needs either
+  an image-shipped `remotes.d/flathub.flatpakrepo` (then drop
+  `flatpak_remote: installer`) or an installer-path lane.
 - Greenboot (`deferred`): automatic rollback needs a boot-counting bootloader
   path, which direct-kernel boot lacks (#706). The lane keeps both units
   masked and lists them as `not qualified`.

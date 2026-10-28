@@ -37,6 +37,11 @@
 #   produces:   paths that must exist once the unit has run.
 #   checks:     extra state checks (flatpak: the image's own preinstall,
 #               remotes and permission overrides).
+#   flatpak_remote: image (default) or installer — who adds the system Flatpak
+#               remote. With installer, an image that ships no remotes.d file
+#               and has no system remote reports its preinstall refs as not
+#               qualified instead of failing them; a shipped or configured
+#               remote is still judged in full.
 #   deferred:   why the lane cannot qualify it yet. The lane keeps the unit
 #               masked and lists it as not qualified; it never passes it.
 # vm_inapplicable and ci_noise units stay masked in the startup lane too.
@@ -68,10 +73,16 @@ units:
       - ublue-os/aurora system_files/shared/usr/lib/systemd/system-preset/89-aurora.preset
     fast_lane_substitute: e2e.yml sideloads flatpak-app-list.txt from a runner cache into the system installation
     blocks: smoke flatpak_permissions system-wide installs (x39), common flatpak model/state and services scenarios
+    notes: >-
+      Bluefin images ship preinstall.d files but no remotes.d file. The ISO
+      installer (the install-flatpaks.sh that projectbluefin/iso Justfile writes) and the
+      install-system-flatpaks ujust recipe run `flatpak remote-add --system
+      flathub`, so bootc install to-disk boots with no system remote.
     startup_lane:
       expect: completed
       deadline_s: 1800
       checks: [flatpak]
+      flatpak_remote: installer
 
   NetworkManager-wait-online.service:
     category: startup_contract

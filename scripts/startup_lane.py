@@ -51,6 +51,8 @@ NEGATIVE_CONTROL_UNIT = "NetworkManager-wait-online.service"
 EXPECTS = {"completed", "active", "loaded"}
 SCOPES = {"system", "user"}
 CHECKS = {"flatpak"}
+# Who adds the system Flatpak remote: the image (remotes.d) or the installer.
+FLATPAK_REMOTES = {"image", "installer"}
 # Unit states that are still moving toward a result.
 TRANSIENT = {"activating", "deactivating", "reloading", "refreshing"}
 
@@ -167,6 +169,11 @@ def validate(inventory: dict) -> list[str]:
             problems.append(f"{unit}: unknown checks {lane.get('checks')}")
         if any(not str(p).startswith("/") for p in lane.get("produces", [])):
             problems.append(f"{unit}: produces must be absolute paths")
+        if "flatpak_remote" in lane:
+            if lane["flatpak_remote"] not in FLATPAK_REMOTES:
+                problems.append(f"{unit}: flatpak_remote must be one of {sorted(FLATPAK_REMOTES)}")
+            if "flatpak" not in lane.get("checks", []):
+                problems.append(f"{unit}: flatpak_remote needs checks: [flatpak]")
     return problems
 
 
@@ -305,12 +312,23 @@ def judge_unit(unit: str, lane: dict, props: dict[str, str] | None, elapsed: int
     return PASS, f"{state} restarts={props.get('NRestarts', '0')}"
 
 
-def judge_flatpak(report: Report, sections) -> None:
+def judge_flatpak(report: Report, sections, remote_from: str = "image") -> None:
     wanted = declared_preinstalls(sections)
     if not wanted:
         report.add("flatpak preinstall.d", FAIL, "image declares no preinstalled refs")
     configured = set(lines(section(sections, "remotes")))
-    for remote in lines(section(sections, "remotes-declared")):
+    declared = lines(section(sections, "remotes-declared"))
+    # bootc install to-disk runs no installer, so an installer-provided remote
+    # is absent and the refs that need it cannot be qualified on this path.
+    installer_gap = remote_from == "installer" and not configured and not declared
+    if installer_gap:
+        report.add(
+            "flatpak remote",
+            DEFERRED,
+            "image ships no remotes.d file and installers add the system remote; "
+            "bootc install to-disk runs no installer",
+        )
+    for remote in declared:
         status = PASS if remote in configured else FAIL
         report.add(f"remote {remote}", status, "declared in remotes.d; configured" if status == PASS else "declared in remotes.d but not configured")
 
@@ -322,6 +340,9 @@ def judge_flatpak(report: Report, sections) -> None:
     for ref, branch in sorted(wanted.items()):
         if ref not in installed:
             why = "declared in preinstall.d but not installed system-wide"
+            if installer_gap:
+                report.add(f"flatpak {ref}", DEFERRED, why + "; needs the installer-provided remote")
+                continue
             if not configured:
                 why += "; no system remote is configured, so flatpak preinstall has nothing to install it from"
             report.add(f"flatpak {ref}", FAIL, why)
@@ -387,7 +408,7 @@ def evaluate(inventory: dict, profile: str, evidence: str, elapsed: int, final: 
         for state, _, path in (ln.partition(" ") for ln in lines(section(sections, "paths")))
     }
     report = Report()
-    preinstall_done = False
+    flatpak_lane = None
     for unit, lane in sorted(required_units(inventory, profile).items()):
         status, detail = judge_unit(unit, lane, units.get(unit), elapsed)
         if final and status == PENDING:
@@ -399,9 +420,9 @@ def evaluate(inventory: dict, profile: str, evidence: str, elapsed: int, final: 
             ok = paths.get(path) == "yes"
             report.add(path, PASS if ok else FAIL, f"{'present' if ok else 'missing'} after {unit}")
         if "flatpak" in lane.get("checks", []):
-            preinstall_done = True
-    if preinstall_done:
-        judge_flatpak(report, sections)
+            flatpak_lane = lane
+    if flatpak_lane is not None:
+        judge_flatpak(report, sections, flatpak_lane.get("flatpak_remote", "image"))
     for unit, why in sorted(deferred_units(inventory, profile).items()):
         report.add(unit, DEFERRED, why)
     return report

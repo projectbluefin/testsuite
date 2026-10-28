@@ -104,6 +104,15 @@ def test_validate_rejects_missing_or_bad_startup_lane(inventory):
     assert "greenboot-healthcheck.service: a deferred unit takes no other" in problems
 
 
+def test_validate_rejects_bad_flatpak_remote(inventory):
+    broken = copy.deepcopy(inventory)
+    broken["flatpak-preinstall.service"]["startup_lane"]["flatpak_remote"] = "somewhere"
+    broken["firewalld.service"]["startup_lane"]["flatpak_remote"] = "installer"
+    problems = "\n".join(lane.validate(broken))
+    assert "flatpak-preinstall.service: flatpak_remote must be one of" in problems
+    assert "firewalld.service: flatpak_remote needs checks: [flatpak]" in problems
+
+
 def test_plan_never_masks_a_required_startup_unit(inventory):
     for profile in ("bluefin", "bluefin-lts", "aurora", "bazzite"):
         env = lane.plan(inventory, profile)
@@ -258,15 +267,55 @@ def test_flatpak_state_is_not_judged_until_preinstall_finishes(inventory):
         ({"installed": ("io.github.kolunmi.Bazaar\tbeta\tflathub",)}, "flatpak io.github.kolunmi.Bazaar", "asks for stable"),
         ({"installed": ("io.github.kolunmi.Bazaar\tstable\tsideload",)}, "flatpak io.github.kolunmi.Bazaar", "not configured"),
         ({"remotes": ()}, "remote flathub", "not configured"),
-        (
-            {"remotes_declared": (), "remotes": (), "installed": ()},
-            "flatpak io.github.kolunmi.Bazaar",
-            "no system remote is configured",
-        ),
         ({"preinstall": []}, "flatpak preinstall.d", "declares no preinstalled refs"),
     ],
 )
 def test_flatpak_contract_failures(inventory, kwargs, subject, why):
+    report = lane.evaluate(inventory, "bluefin", evidence(**kwargs), elapsed=600)
+    finding = next(f for f in report.findings if f.subject == subject)
+    assert finding.status == lane.FAIL
+    assert why in finding.detail
+    assert report.verdict == lane.FAIL
+
+
+def with_flatpak_remote(inventory, source):
+    changed = copy.deepcopy(inventory)
+    changed["flatpak-preinstall.service"]["startup_lane"]["flatpak_remote"] = source
+    return changed
+
+
+def test_image_provided_remote_missing_fails_the_ref(inventory):
+    no_remote = evidence(remotes_declared=(), remotes=(), installed=())
+    report = lane.evaluate(with_flatpak_remote(inventory, "image"), "bluefin", no_remote, elapsed=600)
+    finding = next(f for f in report.findings if f.subject == "flatpak io.github.kolunmi.Bazaar")
+    assert finding.status == lane.FAIL
+    assert "no system remote is configured" in finding.detail
+    assert report.verdict == lane.FAIL
+
+
+def test_installer_provided_remote_leaves_refs_not_qualified(inventory):
+    # bluefin:stable on bootc install to-disk: no remotes.d, no remote, nothing installed.
+    no_remote = evidence(remotes_declared=(), remotes=(), installed=())
+    report = lane.evaluate(inventory, "bluefin", no_remote, elapsed=600)
+    got = statuses(report)
+    assert got["flatpak remote"] == lane.DEFERRED
+    assert got["flatpak io.github.kolunmi.Bazaar"] == lane.DEFERRED
+    assert got["override io.github.kolunmi.Bazaar"] == lane.PASS
+    assert report.verdict == lane.PASS, report.markdown("bluefin")
+
+
+@pytest.mark.parametrize(
+    "kwargs, subject, why",
+    [
+        # The image ships a remote: an installer is not the excuse.
+        ({"remotes": (), "installed": ()}, "flatpak io.github.kolunmi.Bazaar", "not installed"),
+        # A remote is configured: refs are judged in full.
+        ({"remotes_declared": (), "installed": ()}, "flatpak io.github.kolunmi.Bazaar", "not installed"),
+        ({"remotes_declared": (), "remotes": ()}, "flatpak io.github.kolunmi.Bazaar", "not configured"),
+        ({"remotes_declared": (), "remotes": (), "preinstall": []}, "flatpak preinstall.d", "declares no"),
+    ],
+)
+def test_installer_provided_remote_still_fails_real_gaps(inventory, kwargs, subject, why):
     report = lane.evaluate(inventory, "bluefin", evidence(**kwargs), elapsed=600)
     finding = next(f for f in report.findings if f.subject == subject)
     assert finding.status == lane.FAIL
