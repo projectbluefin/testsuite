@@ -12,6 +12,8 @@
 #   - Runner must have KVM enabled (ubuntu-latest on GHA has it)
 #   - OCI image must be a bootc/ostree image (uses bootc install to-disk)
 #   - gnome-ponytail-daemon must be baked into the OCI image
+#     (suite: extensions checks this and other prerequisites before boot via
+#     scripts/guest_preflight.py and records results/guest-provenance.json)
 #
 # Usage:
 #   - uses: projectbluefin/testsuite/.github/actions/gnome-e2e@main
@@ -131,6 +133,7 @@ runs:
       shell: bash
       env:
         GNOME_E2E_IMAGE: ${{ inputs.image }}
+        GNOME_E2E_SUITE: ${{ inputs.suite }}
       run: |
         fallocate -l 30G disk.raw
 
@@ -184,6 +187,20 @@ runs:
         echo "deploy=${DEPLOY}  kver=${KVER}"
         echo "GNOME_E2E_ROOT_UUID=${ROOT_UUID}" >> "$GITHUB_ENV"
         echo "GNOME_E2E_KVER=${KVER}" >> "$GITHUB_ENV"
+
+        # Extension-validation lane (#908): record which guest is under test and
+        # fail closed before boot when the image lacks a lane prerequisite
+        # (stock GNOME OS ships no gnome-ponytail-daemon). Cleanup below still
+        # runs; the step fails after it.
+        PREFLIGHT_RC=0
+        if [[ "${GNOME_E2E_SUITE}" == "extensions" ]]; then
+          IMAGE_DIGEST=$(sudo podman image inspect --format '{{.Digest}}' "${GNOME_E2E_IMAGE}" 2>/dev/null || true)
+          mkdir -p results
+          sudo python3 _testsuite/scripts/guest_preflight.py "${D}" \
+            --image-ref "${GNOME_E2E_IMAGE}" --image-digest "${IMAGE_DIGEST}" \
+            --output results/guest-provenance.json || PREFLIGHT_RC=$?
+          sudo chown -R "$(id -u):$(id -g)" results
+        fi
 
         EFI_PART="${LOOP}p2"
         sudo mkdir -p /mnt/efi
@@ -243,6 +260,10 @@ runs:
         sudo podman rmi "${GNOME_E2E_IMAGE}" 2>/dev/null || true
         ls -lh disk.raw vmlinuz initramfs.img
         df -h .
+        if [[ ${PREFLIGHT_RC} -ne 0 ]]; then
+          echo "::error::Guest preflight failed (rc=${PREFLIGHT_RC}); see results/guest-provenance.json"
+          exit 1
+        fi
 
     # ── Boot VM ───────────────────────────────────────────────────────────────
     - name: Boot VM with QEMU + KVM

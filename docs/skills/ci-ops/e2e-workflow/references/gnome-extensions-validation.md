@@ -19,35 +19,28 @@ and exercised with a qecore/Behave input+AT-SPI scenario.
 > **No run has completed yet.** Do **not** claim GNOME OS extension validation as done until a
 > green run exists and its evidence is attached.
 
-## Pinned provenance (do not float)
+## Provenance, image inventory and pre-boot preflight
 
-Base image `quay.io/gnome_infrastructure/gnome-build-meta:gnomeos-nightly`. The lane consumes the
-**digest reference**, never the tag:
+`gnomeos-*` tags and digests expire two weeks after push, so the lane resolves a digest per run
+and the action records it, with the guest `os-release` identity, in `results/guest-provenance.json`.
+Stock GNOME OS nightly carries every lane prerequisite except `gnome-ponytail-daemon`, and
+`scripts/guest_preflight.py` fails `suite: extensions` closed on that before boot. Evidence,
+commands and the full inventory: [gnomeos-guest-provenance.md](gnomeos-guest-provenance.md).
 
-| Tag | Digest |
-|---|---|
-| `gnomeos-nightly` (pinned for the lane) | `sha256:57eeef917d057e37d8d5824fab195ebf3b0ad49fc1ca191b7bc02b82418ed981` |
-| `gnomeos-51` / `gnomeos-50` / `gnomeos-latest` | reference only |
-
-Resolved 2026-09-30; proves **existence**, not a successful boot with this action's provisioner.
-Re-derive after any change with `skopeo inspect docker://…:gnomeos-nightly | jq -r '.Digest'`.
-
-## Guest inventory
+## Provisioned surface
 
 The lane reuses the `gnome-e2e` provisioner (bootc/ostree → `bootc install to-disk` → QEMU/KVM
-boot → GDM autologin → ponytail + qecore-headless), pointed at `gnomeos-nightly` instead of a
-Bluefin/Dakota image. Provisioned surface:
+boot → GDM autologin → ponytail + qecore-headless), pointed at a GNOME OS digest instead of a
+Bluefin/Dakota image:
 
-- GNOME OS nightly (pinned digest) as a bootc/ostree deployment, with kernel + initramfs
-  extracted from the deployment for direct QEMU boot
+- GNOME OS as a bootc/ostree deployment, with kernel + initramfs extracted from the deployment
+  for direct QEMU boot
 - GDM autologin for the `bluefin-test` user; passwordless sudo for test automation
 - **real** GNOME Wayland session (Mutter) + AT-SPI bus (at-spi2-core)
 - `gnome-ponytail-daemon` (virtual input) driven by **qecore-headless** — **absent from stock
-  `gnomeos-nightly`**; required baked into the OCI image (`action.yml:14`) and no overlay
-  supplying it exists yet, so it is an input to the lane, not a lane output
+  GNOME OS**; the action expects it in the image (`action.yml` header) and no overlay supplying
+  it exists yet, so it is an input to the lane, not a lane output
 - SSH (port 2222 → 22) as `bluefin-test` for the harness to drive the guest
-- No Fedora dnf/RPM assumption — GNOME OS has no package manager; tooling must ship in a test
-  overlay/sysext
 
 ## The four hive extensions
 
@@ -77,21 +70,24 @@ behaviour features plus a cross-cutting `extension_lifecycle.feature`.
 
 `gnome-e2e` is not a boot-only action: the same invocation provisions the guest **and** runs
 `tests/<suite>/features/` inside it under `qecore-headless` (`action.yml:384`). `suite` must
-therefore be set — it defaults to `smoke` (`action.yml:38-40`), which would boot GNOME OS and run
-the **Bluefin** smoke suite, testing the wrong thing. Pass the **pinned digest**, not a tag: the
+therefore be set — it defaults to `smoke` (`action.yml:40-42`), which would boot GNOME OS and run
+the **Bluefin** smoke suite, testing the wrong thing. Pass a **digest resolved at dispatch time**, not a tag: the
 action hands `inputs.image` verbatim to `podman pull` / `bootc install`.
 
 ```yaml
 - uses: ./.github/actions/gnome-e2e
   with:
-    # requires an image that carries gnome-ponytail-daemon (blocker 1 above)
-    image: quay.io/gnome_infrastructure/gnome-build-meta@sha256:57eeef917d057e37d8d5824fab195ebf3b0ad49fc1ca191b7bc02b82418ed981
+    # requires an image that carries gnome-ponytail-daemon (blocker 1 above);
+    # digest from a not-yet-written `resolve` job (sketch: gnomeos-guest-provenance.md); expires in 2 weeks
+    image: quay.io/gnome_infrastructure/gnome-build-meta@${{ needs.resolve.outputs.digest }}
     suite: extensions   # uses tests/extensions/ (landed with #914)
 ```
 
-The action runs `bootc install to-disk`, extracts kernel/initramfs, boots a KVM QEMU VM, waits for
+The action runs `bootc install to-disk`, runs the guest preflight (fails here today on stock GNOME
+OS: no `gnome-ponytail-daemon`), extracts kernel/initramfs, boots a KVM QEMU VM, waits for
 SSH then a live GNOME session, copies `tests/extensions` (plus `tests/shared`) into the guest, runs
-behave there, and writes `results/` + `vm-serial.log` into the workspace.
+behave there, and writes `results/` (including `guest-provenance.json`) + `vm-serial.log` into
+the workspace.
 
 ### 2. Confirm a real session (canary)
 
@@ -176,25 +172,29 @@ and must never reach the host:
 - **No privileged host mounts** — the VM boots from a raw disk written by `bootc install`; the
   host filesystem is not writable from the guest.
 - **Credentials are guest-local and disposable** — the harness SSH key (`authorized_keys` in the
-  `bluefin-test` home, `action.yml:215`) and the `bluefin-test` autologin let the harness drive
-  the guest. Extension code runs in `gnome-shell` **as `bluefin-test`**, who also has
-  `NOPASSWD:ALL` sudo (`action.yml:224-226`), so extension code **can** read that key and escalate
-  **inside the guest**. Accepted: the key is generated per run, authorises nothing but this
-  throwaway VM, and grants no reach back to the host. Never reuse a long-lived or host-valid
-  credential here.
+  `bluefin-test` home, `action.yml:215`) and the `bluefin-test` autologin let the harness drive the
+  guest. Extension code runs in `gnome-shell` **as `bluefin-test`**, who also has `NOPASSWD:ALL`
+  sudo (`action.yml:224-226`), so extension code **can** read that key and escalate **inside the
+  guest**. Accepted: the key is generated per run, authorises nothing but this throwaway VM, and
+  grants no reach back to the host. Never reuse a long-lived or host-valid credential here.
 
 A host socket, key, or mount exposed to the guest desktop is a regression: stop and file an issue.
 
 ## Status
 
-- [x] Official GNOME OS nightly pinned (digest above)
-- [x] Guest inventory + four hive extensions documented
+- [x] Provenance contract: tested build recorded per run in
+      `results/guest-provenance.json` (static pins expire after 2 weeks)
+- [ ] Provenance contract: resolve job that pins the digest per run
+      (sketched in `gnomeos-guest-provenance.md`; no workflow does this yet)
+- [x] Guest inventory verified against the image layers; four hive extensions documented
+- [x] Pre-boot preflight (`scripts/guest_preflight.py`) fails closed on missing prerequisites
 - [x] Mandatory service gate implemented and unit-tested (`scripts/extension_validation.py`)
 - [x] Security posture recorded: guest-local, disposable credentials; no host reach
 - [x] Gate wired into the lane: `gnome-e2e` runs `scripts/extension_validation.py` as a
       mandatory step when `suite == 'extensions'` (#991). No repo workflow/recipe calls the
       action with `suite: extensions` yet — a consumer runs it directly.
 - [ ] Repeatable boot + load + run commands validated in the lab (**unverified**;
-      tests/extensions landed with #914; blocked on a `gnome-ponytail-daemon` overlay)
+      tests/extensions landed with #914; blocked on a `gnome-ponytail-daemon` overlay, which the
+      preflight now reports by name)
 - [ ] At least one green extension-validation run captured and attached
 - [ ] Lane closed

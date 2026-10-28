@@ -17,7 +17,7 @@ Three Fedora versions appear in this repo. They are not interchangeable.
 | **`behave --dry-run` CI container** (`pr-validate.yml`) | `fedora:41` (pinned digest) | qecore/dogtail/GObject ABI target; PyGObject from Ubuntu breaks |
 | **Test runner image** (`container/Containerfile.runner`) | `fedora-minimal:latest` (rebuilt weekly) | Base for the runner container shipped to the VM |
 | **OS under test (gnomeos)** | `gnomeos-latest` (current Fedora / GNOME release) | `quay.io/gnome_infrastructure/gnome-build-meta` |
-| **OS under test (extension-validation lane)** | `gnomeos-nightly` (pinned digest) | reproducible GNOME OS build for the developer extension validation lane (#908) |
+| **OS under test (extension-validation lane)** | `gnomeos-nightly` (digest resolved per run; tags expire after 2 weeks) | GNOME OS build for the developer extension validation lane (#908); provenance recorded in `results/guest-provenance.json` |
 | **OS under test (Bluefin)** | Fedora 41 based (stable/gts/lts) | Do NOT test against F42 — Bluefin does not ship it |
 
 **Never use F42**: no Bluefin or Bazzite image is based on Fedora 42.
@@ -49,15 +49,13 @@ one moving part in the lane: the base image digest.
 > `docs/skills/ci-ops/e2e-workflow/references/gnome-extensions-validation.md` for the
 > open blockers.
 
-**Pinned digest (do not float):** the lane passes this digest reference — not the
-`gnomeos-nightly` tag — to the `gnome-e2e` action's `image` input.
+**Resolve the digest at dispatch time:** `gnomeos-*` digests expire two weeks after push, so
+no static pin is kept here. The lane resolves `gnomeos-nightly` to a digest per run and passes
+that `@sha256:…` reference — not the tag — to the `gnome-e2e` action's `image` input; see
+[gnomeos-guest-provenance.md](../../e2e-workflow/references/gnomeos-guest-provenance.md).
 
-```
-quay.io/gnome_infrastructure/gnome-build-meta@sha256:57eeef917d057e37d8d5824fab195ebf3b0ad49fc1ca191b7bc02b82418ed981
-```
-
-Sibling tags for reference only (not pinned for the lane): `gnomeos-51`,
-`gnomeos-50`, `gnomeos-latest`. If the nightly digest changes, re-derive it with:
+Sibling tags for reference only: `gnomeos-51`, `gnomeos-50`, `gnomeos-latest`.
+Resolve the current nightly digest with:
 
 ```bash
 skopeo inspect docker://quay.io/gnome_infrastructure/gnome-build-meta:gnomeos-nightly \
