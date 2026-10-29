@@ -37,6 +37,11 @@ RUN pkg-config --list-all | awk '$1 ~ /^libmutter-[0-9]+$/ {print $1}' \
 FROM base
 COPY --from=build /out/usr/ /usr/
 COPY --from=build /opt/gnomeos-harness/ /opt/gnomeos-harness/
+# Disposable test overlay: ordinary Screenshot callers need Shell unsafe mode.
+# Inspect the pinned runtime's unit and preserve its session-mode arguments.
+COPY configure_gnomeos_canary_shell.py /tmp/configure_gnomeos_canary_shell.py
+RUN python3 /tmp/configure_gnomeos_canary_shell.py \
+    && rm /tmp/configure_gnomeos_canary_shell.py
 RUN /opt/gnomeos-harness/bin/python -c 'import gi, dbus, ponytail.ponytail, uinput, qecore, behave, dogtail' \
     && ldd /usr/libexec/gnome-ponytail-daemon > /opt/gnomeos-harness/ponytail-libraries.txt \
     && ! grep -q 'not found' /opt/gnomeos-harness/ponytail-libraries.txt

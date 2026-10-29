@@ -37,6 +37,7 @@ SCENARIO_RE = re.compile(r"^\s*(?:Scenario|Scenario Outline)\s*:")
 # Hand-maintained prose per suite. Numbers are computed; only this column is
 # edited by humans, and only when a suite's *purpose* changes (rarely).
 SUITE_NOTES: dict[str, str] = {
+    "gnomeos-canary": "Dispatch-only native GNOME OS input/AT-SPI baseline; no candidate extensions; strict result + process gate",
     "smoke": "39 `@pending` flatpak-permission audits blocked on CI never seeding system Flatpaks; MIME handler coverage (Firefox/Papers/Loupe/Text Editor/video); GNOME accessibility (AT-SPI daemon, high-contrast toggle, a11y panel); display fractional/integer scaling via Mutter DisplayConfig; Bluefin desktop identity (Wayland, hardware accel, Dash to Dock); GNOME regression guards in gnome_regression.feature; Dakota sudo-rs privilege and PAM checks",
     "developer": "6 brew + 6 ptyxis now `@pending`: `brew-setup.service` masked in CI (#487) and the ptyxis AT-SPI restart issue (#368)",
     "software": "Bazaar launch + search + CLI presence/info/remote + config YAML validation active on bluefin; Bazaar UI tests rewritten for actual Bazaar layout; CLI (Flathub remote + permissions DB) active on all images; Flatpak per-app permission management active on all images; upstream GNOME Software scenarios are `@future` (#847)",

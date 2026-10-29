@@ -40,6 +40,20 @@ GNOME's supported distribution channel remains DDI/sysupdate.
 
 ## Evidence contract
 
+The disposable overlay starts GNOME Shell with `--unsafe-mode` so the canary's
+ordinary `gdbus` caller can use `org.gnome.Shell.Screenshot`. Setting unsafe mode
+through `Shell.Eval` after startup cannot bootstrap this permission. The build
+inspects the pinned runtime's Shell user service, preserves its `ExecStart`
+arguments (including `--mode=%i` in newer template units), and adds a systemd
+drop-in. A missing unit or unknown executable fails the build. This also enables
+`Shell.Eval` inside the disposable guest; never apply the overlay to a normal
+desktop or treat it as isolation for candidate code.
+
+Upstream's [Shell service template](https://github.com/GNOME/gnome-shell/blob/main/data/org.gnome.Shell%40.service.in)
+and [screenshot sender checks](https://github.com/GNOME/gnome-shell/blob/main/js/ui/screenshot.js)
+explain the startup and permission contracts. Unit layouts can change; inspect
+the build's `Canary Shell startup` log before relying on a new pinned image.
+
 Download `gnomeos-desktop-canary` from the run:
 
 - `harness-provenance.json`: official runtime/devel digest references, verified
