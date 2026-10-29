@@ -66,23 +66,24 @@ units:
   flatpak-preinstall.service:
     category: startup_contract
     mask_sites: [kernel_args]
-    profiles: [bluefin, bluefin-lts, aurora]
+    profiles: [bluefin, bluefin-lts, aurora, dakota]
     evidence:
       - projectbluefin/common system_files/shared/usr/lib/systemd/system/flatpak-preinstall.service
       - ublue-os/bluefin build_files/base/17-cleanup.sh (systemctl enable flatpak-preinstall.service)
       - ublue-os/aurora system_files/shared/usr/lib/systemd/system-preset/89-aurora.preset
+      - projectbluefin/dakota elements/bluefin/firstboot-services.bst (flatpak-preinstall.service.d drop-in) and elements/bluefin/flatpak-apps.bst (preinstall.d)
     fast_lane_substitute: e2e.yml sideloads flatpak-app-list.txt from a runner cache into the system installation
     blocks: smoke flatpak_permissions system-wide installs (x39), common flatpak model/state and services scenarios
     notes: >-
-      Bluefin images ship preinstall.d files but no remotes.d file. The ISO
-      installer (the install-flatpaks.sh that projectbluefin/iso Justfile writes) and the
-      install-system-flatpaks ujust recipe run `flatpak remote-add --system
-      flathub`, so bootc install to-disk boots with no system remote.
+      The image must ship the Flathub remote itself, as a pinned
+      /etc/flatpak/remotes.d/flathub.flatpakrepo (projectbluefin/finpilot
+      build/10-overlay.sh and projectbluefin/utah scripts/configure-services.sh
+      do this): preinstall.d refs install at first boot, before any installer
+      or ujust recipe can add one.
     startup_lane:
       expect: completed
       deadline_s: 1800
       checks: [flatpak]
-      flatpak_remote: installer
 
   NetworkManager-wait-online.service:
     category: startup_contract

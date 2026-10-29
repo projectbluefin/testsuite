@@ -29,12 +29,12 @@ on:
       image:
         description: "OCI image to qualify"
         type: string
-        default: "ghcr.io/projectbluefin/bluefin:stable"
+        default: "ghcr.io/projectbluefin/dakota:testing"
       profile:
         description: "Inventory profile the image belongs to (selects required units)"
         type: choice
-        options: [bluefin, bluefin-lts, aurora, bazzite]
-        default: bluefin
+        options: [dakota, bluefin, bluefin-lts, aurora, bazzite]
+        default: dakota
       negative_control:
         description: "Also run the deliberately broken control job"
         type: choice
@@ -65,8 +65,8 @@ jobs:
         control: ${{ fromJSON(inputs.negative_control == 'skip' && '["candidate"]' || '["candidate","broken"]') }}
 
     env:
-      IMAGE: ${{ inputs.image || 'ghcr.io/projectbluefin/bluefin:stable' }}
-      PROFILE: ${{ inputs.profile || 'bluefin' }}
+      IMAGE: ${{ inputs.image || 'ghcr.io/projectbluefin/dakota:testing' }}
+      PROFILE: ${{ inputs.profile || 'dakota' }}
       CONTROL: ${{ matrix.control }}
       SSH_COMMON: "-i /tmp/vm_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ControlMaster=auto -o ControlPersist=600 -o ControlPath=/tmp/ssh-ctrl-%C -o ConnectTimeout=3"
 

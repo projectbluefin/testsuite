@@ -114,7 +114,7 @@ def test_validate_rejects_bad_flatpak_remote(inventory):
 
 
 def test_plan_never_masks_a_required_startup_unit(inventory):
-    for profile in ("bluefin", "bluefin-lts", "aurora", "bazzite"):
+    for profile in ("dakota", "bluefin", "bluefin-lts", "aurora", "bazzite"):
         env = lane.plan(inventory, profile)
         masked = set(re.findall(r"systemd\.mask=(\S+)", env["KERNEL_MASKS"]))
         required = set(lane.required_units(inventory, profile))
@@ -147,8 +147,23 @@ def test_plan_for_bluefin(inventory):
     assert env["NEGATIVE_CONTROL_UNIT"] in lane.required_units(inventory, "bluefin")
 
 
+def test_plan_for_dakota(inventory):
+    env = lane.plan(inventory, "dakota")
+    assert env["SYSTEM_UNITS"].split() == [
+        "NetworkManager-wait-online.service",
+        "flatpak-preinstall.service",
+    ]
+    assert env["USER_UNITS"].split() == []
+    assert env["CHECKS"] == "flatpak"
+
+
+def test_inventory_expects_the_image_to_ship_its_remote(inventory):
+    lane_cfg = inventory["flatpak-preinstall.service"]["startup_lane"]
+    assert lane_cfg.get("flatpak_remote", "image") == "image"
+
+
 def test_negative_control_unit_is_required_on_every_profile(inventory):
-    for profile in ("bluefin", "bluefin-lts", "aurora", "bazzite"):
+    for profile in ("dakota", "bluefin", "bluefin-lts", "aurora", "bazzite"):
         assert lane.NEGATIVE_CONTROL_UNIT in lane.required_units(inventory, profile), profile
 
 
@@ -336,9 +351,9 @@ def test_image_provided_remote_missing_fails_the_ref(inventory):
 
 
 def test_installer_provided_remote_leaves_refs_not_qualified(inventory):
-    # bluefin:stable on bootc install to-disk: no remotes.d, no remote, nothing installed.
+    # bootc install to-disk of an image with no remotes.d: no remote, nothing installed.
     no_remote = evidence(remotes_declared=(), remotes=(), installed=())
-    report = lane.evaluate(inventory, "bluefin", no_remote, elapsed=600)
+    report = lane.evaluate(with_flatpak_remote(inventory, "installer"), "bluefin", no_remote, elapsed=600)
     got = statuses(report)
     assert got["flatpak remote"] == lane.DEFERRED
     assert got["flatpak io.github.kolunmi.Bazaar"] == lane.DEFERRED
@@ -358,7 +373,8 @@ def test_installer_provided_remote_leaves_refs_not_qualified(inventory):
     ],
 )
 def test_installer_provided_remote_still_fails_real_gaps(inventory, kwargs, subject, why):
-    report = lane.evaluate(inventory, "bluefin", evidence(**kwargs), elapsed=PAST_FLATPAK_DEADLINE)
+    installer = with_flatpak_remote(inventory, "installer")
+    report = lane.evaluate(installer, "bluefin", evidence(**kwargs), elapsed=PAST_FLATPAK_DEADLINE)
     finding = next(f for f in report.findings if f.subject == subject)
     assert finding.status == lane.FAIL
     assert why in finding.detail
