@@ -40,7 +40,7 @@ curl -sI -H "Authorization: Bearer $TOKEN" \
 
 ### Resolving the digest in a workflow
 
-No workflow does this yet. A sketch of a `resolve` job whose output feeds the `gnome-e2e`
+The [native desktop canary](gnomeos-desktop-canary.md) resolves both runtime and development images in `scripts/build-gnomeos-harness.sh`. For other callers, a sketch of a `resolve` job whose output feeds the `gnome-e2e`
 `image:` input (the e2e job declares `needs: resolve`):
 
 ```yaml
@@ -97,3 +97,21 @@ in place of a qecore error ten minutes later. It records `is_gnome_os` from `os-
 never labelled GNOME OS. The final path component is checked with `lexists` and never resolved,
 and hits under a parent directory that resolves outside the guest tree are discarded, so
 absolute guest symlinks are not followed onto the host.
+
+
+## Native harness overlay and baseline caller
+
+`container/Containerfile.gnomeos-harness` supplies the missing Ponytail daemon
+and Python test stack using the matching GNOME OS development image. It rejects
+a base/development build-commit mismatch and verifies the source archive hash,
+native imports and library linkage. The script records official base and builder
+digest references separately from the resulting local harness image ID.
+
+Use the dispatch-only `gnomeos-canary.yml` baseline to exercise the overlay with
+real input and AT-SPI readback. It accepts no installed extensions, retains
+provisioning/desktop evidence, and applies the strict result gate plus the actual
+qecore/Behave process exit code. Local action calls use the caller's repository
+so fork branches can test their matching content. An overlay-supplied test
+virtual environment avoids trying to compile C extensions in the runtime image.
+See [commands, evidence and limits](gnomeos-desktop-canary.md). This is an
+implementation to run, not evidence that GNOME OS has booted successfully.
