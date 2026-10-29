@@ -383,10 +383,10 @@ def test_extension_validation_gate_step_is_present_and_scoped():
     """The extensions lane must stay hard-gated on scripts/extension_validation.py.
 
     It must run even when behave failed (``always()``) and only for the
-    extensions suite, so other suites keep the e2e_summary headline.
+    extensions suite and GNOME OS canary, so other suites keep the e2e_summary headline.
     """
     step = _gate_step()
 
-    assert "if: always() && inputs.suite == 'extensions'" in step
+    assert "if: always() && (inputs.suite == 'extensions' || inputs.suite == 'gnomeos-canary')" in step
     assert "_testsuite/scripts/extension_validation.py" in step
     assert "results/results.json" in step

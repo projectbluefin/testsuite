@@ -204,12 +204,12 @@ def test_main_rejects_non_directory_root(tmp_path: Path) -> None:
 ACTION = Path(__file__).parents[2] / ".github" / "actions" / "gnome-e2e" / "action.yml"
 
 
-def test_action_runs_preflight_before_boot_for_extensions_only() -> None:
+def test_action_runs_preflight_before_boot_for_extensions_and_canary() -> None:
     text = ACTION.read_text(encoding="utf-8")
     install = text.partition("- name: Install OCI image and configure disk")[2].partition("\n    - name:")[0]
     assert install, "Install OCI image step not found in the gnome-e2e action"
     assert "GNOME_E2E_SUITE: ${{ inputs.suite }}" in install
-    assert 'if [[ "${GNOME_E2E_SUITE}" == "extensions" ]]; then' in install
+    assert 'if [[ "${GNOME_E2E_SUITE}" == "extensions" || "${GNOME_E2E_SUITE}" == "gnomeos-canary" ]]; then' in install
     assert "_testsuite/scripts/guest_preflight.py" in install
     assert "results/guest-provenance.json" in install
     # the loop device and mounts are released before the step fails

@@ -1,0 +1,68 @@
+name: GNOME OS desktop canary
+
+# Explicit experiment only. Does not install or validate candidate extensions.
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Free disk space
+        uses: ublue-os/remove-unwanted-software@cc0becac701cf642c8f0a6613bbdaf5dc36b259e # v9
+        with:
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
+
+      - name: Build native harness over pinned official GNOME OS
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends skopeo
+          sudo bash scripts/build-gnomeos-harness.sh results
+          sudo chown -R "$(id -u):$(id -g)" results
+
+      - name: Boot GNOME OS and exercise real input and accessibility
+        uses: ./.github/actions/gnome-e2e
+        with:
+          image: localhost/gnomeos-harness:canary
+          suite: gnomeos-canary
+          testsuite-ref: ${{ github.sha }}
+          free-disk-space: 'false'
+
+      - name: Collect guest journal and stop VM
+        if: always()
+        run: |
+          mkdir -p results
+          if [[ -f /tmp/gnome_e2e_key ]]; then
+            ssh -i /tmp/gnome_e2e_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              -o BatchMode=yes -o ConnectTimeout=5 -p 2222 bluefin-test@127.0.0.1 \
+              'sudo journalctl -b --no-pager' > results/guest-journal.txt 2>&1 || true
+            ssh -i /tmp/gnome_e2e_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              -o BatchMode=yes -o ConnectTimeout=5 -p 2222 bluefin-test@127.0.0.1 \
+              'cat /opt/gnomeos-harness/packages.txt' > results/harness-packages.txt 2>&1 || true
+          fi
+          if [[ -f /tmp/gnome_e2e_qemu.pid ]]; then
+            sudo kill "$(cat /tmp/gnome_e2e_qemu.pid)" || true
+          fi
+          sudo chown -R "$(id -u):$(id -g)" results
+
+      - name: Retain provenance, provisioning and desktop evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: gnomeos-desktop-canary
+          path: |
+            results/
+            bootc-install.log
+            vm-serial.log
+          if-no-files-found: error

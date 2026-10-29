@@ -101,3 +101,14 @@ When counts change, update the co-authoritative sources:
 
 - `docs/skills/test-authoring/suite-map/SKILL.md` — per-suite table
 - `docs/qa-review.md` — totals line and stub posture
+
+## GNOME OS provisioning canary
+
+The dispatch-only `.github/workflows/gnomeos-canary.yml` builds a native harness
+on an official GNOME OS runtime, boots it through `gnome-e2e`, and runs
+`tests/gnomeos-canary` under qecore-headless. It does not run the Bluefin smoke
+suite or install candidate extensions. Download `gnomeos-desktop-canary` from
+the run to inspect pinned base/builder provenance, boot logs, input/AT-SPI
+readback, screenshot and journal. See
+[the canary reference](skills/ci-ops/e2e-workflow/references/gnomeos-desktop-canary.md)
+for commands and limits.

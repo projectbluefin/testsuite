@@ -38,8 +38,8 @@ Bluefin/Dakota image:
 - GDM autologin for the `bluefin-test` user; passwordless sudo for test automation
 - **real** GNOME Wayland session (Mutter) + AT-SPI bus (at-spi2-core)
 - `gnome-ponytail-daemon` (virtual input) driven by **qecore-headless** — **absent from stock
-  GNOME OS**; the action expects it in the image (`action.yml` header) and no overlay supplying
-  it exists yet, so it is an input to the lane, not a lane output
+  GNOME OS**; the [native harness overlay](gnomeos-desktop-canary.md) builds it against
+  matching GNOME OS libraries. A successful guest run is still required
 - SSH (port 2222 → 22) as `bluefin-test` for the harness to drive the guest
 
 ## The four hive extensions
@@ -59,9 +59,9 @@ behaviour features plus a cross-cutting `extension_lifecycle.feature`.
 > hard blocker stands between this snippet and a real run:
 >
 > 1. **Stock `gnomeos-nightly` has no `gnome-ponytail-daemon`.** The action requires it baked into
->    the OCI image (`action.yml:14`) — there is no dnf/rpm in the guest — and this lane ships **no
->    overlay/sysext that supplies it**. That overlay is unfinished work, not a documented step.
->    (`tests/extensions/` has landed via #914).
+>    the OCI image — there is no dnf/rpm in the guest. The native overlay and baseline
+>    caller are described in [gnomeos-desktop-canary.md](gnomeos-desktop-canary.md);
+>    neither a successful boot nor candidate credential isolation is established yet.
 >
 > Treat the commands as intended shape only; replace with the exact commands executed once a lab
 > run succeeds.
