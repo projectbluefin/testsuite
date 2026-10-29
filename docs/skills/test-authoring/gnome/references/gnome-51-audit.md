@@ -51,11 +51,13 @@ published fact suggests it may change.
 
 ## How to validate each row
 
-1. Build/run a pre-flip `gnomeos-51` image (`quay.io/gnome_infrastructure/gnome-build-meta`,
-   tag `51.rc` / `51.0`) through the repo's `manual.yml` manual-run workflow.
-   *No image or workflow target is available in this environment* — this step is
-   lab infra, not testsuite.
-2. Run the `smoke`, `bazzite`, `vanilla-gnome` and `software` suites against it.
+1. Run the published `gnomeos-51` image through the repo's `manual.yml`
+   manual-run workflow (see [Run target](#run-target) below). This does **not**
+   need `projectbluefin/lab`: `manual.yml` calls `e2e.yml`, whose jobs all run on
+   GitHub-hosted `ubuntu-latest`.
+2. Run the `smoke`, `vanilla-gnome` and `software` suites against it (`bazzite`
+   only exercises Bazzite-specific extensions; row 2's bazzite anchor needs a
+   Bazzite image, not gnomeos).
    The `software` suite's own `@future` rows are a separate inventory — see
    [gnome-51-software-revalidation.md](gnome-51-software-revalidation.md); a
    `software` run on gnomeos skips them, so it cannot validate them.
@@ -67,6 +69,34 @@ published fact suggests it may change.
 4. Version-branch (never delete) where behavior genuinely diverges, so Bluefin
    on 50 keeps working. See `docs/skills/test-authoring/behave/SKILL.md` for
    version-conditional step patterns.
+
+## Run target
+
+The image exists and is maintained upstream. As of 2026-10-26,
+`quay.io/gnome_infrastructure/gnome-build-meta` publishes `gnomeos-51`
+(rebuilt several times a week; last push 2026-10-25), while `gnomeos-latest`
+has **not** moved since 2026-08-07 — so `gnomeos-latest` is not a GNOME 51
+proxy. Pin the digest so the evidence is reproducible:
+
+```bash
+skopeo inspect docker://quay.io/gnome_infrastructure/gnome-build-meta:gnomeos-51 \
+  | jq -r '.Digest'
+# 2026-10-25: sha256:08a30780dc9c115c8da554b9db406cc2038308b765f6947292dd81fd12453860
+
+gh workflow run manual.yml --repo projectbluefin/testsuite --ref main \
+  -f image=quay.io/gnome_infrastructure/gnome-build-meta@sha256:<digest> \
+  -f suites=smoke,vanilla-gnome,software
+```
+
+Dispatching on `projectbluefin/testsuite` needs write access. A contributor
+can dispatch the same workflow on their fork (`manual.yml` passes
+`test_repository: github.repository`), but only after Actions workflows are
+enabled once in the fork's **Actions** tab — GitHub does not register a fork's
+workflows until then, and the REST API cannot do that step (`gh workflow run`
+returns `HTTP 404: workflow manual.yml not found`).
+
+Record the run URL and image digest next to each row when moving it out of
+`UNVALIDATED`.
 
 ## Coordination
 

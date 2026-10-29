@@ -24,9 +24,12 @@ Three Fedora versions appear in this repo. They are not interchangeable.
 
 ## GNOME 51 readiness (#826)
 
-`gnomeos-latest` tracks upstream and rolls from GNOME 50 to 51 **without any
-signal in this repo**. Before the flip, validate against a GNOME 51 tag
-(`gnomeos:51.rc` / `51.0` from `quay.io/gnome_infrastructure/gnome-build-meta`)
+`gnomeos-latest` is expected to roll from GNOME 50 to 51 **without any
+signal in this repo** (as of 2026-10-26 it has not moved since 2026-08-07, so it
+is not a GNOME 51 proxy). Validate against the `gnomeos-51` tag from
+`quay.io/gnome_infrastructure/gnome-build-meta` — there are no `51.rc` / `51.0`
+tags; pin its digest as described in the
+[GNOME 51 audit run target](../../../test-authoring/gnome/references/gnome-51-audit.md#run-target) —
 via a `manual.yml` run of the `vanilla-gnome` and `software` suites, then record
 the pass/fail deltas here and in the `vanilla-gnome` suite-map Notes.
 
