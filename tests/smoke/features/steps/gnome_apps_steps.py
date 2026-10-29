@@ -211,8 +211,9 @@ def _matching_apps(app_names: tuple[str, ...]) -> list:
 
 def _app(app_names: tuple[str, ...], label: str):
     """Take one application snapshot; the window waiter owns all retries."""
-    for app in _matching_apps(app_names):
-        return app
+    matches = _matching_apps(app_names)
+    if matches:
+        return matches[0]
     raise AssertionError(f"{label} application was not found via AT-SPI")
 
 
