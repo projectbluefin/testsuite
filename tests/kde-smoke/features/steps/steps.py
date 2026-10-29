@@ -26,6 +26,8 @@ from tests.shared.kde_shell_steps import wait_until as _shared_wait_until
 
 _IN_CONTAINER = os.path.lexists("/proc/1/ns/mnt") and not os.path.isfile("/usr/bin/bootc")
 
+# Failed-unit exemptions are separate from startup masks; see
+# docs/skills/ci-ops/ops/SKILL.md and the startup-service inventory linked there.
 IGNORED_FAILED_UNITS_IN_VM = {
     "mcelog.service",
     "avahi-daemon.service",
