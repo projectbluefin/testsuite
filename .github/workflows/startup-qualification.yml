@@ -161,6 +161,10 @@ jobs:
           # Guest access only: test user, sshd, key, sudo. Nothing that
           # changes what first boot installs or configures.
           for DEP in $(sudo find /mnt/root/ostree/deploy/default/deploy -maxdepth 1 -mindepth 1 -type d); do
+            # CI VMs are not users: opt out of the daily countme ping
+            # (projectbluefin-countme.service honours this marker).
+            sudo mkdir -p "${DEP}/etc/projectbluefin/countme"
+            sudo touch "${DEP}/etc/projectbluefin/countme/disabled"
             sudo mkdir -p "${DEP}/etc/systemd/system/multi-user.target.wants/" "${DEP}/etc/ssh/sshd_config.d/" "${DEP}/etc/tmpfiles.d/"
             sudo ln -sf /usr/lib/systemd/system/sshd.service "${DEP}/etc/systemd/system/multi-user.target.wants/sshd.service"
             sudo ssh-keygen -A -f "${DEP}" 2>/dev/null || true

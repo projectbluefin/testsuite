@@ -226,6 +226,10 @@ runs:
         sudo chown runner:runner ./vmlinuz ./initramfs.img
 
         sudo mkdir -p "${D}/etc/systemd/system/multi-user.target.wants/"
+        # CI VMs are not users: opt out of the daily countme ping
+        # (projectbluefin-countme.service honours this marker).
+        sudo mkdir -p "${D}/etc/projectbluefin/countme"
+        sudo touch "${D}/etc/projectbluefin/countme/disabled"
         sudo ln -sf /usr/lib/systemd/system/sshd.service \
           "${D}/etc/systemd/system/multi-user.target.wants/sshd.service"
         sudo ssh-keygen -A -f "${D}" 2>/dev/null || true
