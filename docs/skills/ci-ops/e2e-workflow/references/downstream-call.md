@@ -28,7 +28,7 @@ Do **not** use a full SHA pin (creates Renovate churn) or `@main` (floating, sec
 
 | Input | Type | Default | Description |
 |-------|------|---------|-------------|
-| `image` | string | `ghcr.io/projectbluefin/dakota:latest` | OCI image to test (must be a bootc/ostree image) |
+| `image` | string | `ghcr.io/projectbluefin/dakota:testing` | OCI image to test (must be a bootc/ostree image) |
 | `target-image` | string | `""` | Full OCI ref to upgrade TO (optional). When set and the `lifecycle` suite is running, stages this image via `bootc switch` before the test suite. Used for migration testing. |
 | `suites` | string | `smoke` | Comma-separated suite names: `smoke`, `developer`, `dx`, `software`, `vanilla-gnome`, `bazzite`, `common`. Note: `lifecycle` is also accepted but is not listed in the input description — use `manual.yml` or `projectbluefin/actions` wrapper workflows for lifecycle runs. |
 | `skip_native_apps` | boolean | `false` | When `true`, skips `@native_app` scenarios (Flatpak apps that may not be installed in all variants) |
