@@ -178,6 +178,10 @@ jobs:
 
           for DEP in $(sudo find /mnt/root/ostree/deploy/default/deploy \
               -maxdepth 1 -mindepth 1 -type d 2>/dev/null); do
+            # CI VMs are not users: opt out of the daily countme ping
+            # (projectbluefin-countme.service honours this marker).
+            sudo mkdir -p "${DEP}/etc/projectbluefin/countme"
+            sudo touch "${DEP}/etc/projectbluefin/countme/disabled"
 
             # Enable sshd
             sudo mkdir -p "${DEP}/etc/systemd/system/multi-user.target.wants/"
