@@ -945,26 +945,77 @@ def compass_service_wanted_by_session(context) -> None:
     )
 
 
-@step("Compass user service is restarted and answers ping within {timeout:d} seconds")
-def compass_service_restarted_and_pings(context, timeout: int) -> None:
-    # ConditionPathExists is false at login when preinstall finishes later.
-    _, rc, err = _run_host(_SESSION + "systemctl --user restart compass.service")
-    assert rc == 0, f"systemctl --user restart compass.service failed: {err}"
+def _compass_engine_ps() -> tuple[list[str], str]:
+    """Return (engine lines, full compass ps listing).
+
+    An engine is the sandboxed binary itself (argv[0] basename ``compass``,
+    e.g. /app/extra/compass/usr/bin/compass) running ``serve --no-hotkey``;
+    the bwrap and ``flatpak run`` wrappers carry other argv[0]s.
+    """
+    out, _, _ = _run_host("ps -eo pid=,ppid=,user=,args=")
+    listing = [line for line in out.splitlines() if "compass" in line.lower()]
+    engines = []
+    for line in listing:
+        argv = line.split()[3:]
+        if (argv and os.path.basename(argv[0]) == "compass"
+                and "serve" in argv and "--no-hotkey" in argv):
+            engines.append(line)
+    return engines, "\n".join(listing)
+
+
+def _compass_ping_rc() -> tuple[int, str]:
+    out, rc, err = _run_host(_SESSION + "timeout 15 flatpak run org.tunaos.compass ping")
+    return rc, (err or out)
+
+
+def _systemctl_user(verb: str) -> None:
+    _, rc, err = _run_host(_SESSION + f"systemctl --user {verb} compass.service", timeout=60)
+    assert rc == 0, f"systemctl --user {verb} compass.service failed: {err}"
+
+
+@step("Compass user service is stopped and its engine is gone within {timeout:d} seconds")
+def compass_service_stopped(context, timeout: int) -> None:
+    _systemctl_user("stop")
+    deadline = time.monotonic() + timeout
+    while True:
+        ping_rc, ping_out = _compass_ping_rc()
+        engines, listing = _compass_engine_ps()
+        if ping_rc != 0 and not engines:
+            return
+        if time.monotonic() >= deadline:
+            raise AssertionError(
+                f"Compass engine survived 'systemctl --user stop' for {timeout}s: "
+                f"ping rc={ping_rc} {ping_out}; engines={len(engines)}\n{listing}"
+            )
+        sleep(2)
+
+
+@step("Compass user service is {verb} with one serving engine within {timeout:d} seconds")
+def compass_service_serves_one_engine(context, verb: str, timeout: int) -> None:
+    action = {"started": "start", "restarted": "restart"}[verb]
+    _systemctl_user(action)
     deadline = time.monotonic() + timeout
     while True:
         active, _, _ = _run_host(_SESSION + "systemctl --user is-active compass.service")
-        out, ping_rc, ping_err = _run_host(_SESSION + "flatpak run org.tunaos.compass ping")
-        if active == "active" and ping_rc == 0:
-            return
+        ping_rc, ping_out = _compass_ping_rc()
+        engines, listing = _compass_engine_ps()
+        if active == "active" and ping_rc == 0 and len(engines) == 1:
+            break
         if time.monotonic() >= deadline:
             status, _, _ = _run_host(
-                _SESSION + "systemctl --user status --no-pager compass.service 2>&1"
+                _SESSION + "systemctl --user status --no-pager -l compass.service 2>&1"
             )
             raise AssertionError(
-                f"compass.service not serving after {timeout}s: is-active={active!r} "
-                f"ping rc={ping_rc} {ping_err or out}\n{status}"
+                f"compass.service not serving one engine {timeout}s after {action}: "
+                f"is-active={active!r} ping rc={ping_rc} {ping_out}; "
+                f"engines={len(engines)}\n{listing}\n{status}"
             )
         sleep(2)
+    if action == "restart":
+        restarts, _, _ = _run_host(_SESSION + "systemctl --user show -p NRestarts compass.service")
+        assert restarts == "NRestarts=0", (
+            f"compass.service crash-looped after restart: {restarts!r}\n{listing}"
+        )
 
 
 _COMPASS_DIAG_CMDS = (
