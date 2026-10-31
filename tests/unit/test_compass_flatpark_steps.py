@@ -174,22 +174,50 @@ def test_home_grant_fails_the_contract():
         m.flatpak_system_app_has_no_home_grant(MagicMock(), m.COMPASS_APP_ID)
 
 
-def test_engine_launch_detaches_from_the_callers_pipes():
-    """Runs 41216241735/41216246249: `... &` kept run_ssh's pipes open for 60 s."""
+def test_engine_runs_as_a_user_unit_outside_the_ssh_session():
+    """Run 41219770747: Dakota's logind KillUserProcesses=yes killed an SSH-started engine."""
     import shlex
-    import subprocess
-    import time
 
-    argv = shlex.split(m._COMPASS_LAUNCH)
-    assert argv[:4] == ["setsid", "-f", "sh", "-c"]
-    assert argv[4] == f"{m._COMPASS_RUN} serve --no-hotkey"
-    assert argv[5:] == ["</dev/null", f">{m.COMPASS_SERVE_LOG}", "2>&1"]
-    # The same shape returns at once even though the detached child outlives it.
-    detached = m._COMPASS_LAUNCH.replace(m._COMPASS_RUN + " serve --no-hotkey", "sleep 5").replace(
-        m.COMPASS_SERVE_LOG, "/dev/null")
-    started = time.monotonic()
-    subprocess.run(["bash", "-c", detached], capture_output=True, timeout=4, check=True)
-    assert time.monotonic() - started < 3
+    assert m._COMPASS_LAUNCH.startswith(m._IN_SESSION)
+    argv = shlex.split(m._COMPASS_LAUNCH.removeprefix(m._IN_SESSION))
+    assert argv[:4] == ["systemd-run", "--user", "--collect", "--expand-environment=no"]
+    assert f"--unit={m.COMPASS_UNIT}" in argv
+    assert f"StandardOutput=truncate:{m.COMPASS_SERVE_LOG}" in argv and "StandardError=inherit" in argv
+    assert argv[-3:] == ["sh", "-c", f"{m._COMPASS_RUN} serve --no-hotkey"]
+
+
+def test_ping_timeout_reports_stderr_log_unit_and_logind_state():
+    context = MagicMock()
+    calls = []
+
+    def fake(ctx, cmd, timeout=60):
+        calls.append(cmd)
+        ctx.last_ssh_result = MagicMock(stderr="no Compass engine is listening")
+        if cmd.endswith(" ping"):
+            return "", 1
+        if "== systemctl --user show" in cmd:
+            return "ActiveState=failed\n== /tmp/compass-serve.log\nboom", 0
+        return "", 0
+
+    with patch.object(m, "run_ssh", fake), patch.object(m, "time") as clock:
+        clock.monotonic.side_effect = [0, 100]
+        with pytest.raises(AssertionError) as raised:
+            m.compass_engine_runs_in_session(context)
+    message = str(raised.value)
+    assert "stderr: no Compass engine is listening" in message
+    assert "ActiveState=failed" in message and "boom" in message
+    diagnostics = next(c for c in calls if "== systemctl --user show" in c)
+    assert diagnostics.startswith("{ ") and diagnostics.endswith("; } 2>&1")
+    for probe in (f"cat {m.COMPASS_SERVE_LOG}", "flatpak ps", "KillUserProcesses"):
+        assert probe in diagnostics
+
+
+def test_cleanup_stops_the_unit_and_kills_a_leftover_instance():
+    fake, calls = _ssh({"flatpak ps": ("", 0)})
+    with patch.object(m, "run_ssh", fake):
+        m._stop_compass(MagicMock())
+    assert f"{m._IN_SESSION}systemctl --user stop {m.COMPASS_UNIT}" in calls
+    assert "flatpak kill org.tunaos.compass" in calls
 
 
 PING = "engine alive on /run/user/1000/app/org.tunaos.compass/testsuite-ipc.sock: protocol v3, pid 2"
