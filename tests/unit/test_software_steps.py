@@ -218,34 +218,6 @@ class TestFlatpakPermissionsTable:
 
 
 # ---------------------------------------------------------------------------
-# flatpak_user_override_is_active — fragment assertion
-# ---------------------------------------------------------------------------
-
-class TestFlatpakUserOverrideIsActive:
-    def test_passes_when_fragment_in_output(self):
-        m = _import_software_steps()
-        with patch.object(m, "_flatpak", return_value=_completed(stdout="--filesystem=home", rc=0)):
-            ctx = MagicMock()
-            m.flatpak_user_override_is_active(ctx, "--filesystem=home", "myapp")
-
-    def test_raises_when_fragment_missing(self):
-        m = _import_software_steps()
-        import pytest
-        with patch.object(m, "_flatpak", return_value=_completed(stdout="[Context]", rc=0)):
-            ctx = MagicMock()
-            with pytest.raises(AssertionError, match="not found"):
-                m.flatpak_user_override_is_active(ctx, "--filesystem=home", "myapp")
-
-    def test_raises_on_nonzero_rc(self):
-        m = _import_software_steps()
-        import pytest
-        with patch.object(m, "_flatpak", return_value=_completed(stdout="", rc=1)):
-            ctx = MagicMock()
-            with pytest.raises(AssertionError, match="failed"):
-                m.flatpak_user_override_is_active(ctx, "--filesystem=home", "myapp")
-
-
-# ---------------------------------------------------------------------------
 # no_flatpak_user_overrides_exist — keyfile key detection
 # ---------------------------------------------------------------------------
 

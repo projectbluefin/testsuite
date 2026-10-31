@@ -367,18 +367,6 @@ def set_flatpak_user_override(context, override: str, app_id: str) -> None:
     )
 
 
-@step('Flatpak user override "{fragment}" is active for "{app_id}"')
-def flatpak_user_override_is_active(context, fragment: str, app_id: str) -> None:
-    result = _flatpak(context, ["override", "--user", "--show", app_id])
-    assert result.returncode == 0, (
-        f"flatpak override --show {app_id} failed: "
-        f"rc={result.returncode}\nstdout={result.stdout}\nstderr={result.stderr}"
-    )
-    assert fragment in result.stdout, (
-        f"Override fragment {fragment!r} not found in override output for {app_id}:\n{result.stdout}"
-    )
-
-
 @step('Reset flatpak user overrides for "{app_id}"')
 def reset_flatpak_user_overrides(context, app_id: str) -> None:
     result = _flatpak(context, ["override", "--user", "--reset", app_id])
