@@ -441,9 +441,9 @@ Key differences from GNOME suites:
   was added to `ExecStart` and when the checkout ref was changed to `master`.
 - **Session setup:** SDDM autologin and a KDE determinism environment drop-in are
   written at disk-prep time.
-- **`passed > 0` backstop:** the step `Assert desktop suite has passing scenarios`
-  runs `python3 scripts/assert_passed.py results/results.json --skip-reason "${{ steps.kde_webdriver.outputs.skip_reason }}"` for KDE + GNOME GUI suites
-  (`if: ... && steps.run.outputs.behave_rc == '0'`), the verdict contract for the `e2e.yml` desktop suites (the `gnome-e2e` action does not call it yet): counts
+- **`passed > 0` backstop:** the step `Assert suite has passing scenarios`
+  runs `python3 scripts/assert_passed.py results/results.json --skip-reason "${{ steps.kde_webdriver.outputs.skip_reason }}"` for KDE, GNOME GUI, and common shards
+  (`if: ... && steps.run.outputs.behave_rc == '0'`), the verdict contract for those `e2e.yml` suites (the `gnome-e2e` action does not call it yet): counts
   `status == 'passed'` scenarios **positively** (backgrounds and other non-scenario elements ignored) and exits 1 with an `::error::`
   when `passed <= 0`, when `results.json` is missing/empty/truncated, or when a `failed_setup.txt` marker is present.
   A deliberately inapplicable shard (KDE webdriver stack could not be installed) passes through `--skip-reason` for a **passing** terminal state —

@@ -10,24 +10,16 @@ metadata:
 
 ## Cross-image tag skipping: @bluefin on non-bluefin images
 
-The common suite skips scenarios tagged `@bluefin` when `IMAGE` env var refers to a
-non-bluefin image (e.g. dakota). This is implemented via `_is_bluefin_image()` in
-`tests/common/features/environment.py`.
+The common and smoke suites skip scenarios tagged `@bluefin` unless the image
+under test ships Bluefin's common desktop layer. Both environments use
+`tests/shared/image_family.py`.
 
-**Pitfall**: match the image *name*, not the full URL. The org name `projectbluefin`
-contains `"bluefin"`, so naively checking `"bluefin" in image_url.lower()` returns
-`True` for `ghcr.io/projectbluefin/dakota:testing`.
+Read `BASE_IMAGE` before `IMAGE`: composed runs replace `IMAGE` with
+`ghcr.io/<owner>/testsuite-e2e:run-<id>`, which carries no family. Match only
+the image-name component, not the org: `projectbluefin` contains `bluefin`, so a
+URL-wide check would select Bluefin scenarios on Dakota.
 
-Correct pattern:
-
-```python
-def _is_bluefin_image(image: str) -> bool:
-    lower = image.lower()
-    name = lower.split("/")[-1].split(":")[0].split("@")[0]
-    return "bluefin" in name or "bazzite" in lower
-```
-
-This extracts the image name component (`bluefin`, `dakota`, etc.) before checking.
-
-The smoke suite environment replicates this same pattern so `@bluefin` tags are
-respected in AT-SPI tests as well.
+Bluefin-family names are `bluefin`, `bazzite`, `utah`, and `common`. Common's PR
+e2e image is named `common`, but it overlays common's `shared` and `bluefin`
+trees onto its base image. Utah is Bluefin built on Fedora Hummingbird. Dakota
+remains separate and selects `@dakota_only` scenarios.

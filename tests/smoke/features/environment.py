@@ -506,18 +506,13 @@ def before_all(context) -> None:
     else:
         print("WARNING: clock/system toggles not found after 15s — proceeding anyway", flush=True)
 
-    # Detect image family so variant-tagged scenarios can be skipped on the
-    # wrong image. Match only the image name component (last path segment before
-    # ':' or '@') — the org "projectbluefin" must not be treated as an image name.
-    image_ref = os.environ.get("IMAGE", "")
-    if image_ref:
-        _lower = image_ref.lower()
-        _name = _lower.split("/")[-1].split(":")[0].split("@")[0]
-        context.is_bluefin_image = "bluefin" in _name or "bazzite" in _name
-        context.is_dakota_image = "dakota" in _name
-    else:
-        context.is_bluefin_image = True  # default to Bluefin when IMAGE is unset
-        context.is_dakota_image = False
+    # Detect image family from BASE_IMAGE before IMAGE; composed runs replace
+    # IMAGE with a run-scoped testsuite ref that carries no family (#907).
+    from tests.shared.image_family import image_under_test, is_bluefin_image, is_dakota_image
+
+    image_ref = image_under_test()
+    context.is_bluefin_image = is_bluefin_image(image_ref) if image_ref else True
+    context.is_dakota_image = is_dakota_image(image_ref) if image_ref else False
 
     try:
         context.optional_scenario_availability = {

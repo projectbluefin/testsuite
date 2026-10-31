@@ -1478,6 +1478,7 @@ jobs:
                 -e BEHAVE_RETRIES=${BEHAVE_RETRIES:-2} \
                 -e TARGET_IMAGE=\"${TARGET_IMAGE}\" \
                 -e IMAGE=\"${IMAGE}\" \
+                -e BASE_IMAGE=\"${BASE_IMAGE}\" \
                 -e PYTHONPATH=/tmp/bluefin-tests \
                 ghcr.io/projectbluefin/testsuite:runner \
                 \"python3 /tmp/bluefin-tests/tests/shared/behave_retry.py ${REMOTE_FEATURE_ARGS} --format json.pretty --outfile /tmp/results/results.json --no-capture ${BEHAVE_TAG_ARGS}\"
@@ -1917,7 +1918,7 @@ jobs:
         if: steps.run.outputs.behave_rc != '0'
         run: exit "${{ steps.run.outputs.behave_rc }}"
 
-      # Backstop: every desktop suite must have at least one genuinely passing
+      # Backstop: every desktop suite and the common SSH suite must have at least one genuinely passing
       # scenario. behave exits 0 when a setup failure (failed_setup.txt) or a
       # self-disabled suite skips every scenario, so reading behave_rc alone is a
       # false green. assert_passed.py is the verdict contract for these suites (the
@@ -1927,12 +1928,13 @@ jobs:
       # deliberately inapplicable shard (KDE webdriver stack could not be
       # installed) is passed through --skip-reason and is a passing terminal
       # state for the gate, not a product failure.
-      - name: Assert desktop suite has passing scenarios
+      - name: Assert suite has passing scenarios
         if: |
           (startsWith(env.SUITE_DIR, 'kde') ||
            env.SUITE_DIR == 'smoke' || env.SUITE_DIR == 'developer' ||
            env.SUITE_DIR == 'dx' || env.SUITE_DIR == 'software' ||
-           env.SUITE_DIR == 'vanilla-gnome' || env.SUITE_DIR == 'bazzite') &&
+           env.SUITE_DIR == 'vanilla-gnome' || env.SUITE_DIR == 'bazzite' ||
+           env.SUITE_DIR == 'common') &&
           steps.run.outputs.behave_rc == '0'
         env:
           # Through env, not inline: the reason embeds strings read from the
