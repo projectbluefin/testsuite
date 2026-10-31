@@ -16,6 +16,7 @@ Instead we use a distinct step name: 'GNOME Shell is accessible via AT-SPI'.
 Step patterns sourced from: modehnal/GNOMETerminalAutomation steps.py
 dogtail API: root.application(), Node.findChild(), Node.child(roleName=)
 """
+import configparser
 import os
 import subprocess
 import time
@@ -880,15 +881,34 @@ def flatpak_installed_system_wide(context, app_id: str) -> None:
     assert rc == 0, f"{app_id} not installed system-wide: {stderr or stdout}"
 
 
-@step('Flatpak "{app_id}" sandbox does not have excessive filesystem permissions')
-def flatpak_no_excessive_permissions(context, app_id: str) -> None:
-    """Assert app_id is installed and its sandbox lacks host/home filesystem access."""
-    stdout, rc, stderr = _run_host(f"flatpak info --system {app_id}")
-    assert rc == 0, f"{app_id} not installed system-wide — cannot audit permissions: {stderr or stdout}"
-    perms_out, perms_rc, _ = _run_host(
-        f"flatpak info --system --show-permissions {app_id}"
+def _flatpak_filesystems(app_id: str) -> set[str]:
+    """Effective filesystems grants (app metadata + overrides) of a system Flatpak.
+
+    Parsed as a keyfile so every ';'-separated value counts, not only the first,
+    and grant names compare whole (``host-os`` is not ``host``).
+    """
+    out, rc, err = _run_host(f"flatpak info --system --show-permissions {app_id}")
+    assert rc == 0, f"{app_id} not installed system-wide — cannot audit permissions: {err or out}"
+    keyfile = configparser.ConfigParser(interpolation=None, strict=False)
+    keyfile.optionxform = str
+    keyfile.read_string(out)
+    return {v for v in keyfile.get("Context", "filesystems", fallback="").split(";") if v}
+
+
+def _assert_flatpak_filesystems(app_id: str, expected: set[str]) -> None:
+    actual = _flatpak_filesystems(app_id)
+    assert actual == expected, (
+        f"{app_id} filesystem grants drifted from the audited set.\n"
+        f"  unexpected: {sorted(actual - expected)}\n"
+        f"  missing:    {sorted(expected - actual)}"
     )
-    import re
-    assert not re.search(r"filesystems=(host|home)", perms_out), (
-        f"{app_id} has excessive filesystem access:\n{perms_out}"
-    )
+
+
+@step('Flatpak "{app_id}" grants exactly the filesystems "{filesystems}"')
+def flatpak_grants_exact_filesystems(context, app_id: str, filesystems: str) -> None:
+    _assert_flatpak_filesystems(app_id, {v for v in filesystems.split(";") if v})
+
+
+@step('Flatpak "{app_id}" grants no filesystem access')
+def flatpak_grants_no_filesystems(context, app_id: str) -> None:
+    _assert_flatpak_filesystems(app_id, set())

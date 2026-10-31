@@ -1,13 +1,49 @@
 @smoke_suite @bluefin
 Feature: OOTB Flatpak sandbox permission auditing
-  Verify that OOTB Flatpaks are installed and do not hold excessive
-  host filesystem access.
+  Pin the effective filesystem grants (Flathub metadata plus image overrides
+  from `flatpak info --system --show-permissions`) of the OOTB Flatpaks so any
+  widening or narrowing of host filesystem access fails with the diff.
 
-  # Pending: e2e.yml masks flatpak-preinstall.service and never seeds
-  # /var/lib/flatpak, so no system-wide Flatpaks exist in CI and every scenario
-  # below has nothing to audit. Coverage is real and planned; it becomes runnable
-  # once CI seeds system Flatpaks. Unmasking the service is a CI-interface change
-  # requiring human sign-off.
+  # Active audits cover the Flatpaks the Bluefin/Utah GUI lanes preload from
+  # flatpak-app-list.txt (flatpak-preinstall.service is masked in CI). Expected
+  # sets were read from installed Flathub builds on 2026-10-31 (Firefox 159.0,
+  # Bazaar 0.9.10, Papers 51.1, Loupe 51.rc, Showtime 50.0) plus the image
+  # override /usr/share/ublue-os/flatpak-overrides/io.github.kolunmi.Bazaar
+  # (filesystems=host-etc), linked into /var/lib/flatpak/overrides by
+  # /usr/lib/tmpfiles.d/bazaar-flatpak.conf on Bluefin and Utah.
+  # A Flathub permission change fails here on purpose: review it, then update.
+
+  @permissions
+  Scenario: Firefox Flatpak filesystem grants match the audited set
+    * Flatpak "org.mozilla.firefox" grants exactly the filesystems "xdg-config/gtk-3.0:ro;xdg-download;/run/.heim_org.h5l.kcm-socket;/run/udev:ro;xdg-run/speech-dispatcher:ro"
+
+  @permissions
+  Scenario: Bazaar Flatpak filesystem grants match the audited set including the image host-etc override
+    * Flatpak "io.github.kolunmi.Bazaar" grants exactly the filesystems "/var/tmp;/var/lib/flatpak;~/.var/app;xdg-data/flatpak;host-etc"
+
+  @permissions
+  Scenario: Papers Flatpak filesystem grants are read-only home and removable media
+    * Flatpak "org.gnome.Papers" grants exactly the filesystems "home:ro;/media:ro;xdg-run/gvfsd;/run/media:ro;xdg-run/gvfs"
+
+  # Loupe's upstream Flathub manifest grants full read-write `host`; pinned so
+  # the broad grant is visible and any change is reviewed.
+  @permissions
+  Scenario: Loupe Flatpak filesystem grants match the audited set
+    * Flatpak "org.gnome.Loupe" grants exactly the filesystems "xdg-run/gvfsd;host;xdg-run/gvfs"
+
+  @permissions
+  Scenario: Showtime Flatpak has no filesystem grants
+    * Flatpak "org.gnome.Showtime" grants no filesystem access
+
+  # Pending: the remaining system-flatpaks.Brewfile apps (common e33665e2
+  # system_files/bluefin/usr/share/ublue-os/homebrew/system-flatpaks.Brewfile)
+  # are not preloaded by CI, and flatpak-preinstall.service stays masked.
+  # Blocked until flatpak-app-list.txt seeds them (CI-interface change,
+  # human sign-off required).
+
+  @permissions @pending
+  Scenario: Calculator Flatpak has no filesystem grants
+    * Flatpak "org.gnome.Calculator" grants no filesystem access
 
   @permissions @pending
   Scenario: be.alexandervanhee.gradia is installed system-wide
@@ -34,24 +70,12 @@ Feature: OOTB Flatpak sandbox permission auditing
     * Flatpak "io.github.flattool.Ignition" is installed system-wide
 
   @permissions @pending
-  Scenario: io.github.flattool.Warehouse is installed system-wide
-    * Flatpak "io.github.flattool.Warehouse" is installed system-wide
-
-  @permissions @pending
-  Scenario: io.github.kolunmi.Bazaar is installed system-wide
-    * Flatpak "io.github.kolunmi.Bazaar" is installed system-wide
-
-  @permissions @pending
   Scenario: io.gitlab.adhami3310.Impression is installed system-wide
     * Flatpak "io.gitlab.adhami3310.Impression" is installed system-wide
 
   @permissions @pending
   Scenario: io.missioncenter.MissionCenter is installed system-wide
     * Flatpak "io.missioncenter.MissionCenter" is installed system-wide
-
-  @permissions @pending
-  Scenario: it.mijorus.smile is installed system-wide
-    * Flatpak "it.mijorus.smile" is installed system-wide
 
   @permissions @pending
   Scenario: org.gnome.Calculator is installed system-wide
@@ -94,24 +118,12 @@ Feature: OOTB Flatpak sandbox permission auditing
     * Flatpak "org.gnome.Logs" is installed system-wide
 
   @permissions @pending
-  Scenario: org.gnome.Loupe is installed system-wide
-    * Flatpak "org.gnome.Loupe" is installed system-wide
-
-  @permissions @pending
   Scenario: org.gnome.Maps is installed system-wide
     * Flatpak "org.gnome.Maps" is installed system-wide
 
   @permissions @pending
   Scenario: org.gnome.NautilusPreviewer is installed system-wide
     * Flatpak "org.gnome.NautilusPreviewer" is installed system-wide
-
-  @permissions @pending
-  Scenario: org.gnome.Papers is installed system-wide
-    * Flatpak "org.gnome.Papers" is installed system-wide
-
-  @permissions @pending
-  Scenario: org.gnome.Showtime is installed system-wide
-    * Flatpak "org.gnome.Showtime" is installed system-wide
 
   @permissions @pending
   Scenario: org.gnome.SimpleScan is installed system-wide
@@ -142,25 +154,9 @@ Feature: OOTB Flatpak sandbox permission auditing
     * Flatpak "org.gnome.font-viewer" is installed system-wide
 
   @permissions @pending
-  Scenario: org.mozilla.Thunderbird is installed system-wide
-    * Flatpak "org.mozilla.Thunderbird" is installed system-wide
-
-  @permissions @pending
-  Scenario: org.mozilla.firefox is installed system-wide
-    * Flatpak "org.mozilla.firefox" is installed system-wide
+  Scenario: org.mozilla.thunderbird is installed system-wide
+    * Flatpak "org.mozilla.thunderbird" is installed system-wide
 
   @permissions @pending
   Scenario: page.tesk.Refine is installed system-wide
     * Flatpak "page.tesk.Refine" is installed system-wide
-
-  @permissions @pending
-  Scenario: Calculator Flatpak has no host filesystem access
-    * Flatpak "org.gnome.Calculator" sandbox does not have excessive filesystem permissions
-
-  @permissions @pending
-  Scenario: Loupe Flatpak has no host filesystem access
-    * Flatpak "org.gnome.Loupe" sandbox does not have excessive filesystem permissions
-
-  @permissions @pending
-  Scenario: Firefox Flatpak has no host filesystem access
-    * Flatpak "org.mozilla.firefox" sandbox does not have excessive filesystem permissions

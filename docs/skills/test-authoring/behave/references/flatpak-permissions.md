@@ -54,6 +54,18 @@ Calling `_flatpak([...])` raises `TypeError` at runtime, and unit mocks that acc
 `*args` hide it. Unit-test the call signature (`inspect.signature`) or assert the mock
 was called with `context` as the first positional argument.
 
+## Smoke audits pin exact filesystem grants (#1073)
+
+`tests/smoke/features/flatpak_permissions.feature` compares the full effective
+`[Context] filesystems` set (`_flatpak_filesystems` keyfile-parses
+`flatpak info --system --show-permissions`, which merges image overrides) against
+an exact list, so both widening and narrowing fail with the diff. Only apps in
+`flatpak-app-list.txt` (preloaded on Bluefin/Utah GUI lanes) are active; the rest
+stay `@pending`. Take expectations from the installed Flathub build plus any
+`/usr/share/ublue-os/flatpak-overrides/<id>` the image links in via tmpfiles
+(Bazaar adds `host-etc`). Upstream grants that look broad (Loupe `host`, Papers
+`home:ro`) are pinned, not asserted away — the audit is drift detection.
+
 ## Installing a real Flatpak over SSH (FlatPark Compass, #1073)
 
 `compass_flatpark.feature` is the only active install/uninstall round-trip. What it
@@ -71,10 +83,10 @@ needed:
 - **Cleanup via `context.add_cleanup` from a step.** The same step first removes any
   leftover install, then registers the removal, so it runs even when a later step
   fails, without touching `environment.py`.
-- **Do not reuse the smoke permission regex** (`filesystems=(host|home)` in
-  `tests/smoke/features/steps/steps.py`): it flags `host-os:ro`, a legitimate
-  read-only grant. Parse `flatpak info --system --show-permissions` with
-  `context_values` and compare the grant name before `:` (`home`, `~`, `host`).
+- **Parse the grant list, never regex it.** Parse `flatpak info --system
+  --show-permissions` with `context_values` and compare the grant name before `:`
+  (`home`, `~`, `host`); a `filesystems=(host|home)` regex only sees the first
+  value and also matches `host-os:ro`, a legitimate read-only grant.
 - **Data survives uninstall.** Write a marker under `~/.var/app/<id>/` before
   `flatpak uninstall` without `--delete-data`, then read it back.
 - **Run the app across `flatpak run` instances.** Each sandbox gets its own

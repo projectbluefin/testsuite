@@ -316,3 +316,40 @@ class TestRunHost:
             stdout, rc, _ = m._run_host("echo hi")
         assert stdout == "hello world"
         assert rc == 0
+
+
+class TestFlatpakFilesystems:
+    PERMS = (
+        "[Context]\nshared=ipc;\nfilesystems=xdg-run/gvfsd;host;host-os:ro;~/.var/app;\n\n"
+        "[Session Bus Policy]\norg.gtk.vfs.*=talk\n"
+    )
+
+    def test_parses_every_value_not_just_first(self):
+        m = _import_steps()
+        with patch.object(m, "_run_host", return_value=(self.PERMS, 0, "")):
+            assert m._flatpak_filesystems("x") == {"xdg-run/gvfsd", "host", "host-os:ro", "~/.var/app"}
+
+    def test_no_filesystems_key_is_empty(self):
+        m = _import_steps()
+        with patch.object(m, "_run_host", return_value=("[Context]\nshared=ipc;\n", 0, "")):
+            assert m._flatpak_filesystems("x") == set()
+
+    def test_drift_fails_with_diff(self):
+        m = _import_steps()
+        with patch.object(m, "_run_host", return_value=(self.PERMS, 0, "")):
+            try:
+                m.flatpak_grants_exact_filesystems(None, "x", "xdg-run/gvfsd;host-os:ro;~/.var/app")
+            except AssertionError as e:
+                assert "unexpected: ['host']" in str(e)
+            else:
+                raise AssertionError("drift not detected")
+
+    def test_not_installed_fails(self):
+        m = _import_steps()
+        with patch.object(m, "_run_host", return_value=("", 1, "not installed")):
+            try:
+                m.flatpak_grants_no_filesystems(None, "x")
+            except AssertionError as e:
+                assert "not installed" in str(e)
+            else:
+                raise AssertionError("missing app not detected")
