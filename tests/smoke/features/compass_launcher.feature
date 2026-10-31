@@ -1,4 +1,4 @@
-@smoke_suite
+@smoke_suite @compass
 Feature: Compass launcher
   Compass (org.tunaos.compass) is preinstalled from FlatPark and bound to
   Super+Space through a GNOME custom keybinding.
@@ -12,6 +12,7 @@ Feature: Compass launcher
     * Compass user service is restarted and answers ping within 60 seconds
     * GNOME Shell is accessible via AT-SPI
     * Key combo: "<Super>space"
+    * Compass diagnostics are logged
     * Compass launcher window is visible within 60 seconds
     * Key combo: "<Super>space"
     * Compass launcher window is hidden within 30 seconds

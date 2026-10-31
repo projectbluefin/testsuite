@@ -967,12 +967,42 @@ def compass_service_restarted_and_pings(context, timeout: int) -> None:
         sleep(2)
 
 
+_COMPASS_DIAG_CMDS = (
+    "ps -eo pid,ppid,user,args | grep -i [c]ompass",
+    "systemctl --user status compass.service --no-pager -l 2>&1 | tail -30",
+    "journalctl --user -b --no-pager 2>&1 | grep -i -E 'compass|media-keys|custom' | tail -80",
+    "systemctl --user show-environment | grep -E 'WAYLAND|DISPLAY|XDG_SESSION|DBUS'",
+    "timeout 20 flatpak run org.tunaos.compass doctor 2>&1 | tail -60",
+    "timeout 10 flatpak run org.tunaos.compass logs 2>&1 | tail -80",
+)
+
+
+def _compass_diagnostics(include_toggle: bool) -> str:
+    cmds = list(_COMPASS_DIAG_CMDS)
+    if include_toggle:
+        # Mutates launcher state, so only run once the assertion has failed.
+        cmds.append("timeout 15 flatpak run org.tunaos.compass toggle 2>&1; echo rc=$?")
+    parts = []
+    for cmd in cmds:
+        out, rc, err = _run_host(_SESSION + cmd, timeout=40)
+        parts.append(f"$ {cmd}  [rc={rc}]\n{out}\n{err}".rstrip())
+    report = "\n".join(parts)
+    print(f"── Compass diagnostics ──\n{report}", flush=True)
+    return report
+
+
+@step("Compass diagnostics are logged")
+def compass_diagnostics_are_logged(context) -> None:
+    _compass_diagnostics(include_toggle=False)
+
 
 @step("Compass launcher window is {state} within {timeout:d} seconds")
 def compass_window_state_within(context, state: str, timeout: int) -> None:
     assert state in ("visible", "hidden"), f"unknown state {state!r}"
     if _wait_eval_bool(_COMPASS_VISIBLE_JS, state == "visible", retries=timeout, delay=1):
         return
+    windows = _shell_eval(_WINDOWS_JS)
     raise AssertionError(
-        f"Compass window not {state} after {timeout}s; windows: {_shell_eval(_WINDOWS_JS)}"
+        f"Compass window not {state} after {timeout}s; windows: {windows}\n"
+        + _compass_diagnostics(include_toggle=True)
     )
