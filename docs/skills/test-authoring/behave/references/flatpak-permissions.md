@@ -72,8 +72,8 @@ and Utah. Take expectations from the installed Flathub build plus any
 
 ## Installing a real Flatpak over SSH (FlatPark Compass, #1073)
 
-`compass_flatpark.feature` is the only active install/uninstall round-trip. What it
-needed:
+`compass_flatpark.feature` is the CLI install/uninstall round-trip
+(`bazaar_transaction.feature` drives one through Bazaar's UI). What it needed:
 
 - **Not `_flatpak`.** Its 10 s timeout cannot cover an extra-data install (Compass
   downloads a ~71 MB AppImage from github.com at install time). Use `Run long SSH
@@ -93,11 +93,24 @@ needed:
   value and also matches `host-os:ro`, a legitimate read-only grant.
 - **Data survives uninstall.** Write a marker under `~/.var/app/<id>/` before
   `flatpak uninstall` without `--delete-data`, then read it back.
-- **Run the app across `flatpak run` instances.** Each sandbox gets its own
-  `$XDG_RUNTIME_DIR`; only `$XDG_RUNTIME_DIR/app/<id>` is shared between instances.
-  Point Compass's `COMPASS_SOCKET` there, start `serve --no-hotkey` in the GNOME
-  session (`. /tmp/session.env`), then `ping` and `shutdown` from a second
-  `flatpak run`; `flatpak ps` proves the instance exists and exits.
+- **Run the app across `flatpak run` instances.** Only `$XDG_RUNTIME_DIR/app/<id>`
+  is shared between instances on every Flatpak version. Flatpak 1.18 also shares a
+  per-app `xdg-run` tmpfs, but older hosts may not. Point Compass's `COMPASS_SOCKET`
+  at `app/<id>`, then start `serve --no-hotkey` in the GNOME session
+  (`. /tmp/session.env`). Drive `ping`, `query`, `deeplink` and `shutdown` from
+  second `flatpak run` instances. `flatpak ps` proves the instance exists and exits.
+- **Compass behaviour, not just packaging.** `query --json --provider applications
+  <Name>` must return `applications:<desktop id>`, as upstream's VM gate asserts
+  (`checks.sh flatpak-apps`). Take `<Name>` from the host's desktop entry, which
+  the sandbox reads through `host-os:ro`. For deeplinks, run `gio open
+  compass://launch/applications/<id>` with `COMPASS_SOCKET` exported: GIO runs the
+  exported `UrlHandler.desktop`, and flatpak passes the variable into the sandbox.
+  `gio` exits 0 even when the handler fails, so the proof is a probe entry in
+  `~/.local/share/applications` whose `Exec` touches a host file through
+  `flatpak-spawn --host`. Create that entry before `flatpak run`, because
+  `xdg-data/applications` is bound only if the directory exists. Poll for the
+  file inside the same SSH command so that Dakota's `KillUserProcesses` does not
+  kill gio's child.
 - **Start long-lived processes as a user unit:** `systemd-run --user --collect
   --expand-environment=no --unit=<name> -p StandardOutput=truncate:<log>
   -p StandardError=inherit sh -c '…'`. Dakota's logind keeps the built-in

@@ -158,6 +158,33 @@ Source-backed facts used by `tests/software/features/steps/steps.py`:
   environment calls that hook only for GUI scenarios, so it clears the flag
   itself once a scenario passes every skip gate. A run where every scenario
   skips still fails.
+- **Install/remove transaction (`bazaar_transaction.feature`).** Sources:
+  Bazaar v0.9.10 (`05401f86`, the Flathub 0.9.10 build) and GTK 4.20.
+  - *Opening a search result.* A result is a `BzRichAppTile` (role button,
+    named `<title>` or `<title>, Verified`). It has no AT-SPI action: GTK4 only
+    exposes widget-class actions that take no parameter, and GTK4 answers
+    `Component.GrabFocus` with `NOT_SUPPORTED`. Use the keyboard. Enter in the
+    search field runs `search_activate`, which focuses the first tile's `Get`
+    button. Shift+Tab out of a grid cell's last focusable child focuses the cell
+    (`gtk_list_item_widget_focus`), and Enter on the cell emits
+    `GtkGridView::activate`, which pushes the app page. An exact title match
+    ranks first (`G_MAXINT` in `bz-search-engine.c`), and the window title
+    `Bazaar — <title>` proves which page opened. Do not press Enter on `Get`:
+    that installs straight from the tile and skips the page.
+  - *Page controls.* `Install`, then `Open` plus remove once installed. The
+    wide remove button is icon-only and is named by its tooltip, `Uninstall
+    Application`. GTK falls back to the tooltip for the name. The narrow one is
+    labelled `Remove`. Removal from the page auto-confirms, so no `Remove
+    <title>?` dialog appears, unless `~/.var/app/<id>` exists. The scenario
+    therefore requires the app absent with no user data.
+  - *Scope and polkit.* Bazaar ranks system entries above user ones
+    (`bz_entry_calc_usefulness`). Flathub is a system remote, so the transaction
+    runs through libflatpak's system helper. Flatpak's
+    `org.freedesktop.Flatpak.rules` answers YES for an active, local `wheel`
+    subject. Bazaar's scope has no logind session, so polkit judges it by the
+    user's display session. `pkcheck --process <flatpak ps child-pid>` reports
+    that answer without prompting (`auth_admin*` exits 2), so the scenario
+    fails with polkit's answer instead of hanging on an auth dialog.
 
 
 When scaffolding multiple feature areas at once:

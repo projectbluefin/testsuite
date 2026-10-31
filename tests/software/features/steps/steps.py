@@ -23,7 +23,7 @@ BAZAAR_APP_ID = "io.github.kolunmi.Bazaar"
 # /app/bin/bazaar. The app ID is accepted in case a build sets prgname to it.
 BAZAAR_A11Y_NAMES = {"bazaar", BAZAAR_APP_ID.casefold()}
 FRAME_ROLES = {"frame", "filler"}
-BAZAAR_WINDOW_NAMES = {"Bazaar"}
+BUTTON_ROLES = {"push button", "button"}
 BAZAAR_TAB_NAMES = {"Curated", "Explore", "Library", "Search"}
 BAZAAR_TAB_ROLES = {"page tab", "toggle button"}
 # libadwaita exposes each AdwViewStackPage as a `panel` named after its title.
@@ -112,12 +112,16 @@ def _bazaar_app():
     raise LookupError(f"Bazaar is not an AT-SPI application; found {sorted(_name(a) for a in apps)}")
 
 
-def _visible_bazaar_window():
+def _bazaar_frame(title: str):
     frames = [n for n in _bazaar_app().children if n.roleName in FRAME_ROLES and n.showing]
     for frame in frames:
-        if _name(frame) in BAZAAR_WINDOW_NAMES:
+        if _name(frame) == title:
             return frame
-    raise LookupError(f"no visible Bazaar window; visible frames: {[(_name(f), f.roleName) for f in frames]}")
+    raise LookupError(f"no visible {title!r} window; visible frames: {[(_name(f), f.roleName) for f in frames]}")
+
+
+def _visible_bazaar_window():
+    return _bazaar_frame("Bazaar")
 
 
 def _bazaar_window(timeout: float = 30):
@@ -195,7 +199,7 @@ def _welcome_skip_buttons() -> list:
     for app in tree.root.applications():
         if _name(app) == "gnome-shell":
             return app.findChildren(
-                lambda n: n.showing and n.roleName in {"push button", "button"}
+                lambda n: n.showing and n.roleName in BUTTON_ROLES
                 and _name(n).casefold() == "skip"
             )
     return []
@@ -410,6 +414,141 @@ def bazaar_search_results_include(context, title: str) -> None:
         raise LookupError(f"no showing Search result labelled {title!r}")
 
     _poll(f"Bazaar search result {title!r}", 60, result)
+
+
+# Bazaar 0.9.10 (the Flathub build, gitlab.gnome.org/World/bazaar v0.9.10) is
+# the source for the transaction steps below.
+def _showing_button(root, names: set):
+    for node in root.findChildren(lambda n: n.roleName in BUTTON_ROLES and n.showing and _name(n) in names):
+        return node
+    raise LookupError(f"no showing button named {sorted(names)}")
+
+
+def _bazaar_page(title: str):
+    """The window while an app's page is pushed: format_title in bz-window.c."""
+    return _bazaar_frame(f"Bazaar — {title}")
+
+
+def _focused_get_buttons() -> list:
+    return _bazaar_view("Search").findChildren(
+        lambda n: n.roleName in BUTTON_ROLES and n.showing and n.focused and _name(n) == "Get"
+    )
+
+
+@step('Open Bazaar search result "{title}" with the keyboard')
+def open_bazaar_search_result(context, title: str) -> None:
+    """Open the first search result's page, which must be ``title``'s.
+
+    The result tile (BzRichAppTile) exposes no AT-SPI action and GTK4 answers
+    Component.GrabFocus with NOT_SUPPORTED, so the keyboard is the way in.
+    Enter in the search field runs search_activate (bz-search-page.c), which
+    focuses the first tile's Get button. Shift+Tab out of a grid cell's last
+    focusable child focuses the cell itself (gtk_list_item_widget_focus), and
+    Enter on the cell emits GtkGridView::activate, which pushes the app page.
+    An exact title match ranks first (G_MAXINT in bz-search-engine.c); the
+    window title then proves which page opened.
+    """
+    if _skip_if_no_atspi(context):
+        return
+    from qecore.utility import keyboard_key_combo_input, keyboard_key_input
+
+    bazaar_window_has_keyboard_focus(context)
+    keyboard_key_input("ENTER")
+    _poll("Get button of the first Bazaar search result focused", 15, _focused_get_buttons)
+    keyboard_key_combo_input("<LEFTSHIFT><TAB>")
+    _poll("focus moved from the Get button to its result", 5, lambda: not _focused_get_buttons())
+    keyboard_key_input("ENTER")
+    _poll(f"Bazaar page of {title!r}", 30, lambda: _bazaar_page(title))
+
+
+def _system_flatpak_installed(context, app_id: str) -> bool:
+    result = _flatpak(context, ["info", "--system", app_id], timeout=30)
+    # flatpak info exits 1 for an app that is not installed; anything else
+    # (ssh 255) says nothing about the app.
+    assert result.returncode in (0, 1), (
+        f"flatpak info --system {app_id} failed (rc={result.returncode}): {result.stderr.strip()}"
+    )
+    return result.returncode == 0
+
+
+@step('Install "{app_id}" from the Bazaar page of "{title}"')
+def install_from_bazaar_page(context, app_id: str, title: str) -> None:
+    if _skip_if_no_atspi(context):
+        return
+    # BzInstallControls: C_("Install Controls", "Install"); the narrow copy is hidden.
+    atspi_click(_poll("Install button", 30, lambda: _showing_button(_bazaar_page(title), {"Install"})))
+    _poll(f"{app_id} installed system-wide", 300, lambda: _system_flatpak_installed(context, app_id))
+    # Installed: the controls switch to the "open" page (_("_Open") + remove).
+    _poll("Open button after the install", 30, lambda: _showing_button(_bazaar_page(title), {"Open"}))
+
+
+@step('Remove "{app_id}" from the Bazaar page of "{title}"')
+def remove_from_bazaar_page(context, app_id: str, title: str) -> None:
+    if _skip_if_no_atspi(context):
+        return
+    # The wide layout's remove button is icon-only and named by its tooltip
+    # ("Uninstall Application"); the narrow one is labelled "_Remove". It
+    # activates window.remove-group with auto-confirm, which removes without a
+    # dialog unless ~/.var/app/<id> exists (show_dialog_fiber).
+    remove = _poll(
+        "Uninstall button", 30,
+        lambda: _showing_button(_bazaar_page(title), {"Uninstall Application", "Remove"}),
+    )
+    atspi_click(remove)
+    _poll(f"{app_id} removed", 120, lambda: not _system_flatpak_installed(context, app_id))
+    _poll("Install button after the removal", 30, lambda: _showing_button(_bazaar_page(title), {"Install"}))
+
+
+# The polkit actions libflatpak's system helper checks for Bazaar's system
+# transactions. Flatpak's own rule (org.freedesktop.Flatpak.rules) answers YES
+# for an active, local wheel subject; Bazaar's scope has no logind session of
+# its own, so polkit judges it by the user's display session.
+_BAZAAR_POLKIT_CHECK = (
+    f"pid=$(flatpak ps --columns=child-pid,application | awk '$2 == \"{BAZAAR_APP_ID}\" {{print $1; exit}}'); "
+    'test -n "$pid" || { echo "no running Bazaar instance"; exit 3; }; '
+    "for action in app-install runtime-install app-uninstall runtime-uninstall; do "
+    'echo "== org.freedesktop.Flatpak.$action"; '
+    'pkcheck --action-id "org.freedesktop.Flatpak.$action" --process "$pid" 2>&1 || exit 4; done'
+)
+
+
+@step("polkit lets Bazaar install and remove system Flatpaks without a prompt")
+def bazaar_needs_no_polkit_prompt(context) -> None:
+    """Fail with polkit's answer instead of hanging on an auth dialog nobody answers."""
+    result = _run_in_session(context, _BAZAAR_POLKIT_CHECK, timeout=30)
+    assert result.returncode == 0, (
+        f"polkit would not authorize Bazaar's system transaction without a prompt "
+        f"(rc={result.returncode}):\n{result.stdout}{result.stderr}"
+    )
+
+
+@step('Flatpak app "{app_id}" is absent and unused, and removed again when the scenario ends')
+def flatpak_app_absent_with_cleanup(context, app_id: str) -> None:
+    # An installed copy would make the install unprovable; existing user data
+    # would change Bazaar's removal flow. Neither is this scenario's to delete.
+    result = _run_in_session(
+        context,
+        f"flatpak info {app_id} >/dev/null 2>&1 && echo installed; "
+        f"test -e ~/.var/app/{app_id} && echo has-user-data; true",
+    )
+    assert result.returncode == 0 and not result.stdout.strip(), (
+        f"{app_id} must be absent with no user data before Bazaar installs it: "
+        f"{result.stdout.strip() or result.stderr.strip()}"
+    )
+    context.add_cleanup(_uninstall_flatpak_app, context, app_id)
+
+
+def _uninstall_flatpak_app(context, app_id: str) -> None:
+    """Undo the scenario's install whichever way it stopped; never ignore a failure."""
+    result = _run_in_session(
+        context,
+        f"if flatpak info --system {app_id} >/dev/null 2>&1; then "
+        f"sudo -n flatpak uninstall -y --noninteractive --system {app_id} || exit 1; fi; "
+        f"if flatpak info --user {app_id} >/dev/null 2>&1; then "
+        f"flatpak uninstall -y --noninteractive --user {app_id} || exit 1; fi",
+        timeout=180,
+    )
+    assert result.returncode == 0, f"cleanup could not uninstall {app_id}:\n{result.stdout}{result.stderr}"
 
 
 @step("Close Bazaar via shortcut")
@@ -652,9 +791,11 @@ def flatpak_app_is_from_remote(context, app_id: str, remote: str) -> None:
         f'flatpak info {app_id!r} failed: rc={result.returncode}\n'
         f'stdout={result.stdout}\nstderr={result.stderr}'
     )
-    output_lower = result.stdout.lower()
-    assert remote.lower() in output_lower, (
-        f'Remote {remote!r} not found in flatpak info output for {app_id}:\n{result.stdout}'
+    # The Origin field, exactly: a substring match also accepted flathub-beta.
+    origins = [line.split(":", 1)[1].strip() for line in result.stdout.splitlines()
+               if line.strip().startswith("Origin:")]
+    assert origins == [remote], (
+        f'{app_id} has origin {origins}, not {remote!r}:\n{result.stdout}'
     )
 
 

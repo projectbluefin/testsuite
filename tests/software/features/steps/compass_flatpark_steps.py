@@ -7,6 +7,7 @@ far beyond ``_flatpak``'s 10 s timeout.
 """
 from __future__ import annotations
 
+import json
 import shlex
 import time
 
@@ -218,7 +219,7 @@ def _compass_diagnostics(context) -> str:
     return stdout
 
 
-@step("the Compass engine started from the Flatpak in the GNOME session answers ping and shuts down")
+@step("the Compass engine started from the Flatpak in the GNOME session answers ping")
 def compass_engine_runs_in_session(context) -> None:
     # `serve --no-hotkey` is the engine without the Super+Space portal prompt.
     context.add_cleanup(_stop_compass, context)
@@ -238,6 +239,10 @@ def compass_engine_runs_in_session(context) -> None:
     # ipc.rs: "engine alive on {socket}: protocol v{N}, pid {pid}"
     assert out.startswith("engine alive on ") and "/app/org.tunaos.compass/testsuite-ipc.sock: protocol v" in out, out
     assert _compass_running(context), "ping answered but flatpak ps lists no Compass instance"
+
+
+@step("Compass shuts down when asked and its Flatpak instance exits")
+def compass_shuts_down(context) -> None:
     _checked(context, f"{_COMPASS_RUN} shutdown")
     deadline = time.monotonic() + 30
     while _compass_running(context):
@@ -245,3 +250,83 @@ def compass_engine_runs_in_session(context) -> None:
             "Compass still running 30 s after `compass shutdown`\n" + _compass_diagnostics(context)
         )
         time.sleep(2)
+
+
+def _compass_query(context, text: str) -> list[str]:
+    """Entrypoint ids of the running engine's application hits for ``text``.
+
+    v0.28.3 `query --json` prints the ranked hits; an application's id is
+    `applications:<desktop id>` (serve.rs app_hit), as upstream's own VM gate
+    (packaging/vmtest/checks.sh `flatpak-apps`) asserts.
+    """
+    out = _checked(context, f"{_COMPASS_RUN} query --json --provider applications {shlex.quote(text)}")
+    return [hit["id"] for hit in json.loads(out)]
+
+
+@step('Compass search finds desktop app "{desktop_id}" by its name')
+def compass_search_finds_desktop_app(context, desktop_id: str) -> None:
+    # The host's entry, which the sandbox reads at /run/host/usr through
+    # --filesystem=host-os:ro (compass-xdg SANDBOX_HOST_ROOTS).
+    line = _checked(context, f"grep -m1 '^Name=' /usr/share/applications/{desktop_id}.desktop")
+    name = line.removeprefix("Name=")
+    ids = _compass_query(context, name)
+    assert f"applications:{desktop_id}" in ids, f"`compass query {name!r}` found {ids}"
+
+
+# A host desktop entry the launch link names. Compass indexes the user's
+# ~/.local/share/applications (--filesystem=xdg-data/applications:ro) and
+# launches entries with `flatpak-spawn --host` (compass-platform-linux
+# launch.rs), so the marker it touches appears on the host.
+_PROBE_ID = "testsuite-compass-probe"
+_PROBE_NAME = "Testsuite Compass Probe"
+_APPLICATIONS_DIR = "~/.local/share/applications"
+_PROBE_DESKTOP = f"{_APPLICATIONS_DIR}/{_PROBE_ID}.desktop"
+_PROBE_MARKER = "/tmp/testsuite-compass-probe-launched"
+_PROBE_ENTRY = (
+    f"[Desktop Entry]\nType=Application\nName={_PROBE_NAME}\n"
+    f"Exec=/usr/bin/touch {_PROBE_MARKER}\nTerminal=false\n"
+)
+# GIO resolves x-scheme-handler/compass from the Flatpak exports in the
+# session's XDG_DATA_DIRS, which flatpak's environment generator supplies.
+_SESSION_DATA_DIRS = (
+    "XDG_DATA_DIRS=$(/usr/lib/systemd/user-environment-generators/60-flatpak "
+    "| sed -n 's/^XDG_DATA_DIRS=//p')"
+)
+
+
+def _remove_probe(context, created_dir: bool) -> None:
+    _checked(context, f"rm -f {_PROBE_DESKTOP} {_PROBE_MARKER}")
+    if created_dir:
+        _checked(context, f"rmdir {_APPLICATIONS_DIR}")
+
+
+@step("a desktop entry for Compass to launch exists until the scenario ends")
+def compass_probe_entry_exists(context) -> None:
+    # Before `flatpak run`: Flatpak binds the xdg-data/applications grant only
+    # if the directory exists, and a fresh test user may not have it yet.
+    created = _checked(context, f"test -d {_APPLICATIONS_DIR} || {{ mkdir -p {_APPLICATIONS_DIR} && echo created; }}")
+    context.add_cleanup(_remove_probe, context, created == "created")
+    _checked(context, f"rm -f {_PROBE_MARKER} && printf %s {shlex.quote(_PROBE_ENTRY)} > {_PROBE_DESKTOP}")
+
+
+@step("a compass:// launch link opened by the desktop runs that entry on the host through Compass")
+def compass_launch_link_runs_desktop_entry(context) -> None:
+    ids = _compass_query(context, _PROBE_NAME)
+    assert f"applications:{_PROBE_ID}" in ids, f"Compass did not index {_PROBE_DESKTOP}: {ids}"
+    # `gio open` runs the exported org.tunaos.compass.UrlHandler.desktop
+    # (`compass deeplink %u`); flatpak passes COMPASS_SOCKET into the sandbox,
+    # so the handler reaches this engine, which parses the launch link
+    # (compass://launch/<provider>/<entrypoint>) and launches the entry. gio
+    # exits 0 even when the handler fails, so only the marker proves the
+    # launch. Polling inside the command keeps the SSH session, and so gio's
+    # child, alive on Dakota, whose logind kills a closed session's processes.
+    url = f"compass://launch/applications/{_PROBE_ID}"
+    out, rc = run_ssh(
+        context,
+        f'{_IN_SESSION}export COMPASS_SOCKET="{_COMPASS_SOCKET}" {_SESSION_DATA_DIRS} && '
+        f"gio open {url} && for _ in $(seq 60); do test -e {_PROBE_MARKER} && exit 0; sleep 0.5; done; exit 1",
+        timeout=60,
+    )
+    assert rc == 0, (
+        f"opening {url} never ran the probe entry (rc {rc}): {out}\n" + _compass_diagnostics(context)
+    )

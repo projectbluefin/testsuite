@@ -32,7 +32,7 @@ Feature: FlatPark remote and the Compass Flatpak lifecycle
     * SSH command return code is "0"
 
   @software @flatpak_cli @flatpark @compass @skip_bluefin
-  Scenario: Compass installs from FlatPark, runs in the session, updates, reinstalls and uninstalls keeping user data
+  Scenario: Compass installs from FlatPark, runs in the session, finds apps, opens compass:// links, updates, reinstalls and uninstalls keeping user data
     * the VM is x86_64, the only arch FlatPark builds Compass for
     * Compass is absent now and removed again when the scenario ends
     # sudo -n: the SSH session has no polkit agent; the flatpak argv is ChairLift's.
@@ -42,9 +42,13 @@ Feature: FlatPark remote and the Compass Flatpak lifecycle
     # apply_extra unpacked the AppImage into /app/extra/compass.
     * Run SSH command: "test -x $(flatpak info --system --show-location org.tunaos.compass)/files/extra/compass/AppRun"
     * SSH command return code is "0"
-    # Compass v0.28.3 `serve`/`ping`/`shutdown`, run through FlatPark's wrapper
-    # (exec /app/extra/compass/AppRun) inside the live GNOME session.
-    * the Compass engine started from the Flatpak in the GNOME session answers ping and shuts down
+    # Compass v0.28.3 `serve`/`ping`/`query`/`deeplink`/`shutdown`, run through
+    # FlatPark's wrapper (exec /app/extra/compass/AppRun) in the live GNOME session.
+    * a desktop entry for Compass to launch exists until the scenario ends
+    * the Compass engine started from the Flatpak in the GNOME session answers ping
+    * Compass search finds desktop app "org.gnome.Nautilus" by its name
+    * a compass:// launch link opened by the desktop runs that entry on the host through Compass
+    * Compass shuts down when asked and its Flatpak instance exits
     * Flatpak system app "org.tunaos.compass" permission "Session Bus Policy" sets "org.freedesktop.Flatpak" to "talk"
     * Flatpak system app "org.tunaos.compass" filesystem permissions include "host-os:ro"
     * Flatpak system app "org.tunaos.compass" has no home filesystem grant

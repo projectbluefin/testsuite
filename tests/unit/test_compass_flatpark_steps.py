@@ -243,9 +243,8 @@ def test_compass_running_fails_when_flatpak_ps_or_ssh_fails(rc):
 PING = "engine alive on /run/user/1000/app/org.tunaos.compass/testsuite-ipc.sock: protocol v3, pid 2"
 
 
-def test_engine_step_pings_then_shuts_down_and_waits_for_exit():
+def test_engine_step_launches_pings_and_registers_the_stop():
     context = MagicMock()
-    ps = iter(["org.tunaos.compass", ""])
     calls = []
 
     def fake(ctx, cmd, timeout=60):
@@ -254,14 +253,29 @@ def test_engine_step_pings_then_shuts_down_and_waits_for_exit():
         if cmd.endswith(" ping"):
             return PING, 0
         if "flatpak ps" in cmd:
-            return next(ps), 0
+            return "org.tunaos.compass", 0
         return "", 0
 
     with patch.object(m, "run_ssh", fake):
         m.compass_engine_runs_in_session(context)
     context.add_cleanup.assert_called_once_with(m._stop_compass, context)
     assert calls[0] == m._COMPASS_LAUNCH
-    assert [c for c in calls if c.endswith(" shutdown")] == [f"{m._COMPASS_RUN} shutdown"]
+    assert not [c for c in calls if c.endswith(" shutdown")]
+
+
+def test_shutdown_step_waits_for_the_instance_to_exit():
+    ps = iter(["org.tunaos.compass", ""])
+    calls = []
+
+    def fake(ctx, cmd, timeout=60):
+        calls.append(cmd)
+        ctx.last_ssh_result = MagicMock(stderr="")
+        return (next(ps), 0) if "flatpak ps" in cmd else ("", 0)
+
+    with patch.object(m, "run_ssh", fake), patch.object(m.time, "sleep"):
+        m.compass_shuts_down(MagicMock())
+    assert calls[0] == f"{m._COMPASS_RUN} shutdown"
+    assert calls.count("flatpak ps --columns=application") == 2
 
 
 def test_shutdown_is_not_proven_by_a_failed_process_probe():
@@ -269,14 +283,80 @@ def test_shutdown_is_not_proven_by_a_failed_process_probe():
 
     def fake(ctx, cmd, timeout=60):
         ctx.last_ssh_result = MagicMock(stderr="ssh: connect to host 127.0.0.1 port 22")
-        if cmd.endswith(" ping"):
-            return PING, 0
         if "flatpak ps" in cmd:
             return next(ps)
         return "", 0
 
-    with patch.object(m, "run_ssh", fake), pytest.raises(AssertionError, match="exited 255"):
-        m.compass_engine_runs_in_session(MagicMock())
+    with patch.object(m, "run_ssh", fake), patch.object(m.time, "sleep"), \
+            pytest.raises(AssertionError, match="exited 255"):
+        m.compass_shuts_down(MagicMock())
+
+
+# `flatpak run org.tunaos.compass query --json --provider applications Files`
+# against a Compass 0.28.3 FlatPark engine on GNOME 51.
+QUERY_FILES = """[
+  {"id": "applications:org.gnome.Nautilus", "title": "Files", "subtitle": null, "score": 100},
+  {"id": "applications:org.gnome.baobab", "title": "Disk Usage Analyzer", "subtitle": null, "score": 60}
+]"""
+
+
+def test_search_step_queries_the_host_entry_name_and_needs_its_entrypoint():
+    fake, calls = _ssh({"grep -m1": ("Name=Files", 0), " query ": (QUERY_FILES, 0)})
+    with patch.object(m, "run_ssh", fake):
+        m.compass_search_finds_desktop_app(MagicMock(), "org.gnome.Nautilus")
+        with pytest.raises(AssertionError, match="applications:org.gnome.baobab"):
+            m.compass_search_finds_desktop_app(MagicMock(), "org.gnome.Settings")
+    assert "/usr/share/applications/org.gnome.Nautilus.desktop" in calls[0]
+    assert calls[1] == f"{m._COMPASS_RUN} query --json --provider applications Files"
+
+
+def test_search_step_fails_when_the_desktop_entry_is_missing():
+    fake, _ = _ssh({"grep -m1": ("", 2)})
+    with patch.object(m, "run_ssh", fake), pytest.raises(AssertionError, match="exited 2"):
+        m.compass_search_finds_desktop_app(MagicMock(), "org.gnome.Nautilus")
+
+
+def test_probe_entry_cleanup_removes_only_what_the_step_created():
+    context = MagicMock()
+    fake, calls = _ssh({"test -d": ("created", 0)})
+    with patch.object(m, "run_ssh", fake):
+        m.compass_probe_entry_exists(context)
+        context.add_cleanup.assert_called_once_with(m._remove_probe, context, True)
+        m._remove_probe(context, True)
+        m._remove_probe(context, False)
+    import shlex
+    write = calls[1]
+    assert f"> {m._PROBE_DESKTOP}" in write and shlex.quote(m._PROBE_ENTRY) in write
+    assert f"Exec=/usr/bin/touch {m._PROBE_MARKER}" in m._PROBE_ENTRY
+    assert calls.count(f"rmdir {m._APPLICATIONS_DIR}") == 1
+
+
+def test_launch_link_goes_through_the_url_handler_to_this_engine():
+    probe_hits = '[{"id": "applications:testsuite-compass-probe", "title": "Testsuite Compass Probe"}]'
+    fake, calls = _ssh({" query ": (probe_hits, 0), "gio open": ("", 0)})
+    with patch.object(m, "run_ssh", fake):
+        m.compass_launch_link_runs_desktop_entry(MagicMock())
+    opener = calls[-1]
+    assert opener.startswith(m._IN_SESSION)
+    assert f'export COMPASS_SOCKET="{m._COMPASS_SOCKET}" XDG_DATA_DIRS=$(' in opener
+    assert "gio open compass://launch/applications/testsuite-compass-probe && " in opener
+    assert f"test -e {m._PROBE_MARKER} && exit 0" in opener and opener.endswith("; exit 1")
+    import subprocess
+    assert subprocess.run(["bash", "-n", "-c", opener], capture_output=True).returncode == 0
+
+
+def test_launch_link_failure_reports_the_engine_state():
+    probe_hits = '[{"id": "applications:testsuite-compass-probe", "title": "Testsuite Compass Probe"}]'
+    fake, _ = _ssh({" query ": (probe_hits, 0), "gio open": ("", 1), "== systemctl": ("ActiveState=failed", 0)})
+    with patch.object(m, "run_ssh", fake), pytest.raises(AssertionError, match="(?s)never ran.*ActiveState=failed"):
+        m.compass_launch_link_runs_desktop_entry(MagicMock())
+
+
+def test_launch_link_needs_the_probe_indexed():
+    fake, calls = _ssh({" query ": ("[]", 0)})
+    with patch.object(m, "run_ssh", fake), pytest.raises(AssertionError, match="did not index"):
+        m.compass_launch_link_runs_desktop_entry(MagicMock())
+    assert not [c for c in calls if "gio open" in c]
 
 
 def test_engine_step_rejects_a_ping_from_another_socket():

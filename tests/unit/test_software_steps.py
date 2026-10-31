@@ -347,6 +347,127 @@ class TestBazaarSearchLocators:
             clock.stop()
 
 
+class TestBazaarTransaction:
+    """Bazaar 0.9.10: search result → app page → Install → Remove, on the VM's system installation."""
+
+    APP = "com.belmoussaoui.Decoder"
+
+    @staticmethod
+    def _keyboard(key, combo):
+        utility = types.ModuleType("qecore.utility")
+        utility.keyboard_key_input = key
+        utility.keyboard_key_combo_input = combo
+        return patch.dict(sys.modules, {"qecore.utility": utility})
+
+    def test_keyboard_opens_the_first_result_through_its_grid_cell(self):
+        m = _import_software_steps()
+        get = _node("Get", "push button", focused=False)
+        panel = _node("Search", "panel", descendants=[get])
+        window = _node("Bazaar", "frame", descendants=[_node("Search", "page tab", selected=True), panel])
+        page = _node("Bazaar — Decoder", "frame", showing=False)
+        _with_apps(m, _node("bazaar", children=[window, page]))
+        keys = []
+
+        def key(name):
+            keys.append(name)
+            if len(keys) == 1:
+                get.focused = True  # search_activate focuses the first tile's Get button
+            else:
+                window.showing, page.showing = False, True
+
+        def combo(name):
+            keys.append(name)
+            get.focused = False
+
+        with self._keyboard(key, combo), patch.object(m, "bazaar_window_has_keyboard_focus") as focus, \
+                patch.object(m, "POLL_INTERVAL", 0):
+            m.open_bazaar_search_result(MagicMock(), "Decoder")
+        focus.assert_called_once()
+        assert keys == ["ENTER", "<LEFTSHIFT><TAB>", "ENTER"]
+
+    def test_page_lookup_names_the_window_title(self):
+        m = _import_software_steps()
+        _with_apps(m, _node("bazaar", children=[_node("Bazaar — Decoder Plus", "frame")]))
+        with pytest.raises(LookupError, match="'Bazaar — Decoder'.*Decoder Plus"):
+            m._bazaar_page("Decoder")
+
+    def test_install_clicks_install_then_waits_for_the_system_ref_and_open(self):
+        m = _import_software_steps()
+        install = _node("Install", "push button")
+        open_button = _node("Open", "push button", showing=False)
+        hidden_narrow = _node("Install", "push button", showing=False)
+        page = _node("Bazaar — Decoder", "frame", descendants=[hidden_narrow, install, open_button])
+        _with_apps(m, _node("bazaar", children=[page]))
+        info = iter([_completed(rc=1), _completed(rc=0)])
+
+        def click(node):
+            assert node is install
+            install.showing, open_button.showing = False, True
+
+        with patch.object(m, "atspi_click", side_effect=click), \
+                patch.object(m, "_flatpak", side_effect=lambda *a, **kw: next(info)) as flatpak, \
+                patch.object(m, "POLL_INTERVAL", 0):
+            m.install_from_bazaar_page(MagicMock(), self.APP, "Decoder")
+        assert flatpak.call_args.args[1] == ["info", "--system", self.APP]
+
+    @pytest.mark.parametrize("name", ["Uninstall Application", "Remove"])
+    def test_remove_uses_either_layout_button_and_waits_for_absence(self, name):
+        m = _import_software_steps()
+        remove = _node(name, "push button")
+        install = _node("Install", "push button", showing=False)
+        _with_apps(m, _node("bazaar", children=[_node("Bazaar — Decoder", "frame", descendants=[remove, install])]))
+        info = iter([_completed(rc=0), _completed(rc=1)])
+
+        def click(node):
+            assert node is remove
+            remove.showing, install.showing = False, True
+
+        with patch.object(m, "atspi_click", side_effect=click), \
+                patch.object(m, "_flatpak", side_effect=lambda *a, **kw: next(info)), \
+                patch.object(m, "POLL_INTERVAL", 0):
+            m.remove_from_bazaar_page(MagicMock(), self.APP, "Decoder")
+
+    def test_a_failed_flatpak_probe_is_not_an_answer(self):
+        m = _import_software_steps()
+        with patch.object(m, "_flatpak", return_value=_completed(rc=255, stderr="ssh: connect")):
+            with pytest.raises(AssertionError, match="rc=255"):
+                m._system_flatpak_installed(MagicMock(), self.APP)
+
+    def test_polkit_check_covers_every_transaction_action(self):
+        import subprocess
+        m = _import_software_steps()
+        script = m._BAZAAR_POLKIT_CHECK
+        assert subprocess.run(["bash", "-n", "-c", script], capture_output=True).returncode == 0
+        assert "app-install runtime-install app-uninstall runtime-uninstall" in script
+        assert "--allow-user-interaction" not in script
+        denied = _completed(stdout="== org.freedesktop.Flatpak.app-install\npolkit\\56result=auth_admin_keep\n", rc=4)
+        with patch.object(m, "_run_in_session", return_value=denied):
+            with pytest.raises(AssertionError, match="(?s)without a prompt.*auth_admin_keep"):
+                m.bazaar_needs_no_polkit_prompt(MagicMock())
+
+    def test_preinstalled_app_or_user_data_fails_the_precondition(self):
+        m = _import_software_steps()
+        ctx = MagicMock()
+        with patch.object(m, "_run_in_session", return_value=_completed(stdout="has-user-data")):
+            with pytest.raises(AssertionError, match="has-user-data"):
+                m.flatpak_app_absent_with_cleanup(ctx, self.APP)
+        ctx.add_cleanup.assert_not_called()
+        with patch.object(m, "_run_in_session", return_value=_completed()):
+            m.flatpak_app_absent_with_cleanup(ctx, self.APP)
+        ctx.add_cleanup.assert_called_once_with(m._uninstall_flatpak_app, ctx, self.APP)
+
+    def test_cleanup_uninstalls_each_scope_and_reports_failure(self):
+        m = _import_software_steps()
+        with patch.object(m, "_run_in_session", return_value=_completed()) as run:
+            m._uninstall_flatpak_app(MagicMock(), self.APP)
+        cmd = run.call_args.args[1]
+        assert f"sudo -n flatpak uninstall -y --noninteractive --system {self.APP} || exit 1" in cmd
+        assert f"flatpak uninstall -y --noninteractive --user {self.APP} || exit 1" in cmd
+        with patch.object(m, "_run_in_session", return_value=_completed(rc=1, stderr="busy")):
+            with pytest.raises(AssertionError, match="busy"):
+                m._uninstall_flatpak_app(MagicMock(), self.APP)
+
+
 class TestBazaarYamlCheck:
     """Run the shipped YAML check script against real files."""
 
@@ -824,21 +945,19 @@ class TestFlatpakAppIsFromRemote:
             ctx = MagicMock()
             m.flatpak_app_is_from_remote(ctx, "io.github.kolunmi.Bazaar", "flathub")
 
-    def test_case_insensitive_remote_match(self):
+    def test_another_remote_containing_the_name_is_rejected(self):
         m = _import_software_steps()
-        output = "Application ID: io.github.kolunmi.Bazaar\nOrigin: FLATHUB\n"
+        output = "          ID: io.github.kolunmi.Bazaar\n      Origin: flathub-beta\n"
         with patch.object(m, "_flatpak", return_value=_completed(stdout=output, rc=0)):
-            ctx = MagicMock()
-            m.flatpak_app_is_from_remote(ctx, "io.github.kolunmi.Bazaar", "flathub")
+            with pytest.raises(AssertionError, match="origin \\['flathub-beta'\\]"):
+                m.flatpak_app_is_from_remote(MagicMock(), "io.github.kolunmi.Bazaar", "flathub")
 
     def test_raises_when_remote_missing(self):
         m = _import_software_steps()
-        import pytest
         output = "Application ID: io.github.kolunmi.Bazaar\nOrigin: sideload\n"
         with patch.object(m, "_flatpak", return_value=_completed(stdout=output, rc=0)):
-            ctx = MagicMock()
-            with pytest.raises(AssertionError, match="not found"):
-                m.flatpak_app_is_from_remote(ctx, "io.github.kolunmi.Bazaar", "flathub")
+            with pytest.raises(AssertionError, match="not 'flathub'"):
+                m.flatpak_app_is_from_remote(MagicMock(), "io.github.kolunmi.Bazaar", "flathub")
 
     def test_raises_when_rc_nonzero(self):
         m = _import_software_steps()
