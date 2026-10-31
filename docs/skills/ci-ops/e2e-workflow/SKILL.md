@@ -209,7 +209,7 @@ The same rule applies to every other non-cone checkout in this repo, including t
    - Iterates all deployment directories and writes: `bluefin-test` user (UID 1001, added to `wheel` like a real first-run admin account — common's `org.ublue.privileged.user.setup` polkit rule grants wheel only), GDM autologin, sshd drop-in `00-ci-auth.conf`, dconf `local.d/00-ci-testing` override, `tmpfiles.d/ci-user.conf`, masked service symlinks
    - Pre-installs `unsafe-mode@bluefin-test` gnome-shell extension files into var home (pre-boot, so gnome-shell finds it during `_loadExtensions()`)
    - Injects SSH authorized key into `/var/home/bluefin-test/.ssh/` and each deployment's `/etc/ssh/ci-authorized-keys`
-10. **Boot VM** — `qemu-system-x86_64` with KVM, 4 GB RAM, 4 vCPUs, `virtio-gpu-pci`, forwarded SSH on port 2222; daemonized; QEMU monitor socket at `/tmp/qemu-monitor.sock` (chmod 666)
+10. **Boot VM** — `qemu-system-x86_64` with KVM, 4 GB RAM, 4 vCPUs, `-vga none` + `virtio-gpu-pci` (one display adapter; q35's default std VGA made mutter light a second monitor, so desktop screenshots came out 2560x800), forwarded SSH on port 2222; daemonized; QEMU monitor socket at `/tmp/qemu-monitor.sock` (chmod 666)
 11. **Wait for SSH** — polls port 2222 up to **15 minutes** (900 s)
 12. **Pre-stage target image via bootc switch** — lifecycle suite only, when `inputs.target-image` is set; SSHes into VM and runs `sudo bootc switch '<target-image>'` to stage the upgrade target before the test run
 13. **Dump VM serial log** — always runs (`if: always()`); primary debug tool when SSH never comes up
