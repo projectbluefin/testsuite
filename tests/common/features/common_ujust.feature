@@ -73,6 +73,17 @@ Feature: Bluefin common ujust recipes
     * SSH command return code is "1"
     * SSH command output contains "Usage: ujust report"
 
+  # common system.just bazaar-preview validates the checkout before sudo.
+  # A nonexistent path must refuse with usage and install nothing. Product
+  # bug at common e33665e2: the body reads ${source} instead of {{ source }},
+  # so set -u aborts with `source: unbound variable` before validation.
+  Scenario: ujust bazaar-preview refuses a non-checkout path with usage
+    * Run SSH command: "ujust bazaar-preview /nonexistent-bazaar-preview </dev/null 2>&1"
+    * SSH command return code is "1"
+    * SSH command output does not contain "unbound variable"
+    * SSH command output contains "Missing /nonexistent-bazaar-preview/system_files/bluefin/etc/bazaar/bazaar.yaml"
+    * SSH command output contains "Usage: ujust bazaar-preview /path/to/common"
+
   # Pending: glow is unavailable because brew-setup.service is masked in CI (#487).
   @pending
   Scenario: ujust changelogs renders release notes
