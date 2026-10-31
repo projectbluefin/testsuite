@@ -172,8 +172,11 @@ _COMPASS_RUN = (
 
 
 def _compass_running(context) -> bool:
-    _, rc = run_ssh(context, f"flatpak ps --columns=application | grep -qx {COMPASS_APP_ID}")
-    return rc == 0
+    # Only a successful `flatpak ps` says anything: an SSH (255) or flatpak
+    # failure must fail the check, not read as "Compass exited".
+    output = _checked(context, "flatpak ps --columns=application")
+    apps = {line.strip() for line in output.splitlines()}
+    return COMPASS_APP_ID in apps
 
 
 # The engine runs as a transient unit of the user's systemd manager, not inside

@@ -213,11 +213,31 @@ def test_ping_timeout_reports_stderr_log_unit_and_logind_state():
 
 
 def test_cleanup_stops_the_unit_and_kills_a_leftover_instance():
-    fake, calls = _ssh({"flatpak ps": ("", 0)})
+    fake, calls = _ssh({"flatpak ps": ("Application\norg.tunaos.compass", 0)})
     with patch.object(m, "run_ssh", fake):
         m._stop_compass(MagicMock())
     assert f"{m._IN_SESSION}systemctl --user stop {m.COMPASS_UNIT}" in calls
     assert "flatpak kill org.tunaos.compass" in calls
+
+
+@pytest.mark.parametrize("output, expected", [
+    ("org.tunaos.compass\nio.github.kolunmi.Bazaar", True),
+    ("io.github.kolunmi.Bazaar\norg.tunaos.compass.Devel", False),
+    ("", False),
+])
+def test_compass_running_reads_the_flatpak_ps_app_list(output, expected):
+    fake, calls = _ssh({"flatpak ps": (output, 0)})
+    with patch.object(m, "run_ssh", fake):
+        assert m._compass_running(MagicMock()) is expected
+    assert calls == ["flatpak ps --columns=application"]
+
+
+@pytest.mark.parametrize("rc", [1, 255])
+def test_compass_running_fails_when_flatpak_ps_or_ssh_fails(rc):
+    """A failed probe is not proof that Compass exited."""
+    fake, _ = _ssh({"flatpak ps": ("", rc)})
+    with patch.object(m, "run_ssh", fake), pytest.raises(AssertionError, match="flatpak ps --columns=application"):
+        m._compass_running(MagicMock())
 
 
 PING = "engine alive on /run/user/1000/app/org.tunaos.compass/testsuite-ipc.sock: protocol v3, pid 2"
@@ -225,7 +245,7 @@ PING = "engine alive on /run/user/1000/app/org.tunaos.compass/testsuite-ipc.sock
 
 def test_engine_step_pings_then_shuts_down_and_waits_for_exit():
     context = MagicMock()
-    ps = iter([0, 1])
+    ps = iter(["org.tunaos.compass", ""])
     calls = []
 
     def fake(ctx, cmd, timeout=60):
@@ -234,7 +254,7 @@ def test_engine_step_pings_then_shuts_down_and_waits_for_exit():
         if cmd.endswith(" ping"):
             return PING, 0
         if "flatpak ps" in cmd:
-            return "", next(ps)
+            return next(ps), 0
         return "", 0
 
     with patch.object(m, "run_ssh", fake):
@@ -242,6 +262,21 @@ def test_engine_step_pings_then_shuts_down_and_waits_for_exit():
     context.add_cleanup.assert_called_once_with(m._stop_compass, context)
     assert calls[0] == m._COMPASS_LAUNCH
     assert [c for c in calls if c.endswith(" shutdown")] == [f"{m._COMPASS_RUN} shutdown"]
+
+
+def test_shutdown_is_not_proven_by_a_failed_process_probe():
+    ps = iter([("org.tunaos.compass", 0), ("", 255)])
+
+    def fake(ctx, cmd, timeout=60):
+        ctx.last_ssh_result = MagicMock(stderr="ssh: connect to host 127.0.0.1 port 22")
+        if cmd.endswith(" ping"):
+            return PING, 0
+        if "flatpak ps" in cmd:
+            return next(ps)
+        return "", 0
+
+    with patch.object(m, "run_ssh", fake), pytest.raises(AssertionError, match="exited 255"):
+        m.compass_engine_runs_in_session(MagicMock())
 
 
 def test_engine_step_rejects_a_ping_from_another_socket():
