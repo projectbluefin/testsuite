@@ -148,6 +148,7 @@ Set `chunked_enabled: true` once `ghcr.io/projectbluefin/bluefin:latest` ships z
 | `@flatcar_suite` | Flatcar OS only |
 | `@hardware_emulation` | Requires full-hw VM spec (TPM, audio, watchdog) |
 | `@vm_only` | Scenario drives the device under test over SSH (or asserts VM-only boot state); the smoke `environment.py` skips it in container lanes, detected via `/run/.containerenv` (`tests/shared/runtime_env.py`) |
+| `@ci_seeded_flatpak` | Smoke scenario needs a Flatpak from `flatpak-app-list.txt`, which `e2e.yml` preloads only when the input ref contains `/bluefin` or `/utah` (case-insensitive, full ref; `flatpak-preinstall.service` is masked). `ci_seeds_flatpaks` in the smoke `environment.py` mirrors that condition on `image_under_test` (`BASE_IMAGE`, then `IMAGE`, then `-D image`) and skips elsewhere (bazzite, common); an unset image runs it |
 | `@pending` | Placeholder coverage gap; intentionally skipped until a valid harness exists |
 | `@future` | Not yet implemented or blocked on infra |
 | `@homed_migration` | systemd-homed migration scenarios; dakota lifecycle; SSH-mode; skip-safe when homed absent |

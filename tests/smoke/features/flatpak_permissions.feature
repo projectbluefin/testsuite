@@ -11,27 +11,29 @@ Feature: OOTB Flatpak sandbox permission auditing
   # override /usr/share/ublue-os/flatpak-overrides/io.github.kolunmi.Bazaar
   # (filesystems=host-etc), linked into /var/lib/flatpak/overrides by
   # /usr/lib/tmpfiles.d/bazaar-flatpak.conf on Bluefin and Utah.
+  # @ci_seeded_flatpak skips them on refs e2e.yml does not preload (bazzite,
+  # common); see ci_seeds_flatpaks in environment.py.
   # A Flathub permission change fails here on purpose: review it, then update.
 
-  @permissions
+  @permissions @ci_seeded_flatpak
   Scenario: Firefox Flatpak filesystem grants match the audited set
     * Flatpak "org.mozilla.firefox" grants exactly the filesystems "xdg-config/gtk-3.0:ro;xdg-download;/run/.heim_org.h5l.kcm-socket;/run/udev:ro;xdg-run/speech-dispatcher:ro"
 
-  @permissions
+  @permissions @ci_seeded_flatpak
   Scenario: Bazaar Flatpak filesystem grants match the audited set including the image host-etc override
     * Flatpak "io.github.kolunmi.Bazaar" grants exactly the filesystems "/var/tmp;/var/lib/flatpak;~/.var/app;xdg-data/flatpak;host-etc"
 
-  @permissions
+  @permissions @ci_seeded_flatpak
   Scenario: Papers Flatpak filesystem grants are read-only home and removable media
     * Flatpak "org.gnome.Papers" grants exactly the filesystems "home:ro;/media:ro;xdg-run/gvfsd;/run/media:ro;xdg-run/gvfs"
 
   # Loupe's upstream Flathub manifest grants full read-write `host`; pinned so
   # the broad grant is visible and any change is reviewed.
-  @permissions
+  @permissions @ci_seeded_flatpak
   Scenario: Loupe Flatpak filesystem grants match the audited set
     * Flatpak "org.gnome.Loupe" grants exactly the filesystems "xdg-run/gvfsd;host;xdg-run/gvfs"
 
-  @permissions
+  @permissions @ci_seeded_flatpak
   Scenario: Showtime Flatpak has no filesystem grants
     * Flatpak "org.gnome.Showtime" grants no filesystem access
 

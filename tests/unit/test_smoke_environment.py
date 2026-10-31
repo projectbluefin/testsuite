@@ -1,5 +1,6 @@
 """Unit tests for smoke suite environment setup helpers."""
 import importlib
+import itertools
 import sys
 import types
 from unittest.mock import MagicMock, patch
@@ -86,3 +87,83 @@ def test_before_all_suppresses_idle_lock_from_inside_the_runner_container():
 
     assert any("idle-delay" in c and "0" in c for c in commands), commands
     assert any("lock-enabled" in c and "false" in c for c in commands), commands
+
+
+def _import_env():
+    _setup_stubs()
+    return importlib.import_module("tests.smoke.features.environment")
+
+
+class _Scenario:
+    def __init__(self, tags):
+        self.name = "s"
+        self.tags = tags
+        self.effective_tags = tags
+        self.skip = MagicMock()
+
+
+def _ctx(**attrs):
+    ctx = types.SimpleNamespace(sandbox=None, failed_setup=None, **attrs)
+    return ctx
+
+
+def test_ci_seeds_flatpaks_mirrors_e2e_preload_condition():
+    """Same refs as e2e.yml: contains(inputs.image, '/bluefin'|'/utah'), case-insensitive."""
+    env = _import_env()
+    seeded = [
+        "ghcr.io/projectbluefin/bluefin:latest",
+        "ghcr.io/projectbluefin/bluefin-dx@sha256:460d",
+        "ghcr.io/projectbluefin/utah@sha256:a0ba",
+        "GHCR.IO/ProjectBluefin/Bluefin:stable",
+        "ghcr.io/ublue-os/bluefin-nvidia:gts",
+    ]
+    unseeded = [
+        "ghcr.io/ublue-os/bazzite:stable",
+        "ghcr.io/projectbluefin/common:latest",
+        "ghcr.io/projectbluefin/dakota@sha256:6e8f",
+        "ghcr.io/projectbluefin/testsuite:e2e-123",
+    ]
+    assert all(env.ci_seeds_flatpaks(r) for r in seeded)
+    assert not any(env.ci_seeds_flatpaks(r) for r in unseeded)
+
+
+def test_ci_seeded_flatpak_skips_on_unseeded_bluefin_family_image():
+    env = _import_env()
+    scenario = _Scenario(["bluefin", "permissions", "ci_seeded_flatpak"])
+    env.before_scenario(_ctx(is_bluefin_image=True, ci_seeds_flatpaks=False), scenario)
+    scenario.skip.assert_called_once()
+    assert "ci_seeded_flatpak" in scenario.skip.call_args[0][0]
+
+
+def test_ci_seeded_flatpak_runs_on_seeded_image():
+    env = _import_env()
+    scenario = _Scenario(["bluefin", "permissions", "ci_seeded_flatpak"])
+    with patch.object(env, "configure_screenshot_context"), \
+         patch.object(env, "record_start"):
+        env.before_scenario(_ctx(is_bluefin_image=True, ci_seeds_flatpaks=True), scenario)
+    scenario.skip.assert_not_called()
+
+
+def test_before_all_derives_seed_flag_from_base_image_first():
+    """BASE_IMAGE wins over the composed IMAGE, so composed runs keep the seed contract."""
+    _setup_stubs()
+    sandbox_stub = types.ModuleType("qecore.sandbox")
+    sandbox_stub.TestSandbox = MagicMock()
+    sys.modules["qecore.sandbox"] = sandbox_stub
+    sys.modules["qecore"].__path__ = []
+    sys.modules.pop("tests.smoke.features.environment", None)
+    env = importlib.import_module("tests.smoke.features.environment")
+    ctx = MagicMock()
+    ctx.config.userdata = {"image": "ghcr.io/ublue-os/bazzite:stable"}
+    with patch.dict("os.environ", {"BASE_IMAGE": "ghcr.io/projectbluefin/utah:latest",
+                                   "IMAGE": "ghcr.io/projectbluefin/testsuite:e2e-1"}), \
+         patch("time.sleep"), patch("time.time", side_effect=itertools.count(0, 100)), \
+         patch("subprocess.run") as run, \
+         patch("tests.shared.ssh_config.populate_ssh_context"), \
+         patch("builtins.open", MagicMock()):
+        run.return_value = MagicMock(returncode=0, stdout="(true, 'true')")
+        env.before_all(ctx)
+    sys.modules.pop("qecore.sandbox", None)
+    sys.modules.pop("tests.smoke.features.environment", None)
+    assert ctx.ci_seeds_flatpaks is True
+    assert ctx.image_under_test == "ghcr.io/projectbluefin/utah:latest"

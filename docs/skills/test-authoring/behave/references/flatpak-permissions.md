@@ -60,8 +60,12 @@ was called with `context` as the first positional argument.
 `[Context] filesystems` set (`_flatpak_filesystems` keyfile-parses
 `flatpak info --system --show-permissions`, which merges image overrides) against
 an exact list, so both widening and narrowing fail with the diff. Only apps in
-`flatpak-app-list.txt` (preloaded on Bluefin/Utah GUI lanes) are active; the rest
-stay `@pending`. Take expectations from the installed Flathub build plus any
+`flatpak-app-list.txt` are active, tagged `@ci_seeded_flatpak`; the rest stay
+`@pending`. `@bluefin` alone is too broad: it also matches bazzite and common
+refs, which `e2e.yml` never preloads (its condition is `contains(inputs.image,
+'/bluefin') || contains(inputs.image, '/utah')`), so the tag gate in the smoke
+`environment.py` mirrors that condition and a missing app still fails on Bluefin
+and Utah. Take expectations from the installed Flathub build plus any
 `/usr/share/ublue-os/flatpak-overrides/<id>` the image links in via tmpfiles
 (Bazaar adds `host-etc`). Upstream grants that look broad (Loupe `host`, Papers
 `home:ro`) are pinned, not asserted away — the audit is drift detection.

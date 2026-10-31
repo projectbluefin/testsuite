@@ -287,6 +287,21 @@ except Exception as exc:  # noqa: BLE001
 SUITE_NAME = "smoke"
 
 
+def ci_seeds_flatpaks(image: str) -> bool:
+    """True when e2e.yml preloads flatpak-app-list.txt into the VM for ``image``.
+
+    Mirrors the "Install cached Flatpaks in VM" condition
+    ``contains(inputs.image, '/bluefin') || contains(inputs.image, '/utah')``:
+    a case-insensitive substring match on the full input ref (``BASE_IMAGE``),
+    not only the image name. Bazzite/common refs pass ``@bluefin`` but are never
+    seeded, and flatpak-preinstall.service is masked, so their system Flatpak
+    set is empty in CI. ``before_all`` treats an unset image (local run) as
+    seeded, so a missing app still fails rather than skipping.
+    """
+    ref = image.lower()
+    return "/bluefin" in ref or "/utah" in ref
+
+
 OPTIONAL_SCENARIO_TARGETS = {
     "firefox": (
         ("command", "firefox"),
@@ -514,6 +529,8 @@ def before_all(context) -> None:
     image_ref = image_under_test(context.config.userdata)
     context.is_bluefin_image = is_bluefin_image(image_ref) if image_ref else True
     context.is_dakota_image = is_dakota_image(image_ref) if image_ref else False
+    context.image_under_test = image_ref
+    context.ci_seeds_flatpaks = ci_seeds_flatpaks(image_ref) if image_ref else True
 
     try:
         context.optional_scenario_availability = {
@@ -606,6 +623,18 @@ def before_scenario(context, scenario) -> None:
                 scenario.skip()
             print(f"Skipping {scenario.name}: @dakota_only on non-Dakota image", flush=True)
             return
+
+    if "ci_seeded_flatpak" in scenario_tags and not getattr(context, "ci_seeds_flatpaks", True):
+        try:
+            scenario.skip(
+                "Skipping @ci_seeded_flatpak scenario: e2e.yml preloads "
+                "flatpak-app-list.txt only for /bluefin or /utah image refs "
+                f"(image={getattr(context, 'image_under_test', '') or 'unknown'})"
+            )
+        except TypeError:
+            scenario.skip()
+        print(f"Skipping {scenario.name}: @ci_seeded_flatpak on unseeded image", flush=True)
+        return
 
     if getattr(context, 'failed_setup', None):
         try:
