@@ -77,6 +77,15 @@ needed:
   `context_values` and compare the grant name before `:` (`home`, `~`, `host`).
 - **Data survives uninstall.** Write a marker under `~/.var/app/<id>/` before
   `flatpak uninstall` without `--delete-data`, then read it back.
+- **Run the app across `flatpak run` instances.** Each sandbox gets its own
+  `$XDG_RUNTIME_DIR`; only `$XDG_RUNTIME_DIR/app/<id>` is shared between instances.
+  Point Compass's `COMPASS_SOCKET` there, start `serve --no-hotkey` in the GNOME
+  session (`. /tmp/session.env`), then `ping` and `shutdown` from a second
+  `flatpak run`; `flatpak ps` proves the instance exists and exits.
+- **URL handlers: `gio mime`, not `xdg-mime`.** Dakota ships no `xdg-utils`. Take
+  `XDG_DATA_DIRS` from `/usr/lib/systemd/user-environment-generators/60-flatpak` (what
+  the session gets) so the Flatpak exports are searched. GIO hides desktop files
+  whose `Exec` binary is missing, so only real exports resolve.
 - **Image defaults differ.** common main enables `compass@tunaos.org` in its Bluefin
   schema override, but Dakota's common pin and Bluefin's extension set may not ship
   it. Read the compiled default with
