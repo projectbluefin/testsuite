@@ -37,7 +37,7 @@ gh workflow run manual.yml --repo projectbluefin/testsuite --ref main \
   -f image=ghcr.io/projectbluefin/bluefin:testing \
   -f suites=smoke
 
-# Common suite (auto-shards into common-a + common-b)
+# Common suite (Bluefin-family images shard into common-a + common-b)
 gh workflow run manual.yml --repo projectbluefin/testsuite --ref main \
   -f image=ghcr.io/projectbluefin/bluefin:testing \
   -f suites=common

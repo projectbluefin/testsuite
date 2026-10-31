@@ -114,16 +114,18 @@ jobs:
           JSON=$(python3 -c "
           import json, sys
           parts = [s.strip() for s in sys.argv[1].split(',') if s.strip()]
+          image_name = sys.argv[2].lower().split('/')[-1].split(':')[0].split('@')[0]
           expanded = []
           for p in parts:
               if p == 'smoke':
                   expanded.extend(['smoke-a', 'smoke-b', 'smoke-firefox'])
-              elif p == 'common':
+              elif p == 'common' and 'dakota' not in image_name:
                   expanded.extend([f'{p}-a', f'{p}-b'])
               else:
+                  # Dakota's common coverage is two Dakota-only features; a split leaves one all-skipped half.
                   expanded.append(p)
           print(json.dumps(expanded))
-          " "${{ inputs.suites }}")
+          " "${{ inputs.suites }}" "${{ inputs.image }}")
           echo "suites=${JSON}" >> "$GITHUB_OUTPUT"
           echo "Suites: ${JSON}"
 
@@ -1481,7 +1483,7 @@ jobs:
                 -e BASE_IMAGE=\"${BASE_IMAGE}\" \
                 -e PYTHONPATH=/tmp/bluefin-tests \
                 ghcr.io/projectbluefin/testsuite:runner \
-                \"python3 /tmp/bluefin-tests/tests/shared/behave_retry.py ${REMOTE_FEATURE_ARGS} --format json.pretty --outfile /tmp/results/results.json --no-capture ${BEHAVE_TAG_ARGS}\"
+                \"python3 /tmp/bluefin-tests/tests/shared/behave_retry.py ${REMOTE_FEATURE_ARGS} -D image=${BASE_IMAGE} --format json.pretty --outfile /tmp/results/results.json --no-capture ${BEHAVE_TAG_ARGS}\"
             " || BEHAVE_RC=$?
 
             $SCP "bluefin-test@127.0.0.1:/tmp/results/." ./results/ 2>/dev/null || true

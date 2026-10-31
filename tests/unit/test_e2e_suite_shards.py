@@ -60,9 +60,11 @@ def resolve_program() -> str:
     return _program("e2e", "shard", RESOLVE_RE)
 
 
-def _expand(program: str, suites: str) -> list[str]:
+def _expand(
+    program: str, suites: str, image: str = "ghcr.io/projectbluefin/bluefin:testing"
+) -> list[str]:
     out = subprocess.run(
-        [sys.executable, "-c", program, suites],
+        [sys.executable, "-c", program, suites, image],
         cwd=REPO_ROOT,
         check=True,
         capture_output=True,
@@ -176,3 +178,9 @@ def test_sharded_suites_actually_shard(expand_program):
     # are already covered per suite by the parametrized resolver test above.
     for suite in ("smoke", "common"):
         assert len(_expand(expand_program, suite)) > 1, f"{suite} is no longer sharded"
+
+
+def test_dakota_common_runs_unsharded(expand_program):
+    assert _expand(
+        expand_program, "common", "ghcr.io/projectbluefin/dakota@sha256:abc"
+    ) == ["common"]

@@ -508,9 +508,10 @@ def before_all(context) -> None:
 
     # Detect image family from BASE_IMAGE before IMAGE; composed runs replace
     # IMAGE with a run-scoped testsuite ref that carries no family (#907).
+    # qecore-headless can reset os.environ, so e2e.yml also passes -D image=.
     from tests.shared.image_family import image_under_test, is_bluefin_image, is_dakota_image
 
-    image_ref = image_under_test()
+    image_ref = image_under_test(context.config.userdata)
     context.is_bluefin_image = is_bluefin_image(image_ref) if image_ref else True
     context.is_dakota_image = is_dakota_image(image_ref) if image_ref else False
 
@@ -537,6 +538,32 @@ def before_all(context) -> None:
     except Exception as error:
         print(f"Environment error: before_all: {error}", flush=True)
         record_failed_setup(context, traceback.format_exc())
+
+
+def _required_default_extension(scenario) -> str | None:
+    background = getattr(getattr(scenario, "feature", None), "background", None)
+    steps = list(getattr(background, "steps", [])) + list(getattr(scenario, "steps", []))
+    for step in steps:
+        match = _re.fullmatch(r'GNOME extension "([^"]+)" is enabled', getattr(step, "name", ""))
+        if match:
+            return match.group(1)
+    return None
+
+
+def _extension_enabled_by_default(uuid: str) -> bool:
+    """Return False only when the image's schema default omits ``uuid``.
+
+    A failed probe is a harness or image defect, so the scenario runs and
+    reports it instead of silently skipping.
+    """
+    from steps.gnome_extensions_steps import _run_host
+
+    output, returncode, _ = _run_host(
+        "python3 -c \"import gi; gi.require_version('Gio', '2.0'); "
+        "from gi.repository import Gio; "
+        "print(Gio.Settings.new('org.gnome.shell').get_default_value('enabled-extensions').unpack())\""
+    )
+    return returncode != 0 or uuid in output
 
 
 def before_scenario(context, scenario) -> None:
@@ -614,6 +641,16 @@ def before_scenario(context, scenario) -> None:
             scenario.skip()
         print(f"Skipping {scenario.name}: failed_setup set", flush=True)
         return
+    if "requires_default_extension" in scenario_tags:
+        uuid = _required_default_extension(scenario)
+        if uuid and not _extension_enabled_by_default(uuid):
+            reason = f"{uuid} is not enabled by this image's GNOME Shell defaults"
+            try:
+                scenario.skip(reason)
+            except TypeError:
+                scenario.skip()
+            print(f"Skipping {scenario.name}: {reason}", flush=True)
+            return
     context.scenario = scenario
     configure_screenshot_context(context, SUITE_NAME, scenario.name)
     record_start(context)

@@ -44,7 +44,7 @@ with:
   suites: smoke,developer
 ```
 
-**Dynamic suite sharding**: `suites: smoke` expands to `smoke-a` + `smoke-b`, and `suites: common` expands to `common-a` + `common-b`. After checkout, the workflow glob-resolves `tests/<suite>/features/*.feature`, sorts alphabetically, and splits into two deterministic shards:
+**Dynamic suite sharding**: `suites: smoke` expands to `smoke-a` + `smoke-b` + `smoke-firefox`, and `suites: common` expands to `common-a` + `common-b` except on Dakota, which runs one `common` job. For shards, the workflow glob-resolves `tests/<suite>/features/*.feature`, sorts alphabetically, and splits them deterministically:
 
 ```python
 files = sorted(glob.glob(f"tests/{suite}/features/*.feature"))

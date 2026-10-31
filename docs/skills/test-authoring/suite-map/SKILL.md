@@ -92,14 +92,14 @@ Which suites run on which image. Any bootc/ostree GNOME image can run via the Gi
 uses: projectbluefin/testsuite/.github/workflows/e2e.yml@v1
 with:
   image: <your-bootc-image>
-  suites: smoke,common   # smoke and common each auto-shard into two parallel jobs
+  suites: smoke,common   # smoke shards; common shards except on Dakota
 ```
-Passing `suites: smoke` expands to `smoke-a` + `smoke-b`, and `suites: common` expands to `common-a` + `common-b`. Both cut wall time by ~50%. New `.feature` files in these suites are picked up automatically.
+Passing `suites: smoke` expands to `smoke-a` + `smoke-b` + `smoke-firefox`. `suites: common` expands to `common-a` + `common-b`, except Dakota runs one `common` job because both applicable features are `@dakota_only` and one is pending. New `.feature` files in these suites are picked up automatically.
 
 GitHub Action suites (`smoke`, `vanilla-gnome`, `bazzite`, `developer`, `dx`, `software`, `common`, `lifecycle`, `installer`) run on `ubuntu-latest`.
 `security` and `hardware` (SSH-mode) are not yet in the GHA action. The original migration epics (#43, #44) are closed; the remaining gap is untracked — file a fresh issue before claiming this work.
 
-Any bootc/ostree GNOME image can plug in `smoke` and `common` as a portable health gate — no Bluefin-specific knowledge required. See `README.md` → "For other bootc image maintainers" for minimum image requirements.
+Any bootc/ostree GNOME image can plug in `smoke` as a portable health gate. `common` validates Bluefin's common layer; non-Bluefin, non-Dakota images skip every common scenario and fail the passing-scenario gate. See `README.md` → "For other bootc image maintainers" for minimum image requirements.
 
 ## PR gate model
 
@@ -141,6 +141,7 @@ Set `chunked_enabled: true` once `ghcr.io/projectbluefin/bluefin:latest` ships z
 | `@smoke_suite` | Runs as part of the standard smoke suite |
 | `@bluefin` | Scenario runs on Bluefin-family image names (`bluefin`, `bazzite`, `utah`, `common`); smoke and common read `BASE_IMAGE` before `IMAGE`, so composed runs keep their family |
 | `@dakota_only` | Scenario runs only when the image name contains `dakota`; smoke and common read `BASE_IMAGE` before `IMAGE`. Only the image **name** is matched, so the `projectbluefin` org name cannot false-positive |
+| `@requires_default_extension` | Smoke scenario runs only when the image's `org.gnome.shell enabled-extensions` schema default contains the extension named by its `GNOME extension "<uuid>" is enabled` step; a failed probe runs the scenario so harness/image defects stay visible |
 | `@dx_only` / `@developer_suite` | DX variant only |
 | `@nvidia_only` | NVIDIA variant only |
 | `@flatcar_suite` | Flatcar OS only |
