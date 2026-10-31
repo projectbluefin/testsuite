@@ -31,7 +31,7 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = REPO_ROOT / ".github" / "workflows" / "e2e.yml"
 
-EXPAND_RE = re.compile(r'python3 -c "\n(?P<code>.*?)\n" "\$\{\{ inputs\.suites \}\}"', re.S)
+EXPAND_RE = re.compile(r'python3 -c "\n(?P<code>.*?)\n" "\$SUITES_INPUT" "\$IMAGE_INPUT"', re.S)
 RESOLVE_RE = re.compile(r"python3 - <<'PY'\n(?P<code>.*?)\nPY\n", re.S)
 
 

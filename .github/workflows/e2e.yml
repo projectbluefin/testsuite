@@ -110,6 +110,9 @@ jobs:
     steps:
       - name: Resolve suites
         id: resolve
+        env:
+          SUITES_INPUT: ${{ inputs.suites }}
+          IMAGE_INPUT: ${{ inputs.image }}
         run: |
           JSON=$(python3 -c "
           import json, sys
@@ -125,7 +128,7 @@ jobs:
                   # Dakota's common coverage is two Dakota-only features; a split leaves one all-skipped half.
                   expanded.append(p)
           print(json.dumps(expanded))
-          " "${{ inputs.suites }}" "${{ inputs.image }}")
+          " "$SUITES_INPUT" "$IMAGE_INPUT")
           echo "suites=${JSON}" >> "$GITHUB_OUTPUT"
           echo "Suites: ${JSON}"
 
