@@ -245,11 +245,9 @@ The smoke suite's UUID-specific extension checks use the same
 runner container over SSH.
 
 Bluefin's bundled extensions each get a named scenario in
-`tests/smoke/features/bluefin_extensions.feature`. For an extension that a
-newer GNOME image stops shipping, tag the scenario `@bluefin` and guard it with
-`... is installed, otherwise skip on GNOME 51+` (missing on older shells fails).
-The Super+Space launcher is Compass (`org.tunaos.compass` Flatpak), not a Shell
-extension; its keybinding is asserted in `common_dconf.feature`.
+`tests/smoke/features/bluefin_extensions.feature`; guard ones newer GNOME stops
+shipping with `@bluefin` and `... is installed, otherwise skip on GNOME 51+`.
+Super+Space is Compass (`org.tunaos.compass` Flatpak): `compass_launcher.feature`.
 
 Use the distinct step phrase `GNOME extension "{uuid}" is enabled` (not
 bazzite's `Extension "{uuid}" is enabled`) to avoid cross-suite step collisions.
