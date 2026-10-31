@@ -931,6 +931,43 @@ def compass_flatpak_installed_within(context, timeout: int) -> None:
         sleep(10)
 
 
+_SESSION = "source /tmp/session.env 2>/dev/null; "
+
+
+@step("Compass user service is wanted by graphical-session.target")
+def compass_service_wanted_by_session(context) -> None:
+    enabled, _, _ = _run_host(_SESSION + "systemctl --user is-enabled compass.service")
+    exec_start, _, _ = _run_host(_SESSION + "systemctl --user show -p ExecStart compass.service")
+    print(f"compass.service is-enabled={enabled!r} {exec_start}", flush=True)
+    wanted_by, rc, err = _run_host(_SESSION + "systemctl --user show -p WantedBy compass.service")
+    assert rc == 0 and "graphical-session.target" in wanted_by, (
+        f"compass.service not wanted by graphical-session.target: {wanted_by!r} {err}"
+    )
+
+
+@step("Compass user service is restarted and answers ping within {timeout:d} seconds")
+def compass_service_restarted_and_pings(context, timeout: int) -> None:
+    # ConditionPathExists is false at login when preinstall finishes later.
+    _, rc, err = _run_host(_SESSION + "systemctl --user restart compass.service")
+    assert rc == 0, f"systemctl --user restart compass.service failed: {err}"
+    deadline = time.monotonic() + timeout
+    while True:
+        active, _, _ = _run_host(_SESSION + "systemctl --user is-active compass.service")
+        out, ping_rc, ping_err = _run_host(_SESSION + "flatpak run org.tunaos.compass ping")
+        if active == "active" and ping_rc == 0:
+            return
+        if time.monotonic() >= deadline:
+            status, _, _ = _run_host(
+                _SESSION + "systemctl --user status --no-pager compass.service 2>&1"
+            )
+            raise AssertionError(
+                f"compass.service not serving after {timeout}s: is-active={active!r} "
+                f"ping rc={ping_rc} {ping_err or out}\n{status}"
+            )
+        sleep(2)
+
+
+
 @step("Compass launcher window is {state} within {timeout:d} seconds")
 def compass_window_state_within(context, state: str, timeout: int) -> None:
     assert state in ("visible", "hidden"), f"unknown state {state!r}"

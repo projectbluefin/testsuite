@@ -8,6 +8,8 @@ Feature: Compass launcher
 
   Scenario: Super+Space toggles the Compass launcher
     * Compass Flatpak is installed system-wide within 600 seconds
+    * Compass user service is wanted by graphical-session.target
+    * Compass user service is restarted and answers ping within 60 seconds
     * GNOME Shell is accessible via AT-SPI
     * Key combo: "<Super>space"
     * Compass launcher window is visible within 60 seconds
