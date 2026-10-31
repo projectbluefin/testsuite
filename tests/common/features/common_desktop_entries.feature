@@ -9,8 +9,9 @@ Feature: Bluefin common desktop entry validation
     * Run SSH command: "find /usr/share/applications -name '*.desktop' | head -20 | xargs desktop-file-validate 2>&1 | grep -i '^[^:]*: error:' | wc -l | tr -d '[:space:]'"
     * SSH command output "is" "0"
 
-  Scenario: Bluefin-specific desktop entries are present
-    * Run SSH command: "test -f /usr/share/applications/ujust.desktop || test -f /usr/share/applications/org.gnome.Ptyxis.desktop || test -f /usr/share/applications/com.raggesilver.BlackBox.desktop || test -f /usr/share/applications/org.gnome.Shell.desktop"
+  # projectbluefin/common ships these launchers in /usr/share/applications.
+  Scenario: Common desktop launchers are present and valid
+    * Run SSH command: "cd /usr/share/applications && desktop-file-validate bluefin-help.desktop discourse.desktop documentation.desktop system-update.desktop noop.desktop"
     * SSH command return code is "0"
 
   Scenario: GNOME Files application desktop entry is present

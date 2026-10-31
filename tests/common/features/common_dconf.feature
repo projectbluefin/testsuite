@@ -28,9 +28,14 @@ Feature: Bluefin common dconf and GSettings defaults
     * SSH command return code is "0"
     * SSH command output is not empty
 
+  # distro.d/locks/01-bluefin-locked-settings locks the GNOME Software update
+  # keys. dconf enforces locks without the schema (gnome-software is not
+  # installed), so only dconf's non-writable-key refusal counts as locked; any
+  # other failure (e.g. no session bus) is reported as such, and an accepted
+  # write is reset before the scenario fails.
   Scenario: dconf locked keys cannot be overridden
-    * Run SSH command: "gsettings set org.gnome.software allow-updates true"
-    * Last command exits with non-zero status
+    * Run SSH command: "for k in allow-updates download-updates download-updates-notify; do if e=$(dconf write /org/gnome/software/$k true 2>&1); then dconf reset /org/gnome/software/$k; echo $k=writable; else case $e in *non-writable*) echo $k=locked;; *) echo $k=error:$e;; esac; fi; done | paste -sd,"
+    * SSH command output stripped "is" "allow-updates=locked,download-updates=locked,download-updates-notify=locked"
 
   Scenario: Custom keybindings are configured
     * Run SSH command: "gsettings get org.gnome.settings-daemon.plugins.media-keys custom-keybindings"
