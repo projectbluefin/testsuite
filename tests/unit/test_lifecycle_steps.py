@@ -30,6 +30,120 @@ def _import_lifecycle_steps():
     return m
 
 
+class TestRequiredLifecycleVerdict:
+    """Targeted qualification must not turn skipped assertions into a pass."""
+
+    def setup_method(self):
+        # The environment imports SSH decorators; reuse the isolated step stub.
+        _import_lifecycle_steps()
+        sys.modules.pop("tests.lifecycle.features.environment", None)
+        import tests.lifecycle.features.environment as environment
+        self.mod = environment
+
+    @staticmethod
+    def scenario(status="passed", step_status="passed", required=True):
+        return types.SimpleNamespace(
+            name="upgrade and rollback",
+            status=types.SimpleNamespace(name=status),
+            steps=[types.SimpleNamespace(
+                name=("bootc upgrade output indicates image was staged"
+                      if required else "optional capability probe"),
+                status=types.SimpleNamespace(name=step_status),
+            )],
+        )
+
+    @staticmethod
+    def features(*scenarios):
+        return [types.SimpleNamespace(walk_scenarios=lambda: iter(scenarios))]
+
+    def test_required_pass_with_optional_skip_qualifies(self):
+        self.mod._assert_required_lifecycle_passed(self.features(
+            self.scenario(), self.scenario("skipped", "skipped", required=False),
+        ))
+
+    @pytest.mark.parametrize("status", ["skipped", "untested", "failed", "undefined", "error"])
+    def test_nonpassing_required_scenario_fails_even_with_other_passes(self, status):
+        with pytest.raises(AssertionError, match="upgrade and rollback"):
+            self.mod._assert_required_lifecycle_passed(self.features(
+                self.scenario(), self.scenario(status),
+            ))
+
+    def test_skipped_required_step_cannot_hide_under_passing_scenario(self):
+        with pytest.raises(AssertionError, match="skipped or incomplete"):
+            self.mod._assert_required_lifecycle_passed(self.features(
+                self.scenario(step_status="skipped"),
+            ))
+
+    def test_no_required_scenarios_cannot_qualify(self):
+        with pytest.raises(AssertionError, match="no required upgrade scenarios"):
+            self.mod._assert_required_lifecycle_passed(self.features(
+                self.scenario(required=False),
+            ))
+
+    def test_targeted_run_checks_complete_model_including_filtered_scenarios(self, monkeypatch):
+        monkeypatch.setenv("TARGET_IMAGE", "ghcr.io/projectbluefin/bluefin@sha256:candidate")
+        context = types.SimpleNamespace(_runner=types.SimpleNamespace(
+            features=self.features(self.scenario(), self.scenario("skipped")),
+        ))
+        with pytest.raises(AssertionError, match="Lifecycle qualification"):
+            self.mod.after_all(context)
+
+    @pytest.mark.parametrize("target, tags, skip, expected_rc", [
+        ("candidate", [], True, 1),
+        ("candidate", ["--tags", "~required"], True, 1),
+        ("candidate", [], False, 0),
+        ("", [], True, 0),
+    ])
+    def test_real_behave_exit_status(self, tmp_path, target, tags, skip, expected_rc):
+        """An after_all failure must reach the existing workflow's exit code."""
+        import os
+        from pathlib import Path
+        import subprocess
+
+        root = Path(__file__).resolve().parents[1]
+        features = tmp_path / "features"
+        (features / "steps").mkdir(parents=True)
+        (features / "environment.py").write_text(
+            (root / "lifecycle/features/environment.py").read_text()
+        )
+        (features / "steps/probe.py").write_text(
+            'from behave import step\n'
+            '@step("a passing probe")\n'
+            'def passed(context): pass\n'
+            '@step("bootc upgrade output indicates image was staged")\n'
+            'def skipped(context): '
+            + ('context.scenario.skip("probe unavailable")\n' if skip else 'pass\n')
+        )
+        (features / "probe.feature").write_text(
+            'Feature: verdict probe\n'
+            '  Scenario: unrelated pass\n'
+            '    * a passing probe\n'
+        )
+        (features / "required.feature").write_text(
+            '@required\n'
+            'Feature: required upgrade evidence\n'
+            '  Scenario: required upgrade\n'
+            '    * bootc upgrade output indicates image was staged\n'
+        )
+        env = {**os.environ, "TARGET_IMAGE": target, "PYTHONPATH": str(root.parent)}
+        result = subprocess.run(
+            [sys.executable, "-m", "behave", str(features), *tags],
+            env=env, capture_output=True, text=True, timeout=30,
+        )
+        assert result.returncode == expected_rc, result.stdout + result.stderr
+        if expected_rc:
+            assert "Lifecycle qualification" in result.stdout + result.stderr
+
+    @pytest.mark.parametrize("target", [None, "", " "])
+    def test_exploratory_and_manual_runs_preserve_skips(self, monkeypatch, target):
+        if target is None:
+            monkeypatch.delenv("TARGET_IMAGE", raising=False)
+        else:
+            monkeypatch.setenv("TARGET_IMAGE", target)
+        # No parsed model is needed for a non-qualification run.
+        self.mod.after_all(types.SimpleNamespace())
+
+
 class TestParseBootcStatus:
     def setup_method(self):
         self.mod = _import_lifecycle_steps()
