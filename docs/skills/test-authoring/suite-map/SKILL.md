@@ -141,7 +141,7 @@ Set `chunked_enabled: true` once `ghcr.io/projectbluefin/bluefin:latest` ships z
 | `@smoke_suite` | Runs as part of the standard smoke suite |
 | `@bluefin` | Scenario runs on Bluefin-family image names (`bluefin`, `bazzite`, `utah`, `common`); smoke and common read `BASE_IMAGE` before `IMAGE`, so composed runs keep their family |
 | `@dakota_only` | Scenario runs only when the image name contains `dakota`; smoke and common read `BASE_IMAGE` before `IMAGE`. Only the image **name** is matched, so the `projectbluefin` org name cannot false-positive |
-| `@requires_default_extension` | Smoke scenario runs only when the image's `org.gnome.shell enabled-extensions` schema default contains the extension named by its `GNOME extension "<uuid>" is enabled` step; a failed probe runs the scenario so harness/image defects stay visible |
+| `@bluefin_extension_defaults` | Smoke scenario asserts an extension Bluefin enables by default; it skips only on Utah, whose `zz3-bluefin-unsupported-stuff.gschema.override` replaces that list. Never gate it on the live default, which would turn a dropped default into a skip |
 | `@dx_only` / `@developer_suite` | DX variant only |
 | `@nvidia_only` | NVIDIA variant only |
 | `@flatcar_suite` | Flatcar OS only |

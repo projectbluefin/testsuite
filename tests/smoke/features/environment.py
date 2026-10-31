@@ -540,35 +540,9 @@ def before_all(context) -> None:
         record_failed_setup(context, traceback.format_exc())
 
 
-def _required_default_extension(scenario) -> str | None:
-    background = getattr(getattr(scenario, "feature", None), "background", None)
-    steps = list(getattr(background, "steps", [])) + list(getattr(scenario, "steps", []))
-    for step in steps:
-        match = _re.fullmatch(r'GNOME extension "([^"]+)" is enabled', getattr(step, "name", ""))
-        if match:
-            return match.group(1)
-    return None
-
-
-def _extension_enabled_by_default(uuid: str) -> bool:
-    """Return False only when the image's schema default omits ``uuid``.
-
-    A failed probe is a harness or image defect, so the scenario runs and
-    reports it instead of silently skipping.
-    """
-    from steps.gnome_extensions_steps import _run_host
-
-    output, returncode, _ = _run_host(
-        "python3 -c \"import gi; gi.require_version('Gio', '2.0'); "
-        "from gi.repository import Gio; "
-        "print(Gio.Settings.new('org.gnome.shell').get_default_value('enabled-extensions').unpack())\""
-    )
-    return returncode != 0 or uuid in output
-
-
 def before_scenario(context, scenario) -> None:
     from tests.shared.quarantine import skip_quarantine
-
+    from tests.shared.image_family import image_name, image_under_test
     # Initialize qecore command output attributes and screenshot context before
     # any early-return paths so that after_scenario/after_step never sees missing attrs.
     context.html_formatter = None
@@ -641,16 +615,16 @@ def before_scenario(context, scenario) -> None:
             scenario.skip()
         print(f"Skipping {scenario.name}: failed_setup set", flush=True)
         return
-    if "requires_default_extension" in scenario_tags:
-        uuid = _required_default_extension(scenario)
-        if uuid and not _extension_enabled_by_default(uuid):
-            reason = f"{uuid} is not enabled by this image's GNOME Shell defaults"
-            try:
-                scenario.skip(reason)
-            except TypeError:
-                scenario.skip()
-            print(f"Skipping {scenario.name}: {reason}", flush=True)
-            return
+    if "bluefin_extension_defaults" in scenario_tags and "utah" in image_name(image_under_test(context.config.userdata)):
+        # Utah's zz3-bluefin-unsupported-stuff.gschema.override replaces
+        # Bluefin's enabled-extensions list and omits these extensions.
+        reason = "Utah does not ship Bluefin's default-enabled extension set"
+        try:
+            scenario.skip(reason)
+        except TypeError:
+            scenario.skip()
+        print(f"Skipping {scenario.name}: {reason}", flush=True)
+        return
     context.scenario = scenario
     configure_screenshot_context(context, SUITE_NAME, scenario.name)
     record_start(context)
