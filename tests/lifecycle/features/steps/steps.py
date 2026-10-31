@@ -454,11 +454,20 @@ def reboot_and_wait(context):
     )
 
 
-def _migration_target():
-    """Return the migration target image ref from MIGRATION_TARGET env var."""
-    return os.environ.get(
-        "MIGRATION_TARGET", "ghcr.io/projectbluefin/bluefin:stable"
+def _migration_target(required=False):
+    """Return the migration target image ref from MIGRATION_TARGET env var.
+
+    Bluefin migration falls back to bluefin:stable. ``required=True`` fails
+    closed instead, so a Dakota run is never silently switched to Bluefin.
+    """
+    target = os.environ.get("MIGRATION_TARGET", "").strip()
+    if target:
+        return target
+    assert not required, (
+        "MIGRATION_TARGET is not set; this scenario needs an explicit target "
+        "image (e.g. a homed-enabled ghcr.io/projectbluefin/dakota tag)."
     )
+    return "ghcr.io/projectbluefin/bluefin:stable"
 
 
 MIGRATION_SWITCH_TIMEOUT_S = 900
@@ -471,6 +480,13 @@ CONTAINERS_STORAGE_SWITCH_TIMEOUT_S = 120
 def switch_to_migration_target(context):
     """Run bootc switch to the parameterized migration target image."""
     target = _migration_target()
+    run_ssh(context, f"sudo bootc switch {shlex.quote(target)}", timeout=MIGRATION_SWITCH_TIMEOUT_S)
+
+
+@step("Switch to required migration target")
+def switch_to_required_migration_target(context):
+    """Run bootc switch to MIGRATION_TARGET; fail when it is unset."""
+    target = _migration_target(required=True)
     run_ssh(context, f"sudo bootc switch {shlex.quote(target)}", timeout=MIGRATION_SWITCH_TIMEOUT_S)
 
 
@@ -772,7 +788,7 @@ def ostree_two_deployments(context):
 
 # ---------------------------------------------------------------------------
 # systemd-homed migration steps (dakota:testing → dakota:next)
-# MIGRATION_TARGET env var — defaults to ghcr.io/projectbluefin/dakota:next
+# MIGRATION_TARGET env var — required; no default (fails closed)
 # ---------------------------------------------------------------------------
 
 def _is_homed_active(context):
