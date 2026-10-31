@@ -37,7 +37,8 @@ Feature: Dakota OS shipping contracts
     * SSH command output contains "booted-ref-match"
 
   Scenario: image-info.json reports the booted tag instead of the baked one
-    * Run SSH command: "mountpoint -q /usr/share/ublue-os/image-info.json && echo bound; b=$(cat /run/ublue-os/booted-image); n=${b##*/}; case $b in *@*) t=;; *) case $n in *:*) t=${n##*:};; *) t=latest;; esac;; esac; f=/usr/share/ublue-os/image-info.json; [ $(jq -r --arg k image-tag '.[$k]' $f)x = ${t}x ] && echo tag-match; jq -r --arg k image-ref '.[$k]' $f | grep -q -- ${b%:*}$ && echo ref-match"
+    # Mirror ublue-booted-image-sync: a digest ref has no tag, ref keeps the repo.
+    * Run SSH command: "mountpoint -q /usr/share/ublue-os/image-info.json && echo bound; b=$(cat /run/ublue-os/booted-image); r=${b%@*}; n=${r##*/}; if [ $r != $b ]; then t=; else case $n in *:*) t=${n##*:}; r=${r%:*};; *) t=latest;; esac; fi; f=/usr/share/ublue-os/image-info.json; [ $(jq -r --arg k image-tag '.[$k]' $f)x = ${t}x ] && echo tag-match; jq -r --arg k image-ref '.[$k]' $f | grep -q -- ${r}$ && echo ref-match"
     * SSH command output contains "bound"
     * SSH command output contains "tag-match"
     * SSH command output contains "ref-match"
@@ -49,8 +50,10 @@ Feature: Dakota OS shipping contracts
     * SSH command output contains "4755"
     * Run SSH command: "readlink /usr/bin/sudoedit"
     * SSH command output stripped "is" "sudo"
-    * Run SSH command: "stat -c %a /etc/sudoers.d/linuxbrew"
-    * SSH command output stripped "is" "440"
+    # Source chmods 0440; the published image carries 0600 for every
+    # sudoers.d file. Either is valid for sudo-rs: root-owned, no group/other write.
+    * Run SSH command: "find /etc/sudoers.d/linuxbrew -maxdepth 0 -user root ! -perm /022 -printf secure"
+    * SSH command output stripped "is" "secure"
     * Run SSH command: "sudo -n sh -c 'echo $PATH'"
     * SSH command return code is "0"
     * SSH command output stripped "is" "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin"
@@ -61,13 +64,16 @@ Feature: Dakota OS shipping contracts
 
   # elements/bluefin/uupd.bst ships /etc/polkit-1/rules.d/uupd.rules; polkitd
   # evaluates it, so pkcheck proves the rule parses and grants exactly uupd units.
+  # polkit only lets uid 0 pass --detail, so root asks about the SSH shell ($$).
   Scenario: uupd polkit rule lets users manage only uupd units
-    * Run SSH command: "pkcheck --action-id org.freedesktop.systemd1.manage-units --process $$ --detail unit uupd.service"
+    * Run SSH command: "sudo pkcheck --action-id org.freedesktop.systemd1.manage-units --process $$ --detail unit uupd.service"
     * SSH command return code is "0"
-    * Run SSH command: "pkcheck --action-id org.freedesktop.systemd1.manage-units --process $$ --detail unit uupd-manual.service"
+    * Run SSH command: "sudo pkcheck --action-id org.freedesktop.systemd1.manage-units --process $$ --detail unit uupd-manual.service"
     * SSH command return code is "0"
-    * Run SSH command: "pkcheck --action-id org.freedesktop.systemd1.manage-units --process $$ --detail unit sshd.service"
-    * Last command exits with non-zero status
+    * Run SSH command: "sudo pkcheck --action-id org.freedesktop.systemd1.manage-units --process $$ --detail unit sshd.service; echo rc=$?"
+    * SSH command output contains "rc="
+    * SSH command output does not contain "rc=0"
+    * SSH command output does not contain "rc=127"
 
   # files/polkit/org.freedesktop.NetworkManager.rules (wheel + local only).
   Scenario: NetworkManager wheel polkit rule grants only local wheel users
@@ -117,7 +123,8 @@ Feature: Dakota OS shipping contracts
   Scenario: zram is disabled and the swapfile follows its init contract
     * Run SSH command: "{ grep -c '^\[zram' /usr/lib/systemd/zram-generator.conf; swapon --show=NAME --noheadings | grep -c zram; } | tr '\n' ' '"
     * SSH command output stripped "is" "0 0"
-    * Run SSH command: "systemctl show -p Result --value bluefin-swapfile-init.service; if [ -e /var/swap/swapfile ]; then swapon --show=NAME --noheadings | grep -qx /var/swap/swapfile && echo swapfile-state=active || echo swapfile-state=inactive; else journalctl -b -o cat -u bluefin-swapfile-init.service | grep -q skipping && echo swapfile-state=skipped || echo swapfile-state=missing; fi"
+    # /var/swap is 0700 root, so probe it through sudo.
+    * Run SSH command: "systemctl show -p Result --value bluefin-swapfile-init.service; if sudo test -e /var/swap/swapfile; then swapon --show=NAME --noheadings | grep -qx /var/swap/swapfile && echo swapfile-state=active || echo swapfile-state=inactive; else sudo journalctl -b -o cat -u bluefin-swapfile-init.service | grep -q skipping && echo swapfile-state=skipped || echo swapfile-state=missing; fi"
     * SSH command output contains "success"
     * SSH command output contains "swapfile-state="
     * SSH command output does not contain "swapfile-state=inactive"
@@ -131,7 +138,8 @@ Feature: Dakota OS shipping contracts
     * SSH command output contains "/snap-bound"
 
   # elements/bluefin/migrate-var-home-passwd.bst. The e2e harness creates
-  # bluefin-test with the legacy /var/home field, so the migration must run.
+  # bluefin-test with the legacy /var/home field (pre-#1117 layout), so the
+  # migration must rewrite it.
   Scenario: legacy /var/home passwd entries are migrated to /home
     * Run SSH command: "{ systemctl is-enabled bluefin-migrate-var-home-passwd.service; systemctl show -p Result --value bluefin-migrate-var-home-passwd.service; } | tr '\n' ' '"
     * SSH command output stripped "is" "enabled success"
@@ -140,13 +148,14 @@ Feature: Dakota OS shipping contracts
     * Run SSH command: "grep -cE ':(/var/home/|/var/roothome)(:|$)' /etc/passwd"
     * SSH command output stripped "is" "0"
 
-  # files/udev/90-hide-composefs-loop.rules; composefs is enabled in prepare-root.conf.
-  Scenario: composefs erofs loop devices are hidden from UDisks
+  # files/udev/90-hide-composefs-loop.rules. The e2e lane boots with the legacy
+  # ostree bind mount (no composefs loop), so attach a real erofs loop device
+  # and detach it again.
+  Scenario: erofs loop devices are hidden from UDisks
     * Run SSH command: "udevadm verify /usr/lib/udev/rules.d/90-hide-composefs-loop.rules"
     * SSH command return code is "0"
-    * Run SSH command: "for d in /dev/loop*; do udevadm info -q property $d 2>/dev/null | grep -qx ID_FS_TYPE=erofs || continue; udevadm info -q property $d | grep -qx UDISKS_IGNORE=1 && echo $d-hidden || echo $d-exposed; done"
-    * SSH command output contains "-hidden"
-    * SSH command output does not contain "-exposed"
+    * Run SSH command: "d=$(mktemp -d /var/tmp/erofs.XXXXXX); l=; mkdir $d/src && echo x > $d/src/f && mkfs.erofs $d/img $d/src >/dev/null 2>&1 && l=$(sudo losetup -f --show $d/img) && sudo udevadm settle && udevadm info -q property $l | grep -x -e ID_FS_TYPE=erofs -e UDISKS_IGNORE=1 | sort | tr '\n' ' '; test -z $l || sudo losetup -d $l; rm -rf $d"
+    * SSH command output stripped "is" "ID_FS_TYPE=erofs UDISKS_IGNORE=1"
 
   # elements/bluefin/virtualization.bst, libvirt.bst, files/libvirt/80-libvirt.preset.
   Scenario: libvirt and virtiofsd tooling ship with daemons preset-disabled
