@@ -1,6 +1,7 @@
 """Custom step definitions for software suite."""
 
 import os
+import re
 import shlex
 import subprocess
 import time
@@ -418,10 +419,32 @@ def bazaar_search_results_include(context, title: str) -> None:
 
 # Bazaar 0.9.10 (the Flathub build, gitlab.gnome.org/World/bazaar v0.9.10) is
 # the source for the transaction steps below.
-def _showing_button(root, names: set):
-    for node in root.findChildren(lambda n: n.roleName in BUTTON_ROLES and n.showing and _name(n) in names):
-        return node
-    raise LookupError(f"no showing button named {sorted(names)}")
+def _showing_button(root, name_pattern: str):
+    """The first showing button whose whole name matches ``name_pattern``.
+
+    The failure lists the showing button names, so a renamed control says what
+    it is called now.
+    """
+    buttons = root.findChildren(lambda n: n.roleName in BUTTON_ROLES and n.showing)
+    for node in buttons:
+        if re.fullmatch(name_pattern, _name(node)):
+            return node
+    raise LookupError(
+        f"no showing button named /{name_pattern}/; showing buttons: {[_name(n) for n in buttons]}"
+    )
+
+
+def _install_button_name(title: str) -> str:
+    """The install button's accessible name for ``title``.
+
+    BzInstallControls replaces the visible "Install" with an author label
+    (update_install_label in bz-install-controls.vala): "Install <title> from
+    <developer>", or "Install <title>" when the app names no developer. GTK
+    takes an author label before the content (step 2.C of
+    gtk_at_context_get_text_accumulate). Runs 41244637779 and 41244639746
+    had the page open with this button showing, and a lookup for "Install" missed it.
+    """
+    return rf"Install {re.escape(title)}( from .+)?"
 
 
 def _bazaar_page(title: str):
@@ -475,11 +498,13 @@ def _system_flatpak_installed(context, app_id: str) -> bool:
 def install_from_bazaar_page(context, app_id: str, title: str) -> None:
     if _skip_if_no_atspi(context):
         return
-    # BzInstallControls: C_("Install Controls", "Install"); the narrow copy is hidden.
-    atspi_click(_poll("Install button", 30, lambda: _showing_button(_bazaar_page(title), {"Install"})))
+    install = _poll(
+        "Install button", 30, lambda: _showing_button(_bazaar_page(title), _install_button_name(title)),
+    )
+    atspi_click(install)
     _poll(f"{app_id} installed system-wide", 300, lambda: _system_flatpak_installed(context, app_id))
     # Installed: the controls switch to the "open" page (_("_Open") + remove).
-    _poll("Open button after the install", 30, lambda: _showing_button(_bazaar_page(title), {"Open"}))
+    _poll("Open button after the install", 30, lambda: _showing_button(_bazaar_page(title), "Open"))
 
 
 @step('Remove "{app_id}" from the Bazaar page of "{title}"')
@@ -492,11 +517,14 @@ def remove_from_bazaar_page(context, app_id: str, title: str) -> None:
     # dialog unless ~/.var/app/<id> exists (show_dialog_fiber).
     remove = _poll(
         "Uninstall button", 30,
-        lambda: _showing_button(_bazaar_page(title), {"Uninstall Application", "Remove"}),
+        lambda: _showing_button(_bazaar_page(title), "Uninstall Application|Remove"),
     )
     atspi_click(remove)
     _poll(f"{app_id} removed", 120, lambda: not _system_flatpak_installed(context, app_id))
-    _poll("Install button after the removal", 30, lambda: _showing_button(_bazaar_page(title), {"Install"}))
+    _poll(
+        "Install button after the removal", 30,
+        lambda: _showing_button(_bazaar_page(title), _install_button_name(title)),
+    )
 
 
 # The polkit actions libflatpak's system helper checks for Bazaar's system

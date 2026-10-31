@@ -391,11 +391,25 @@ class TestBazaarTransaction:
         with pytest.raises(LookupError, match="'Bazaar — Decoder'.*Decoder Plus"):
             m._bazaar_page("Decoder")
 
+    # update_install_label: the button's author label, not its visible "Install".
+    INSTALL_NAME = "Install Decoder from Bilal Elmoussaoui"
+
+    def test_install_button_is_named_by_its_author_label(self):
+        """Runs 41244637779/41244639746: the page was open, but "Install" matched nothing."""
+        m = _import_software_steps()
+        pattern = m._install_button_name("Decoder")
+        page = _node("Bazaar — Decoder", "frame", descendants=[_node(self.INSTALL_NAME, "push button")])
+        assert m._showing_button(page, pattern).name == self.INSTALL_NAME
+        assert m._showing_button(_node(descendants=[_node("Install Decoder", "button")]), pattern)
+        for other in ("Install", "Install Decoder Plus from X", "Install Decoders"):
+            with pytest.raises(LookupError, match=f"showing buttons: \\['{other}'\\]"):
+                m._showing_button(_node(descendants=[_node(other, "push button")]), pattern)
+
     def test_install_clicks_install_then_waits_for_the_system_ref_and_open(self):
         m = _import_software_steps()
-        install = _node("Install", "push button")
+        install = _node(self.INSTALL_NAME, "push button")
         open_button = _node("Open", "push button", showing=False)
-        hidden_narrow = _node("Install", "push button", showing=False)
+        hidden_narrow = _node(self.INSTALL_NAME, "push button", showing=False)
         page = _node("Bazaar — Decoder", "frame", descendants=[hidden_narrow, install, open_button])
         _with_apps(m, _node("bazaar", children=[page]))
         info = iter([_completed(rc=1), _completed(rc=0)])
@@ -414,7 +428,7 @@ class TestBazaarTransaction:
     def test_remove_uses_either_layout_button_and_waits_for_absence(self, name):
         m = _import_software_steps()
         remove = _node(name, "push button")
-        install = _node("Install", "push button", showing=False)
+        install = _node(self.INSTALL_NAME, "push button", showing=False)
         _with_apps(m, _node("bazaar", children=[_node("Bazaar — Decoder", "frame", descendants=[remove, install])]))
         info = iter([_completed(rc=0), _completed(rc=1)])
 

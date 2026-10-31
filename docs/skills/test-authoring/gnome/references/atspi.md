@@ -171,20 +171,19 @@ Source-backed facts used by `tests/software/features/steps/steps.py`:
     ranks first (`G_MAXINT` in `bz-search-engine.c`), and the window title
     `Bazaar — <title>` proves which page opened. Do not press Enter on `Get`:
     that installs straight from the tile and skips the page.
-  - *Page controls.* `Install`, then `Open` plus remove once installed. The
-    wide remove button is icon-only and is named by its tooltip, `Uninstall
-    Application`. GTK falls back to the tooltip for the name. The narrow one is
-    labelled `Remove`. Removal from the page auto-confirms, so no `Remove
-    <title>?` dialog appears, unless `~/.var/app/<id>` exists. The scenario
-    therefore requires the app absent with no user data.
-  - *Scope and polkit.* Bazaar ranks system entries above user ones
-    (`bz_entry_calc_usefulness`). Flathub is a system remote, so the transaction
-    runs through libflatpak's system helper. Flatpak's
-    `org.freedesktop.Flatpak.rules` answers YES for an active, local `wheel`
-    subject. Bazaar's scope has no logind session, so polkit judges it by the
-    user's display session. `pkcheck --process <flatpak ps child-pid>` reports
-    that answer without prompting (`auth_admin*` exits 2), so the scenario
-    fails with polkit's answer instead of hanging on an auth dialog.
+  - *Page controls.* AT-SPI does not name the install button `Install`.
+    `update_install_label` sets the author label `Install <title> from
+    <developer>`, or `Install <title>` with no developer, and GTK prefers it to
+    content. A lookup for `Install` missed the button even though it was showing
+    (runs 41244637779 and 41244639746). Once installed, the page shows `Open`
+    plus remove. Wide layout: remove is icon-only and is named by its tooltip,
+    `Uninstall Application`. Narrow layout: `Remove`. Removal auto-confirms, so
+    no dialog appears unless `~/.var/app/<id>` exists.
+  - *Scope and polkit.* System entries rank first (`bz_entry_calc_usefulness`),
+    so the transaction goes through libflatpak's system helper. Flatpak's rule
+    says YES for an active, local `wheel` subject. The display session stands in
+    for Bazaar's sessionless scope. `pkcheck --process <child-pid>` reports the
+    answer without prompting (`auth_admin*` exits 2).
 
 
 When scaffolding multiple feature areas at once:
