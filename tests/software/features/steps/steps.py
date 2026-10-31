@@ -550,33 +550,48 @@ def bazaar_needs_no_polkit_prompt(context) -> None:
     )
 
 
+def _installed_scopes(context, app_id: str) -> list[str]:
+    """The installations (system, user) that list ``app_id``; a failed query raises.
+
+    `flatpak list` names every installed branch. `flatpak info` errors on an app
+    with several branches, and that error is not proof the app is absent.
+    """
+    scopes = []
+    for scope in ("system", "user"):
+        result = _flatpak(context, ["list", f"--{scope}", "--app", "--columns=application"], timeout=30)
+        assert result.returncode == 0, (
+            f"flatpak list --{scope} failed (rc={result.returncode}): {result.stderr.strip()}"
+        )
+        if app_id in {line.strip() for line in result.stdout.splitlines()}:
+            scopes.append(scope)
+    return scopes
+
+
 @step('Flatpak app "{app_id}" is absent and unused, and removed again when the scenario ends')
 def flatpak_app_absent_with_cleanup(context, app_id: str) -> None:
     # An installed copy would make the install unprovable; existing user data
-    # would change Bazaar's removal flow. Neither is this scenario's to delete.
-    result = _run_in_session(
-        context,
-        f"flatpak info {app_id} >/dev/null 2>&1 && echo installed; "
-        f"test -e ~/.var/app/{app_id} && echo has-user-data; true",
+    # would change Bazaar's removal flow. Neither is this scenario's to delete,
+    # so absence is proven before the cleanup takes ownership of the app ID.
+    scopes = _installed_scopes(context, app_id)
+    assert not scopes, f"{app_id} is already installed ({', '.join(scopes)}); Bazaar must install it"
+    data = _run_in_session(context, f"if test -e ~/.var/app/{app_id}; then echo present; else echo absent; fi")
+    assert data.returncode == 0 and data.stdout.strip() in ("present", "absent"), (
+        f"checking ~/.var/app/{app_id} failed (rc={data.returncode}): {data.stdout}{data.stderr}"
     )
-    assert result.returncode == 0 and not result.stdout.strip(), (
-        f"{app_id} must be absent with no user data before Bazaar installs it: "
-        f"{result.stdout.strip() or result.stderr.strip()}"
-    )
+    assert data.stdout.strip() == "absent", f"~/.var/app/{app_id} already exists"
     context.add_cleanup(_uninstall_flatpak_app, context, app_id)
 
 
 def _uninstall_flatpak_app(context, app_id: str) -> None:
     """Undo the scenario's install whichever way it stopped; never ignore a failure."""
-    result = _run_in_session(
-        context,
-        f"if flatpak info --system {app_id} >/dev/null 2>&1; then "
-        f"sudo -n flatpak uninstall -y --noninteractive --system {app_id} || exit 1; fi; "
-        f"if flatpak info --user {app_id} >/dev/null 2>&1; then "
-        f"flatpak uninstall -y --noninteractive --user {app_id} || exit 1; fi",
-        timeout=180,
-    )
-    assert result.returncode == 0, f"cleanup could not uninstall {app_id}:\n{result.stdout}{result.stderr}"
+    for scope in _installed_scopes(context, app_id):
+        sudo = "sudo -n " if scope == "system" else ""
+        result = _run_in_session(
+            context, f"{sudo}flatpak uninstall -y --noninteractive --{scope} {app_id}", timeout=180,
+        )
+        assert result.returncode == 0, (
+            f"cleanup could not uninstall the {scope} {app_id}:\n{result.stdout}{result.stderr}"
+        )
 
 
 @step("Close Bazaar via shortcut")
