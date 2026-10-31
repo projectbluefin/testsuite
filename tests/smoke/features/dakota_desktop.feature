@@ -14,7 +14,9 @@ Feature: Dakota desktop identity
     * VM command return code is "0"
     * VM command output contains "sudo-rs"
 
-  @dakota_only
+  # Pending: Dakota ships brew-setup.service to unpack /usr/share/homebrew.tar.zst on
+  # first boot, but e2e.yml masks that unit in the fast lane (#487).
+  @dakota_only @pending
   Scenario: Homebrew is preinstalled
     * Run command on VM: "brew --version"
     * VM command return code is "0"
