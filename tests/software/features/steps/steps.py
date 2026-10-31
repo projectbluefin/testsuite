@@ -295,11 +295,46 @@ def launch_bazaar(context) -> None:
     context.bazaar_launch_target = launch_background((("flatpak", BAZAAR_APP_ID),))
 
 
+# `flatpak run` moves itself into a systemd user scope named after the app, so
+# the scope's process tree shows how far a launch got (flatpak run, bwrap,
+# bazaar-daemon, bazaar). Run 41224716141: one launch created its scope but
+# never reached the GUI, AT-SPI or a window, and outlived `flatpak kill`.
+# Run 41227112796: /app/bin/bazaar was running but the whole scope had used
+# 210 ms CPU, it never made the secret-portal call every good launch makes, and
+# no Shell modal was on screen. The probe below records where each process
+# sleeps (wchan), who owns Bazaar's bus names, and whether the a11y bus answers,
+# because GTK asks org.a11y.Bus for its address while it starts up.
+BAZAAR_SCOPES = f"app-flatpak-{BAZAAR_APP_ID}-*.scope"
+_BAZAAR_LAUNCH_STATE = (
+    "flatpak ps --columns=instance,pid,application; "
+    f"systemctl --user status --no-pager --lines=0 '{BAZAAR_SCOPES}'; "
+    f"for unit in $(systemctl --user list-units --plain --no-legend '{BAZAAR_SCOPES}' | cut -d' ' -f1); do "
+    'procs=/sys/fs/cgroup$(systemctl --user show -P ControlGroup "$unit")/cgroup.procs; '
+    'ps -o pid,stat,nlwp,wchan:32,args -p "$(paste -sd, "$procs")"; done; '
+    f"for name in {BAZAAR_APP_ID} {BAZAAR_APP_ID}.SearchProvider; do "
+    'echo "owner $name: $(gdbus call --session --timeout 3 --dest org.freedesktop.DBus '
+    '--object-path /org/freedesktop/DBus --method org.freedesktop.DBus.GetNameOwner "$name" 2>&1)"; done; '
+    'echo "a11y bus: $(gdbus call --session --timeout 3 --dest org.a11y.Bus '
+    '--object-path /org/a11y/bus --method org.a11y.Bus.GetAddress 2>&1)"'
+)
+
+
+def _bazaar_launch_state(context) -> str:
+    try:
+        result = _run_in_session(context, _BAZAAR_LAUNCH_STATE, timeout=30)
+    except Exception as exc:  # noqa: BLE001 - diagnostics must not hide the real failure
+        return f"<launch state unavailable: {type(exc).__name__}: {exc}>"
+    return (result.stdout + result.stderr).strip() or "<no Bazaar instance or scope>"
+
+
 @step("Bazaar main window is accessible")
 def bazaar_main_window_is_accessible(context) -> None:
     if _skip_if_no_atspi(context):
         return
-    context.bazaar_window = _bazaar_window()
+    try:
+        context.bazaar_window = _bazaar_window()
+    except AssertionError as exc:
+        raise AssertionError(f"{exc}\nBazaar launch state:\n{_bazaar_launch_state(context)}") from exc
 
 
 @step("Bazaar main content is loaded")

@@ -258,6 +258,38 @@ class TestBazaarLookup:
             with pytest.raises(AssertionError, match="flatpak ps failed"):
                 m._bazaar_flatpak_is_running(MagicMock())
 
+    def test_missing_window_reports_the_launch_state(self):
+        """Run 41224716141: the launch never reached AT-SPI; say how far it got."""
+        m = _import_software_steps()
+        m.tree = object()
+        state = _completed(stdout="● app-flatpak-io.github.kolunmi.Bazaar-42.scope\n  └─9 flatpak run")
+        with patch.object(m, "_bazaar_window", side_effect=AssertionError("Visible Bazaar window not reached")), \
+             patch.object(m, "_run_in_session", return_value=state) as run:
+            with pytest.raises(AssertionError, match="(?s)not reached.*Bazaar launch state.*flatpak run"):
+                m.bazaar_main_window_is_accessible(MagicMock())
+        assert "app-flatpak-io.github.kolunmi.Bazaar-*.scope" in run.call_args.args[1]
+
+    def test_launch_state_probe_never_hides_the_window_failure(self):
+        m = _import_software_steps()
+        m.tree = object()
+        with patch.object(m, "_bazaar_window", side_effect=AssertionError("Visible Bazaar window not reached")), \
+             patch.object(m, "_run_in_session", side_effect=TimeoutError("ssh")):
+            with pytest.raises(AssertionError, match="(?s)not reached.*launch state unavailable: TimeoutError"):
+                m.bazaar_main_window_is_accessible(MagicMock())
+
+    def test_launch_state_probes_processes_bus_names_and_a11y_bus(self):
+        """Run 41227112796: /app/bin/bazaar sat at 210 ms CPU with no window or portal call."""
+        import subprocess
+        m = _import_software_steps()
+        script = m._BAZAAR_LAUNCH_STATE
+        assert subprocess.run(["bash", "-n", "-c", script], capture_output=True).returncode == 0
+        for probe in ("wchan:32", "cgroup.procs", "GetNameOwner", "io.github.kolunmi.Bazaar.SearchProvider",
+                      "org.a11y.Bus.GetAddress", "--timeout 3"):
+            assert probe in script, probe
+        with patch.object(m, "_run_in_session", return_value=_completed(stdout="state")) as run:
+            assert m._bazaar_launch_state(MagicMock()) == "state"
+        assert run.call_args.kwargs["timeout"] == 30
+
 
 class TestBazaarSearchLocators:
     """Run 41201865894: the field showed "flatseal" and the Flatseal tile was
@@ -596,6 +628,37 @@ class TestSoftwareEnvironment:
         ctx.sandbox.after_scenario.assert_called_once_with(ctx, scenario)
         stop.assert_called_once_with(ctx)
         modal.assert_called_once_with()
+
+    def test_stop_kills_bazaar_scopes_and_waits_until_none_are_active(self, tmp_path):
+        """Run the real teardown script against a fake systemctl whose scope dies on SIGKILL."""
+        import subprocess
+        env = _import_software_environment()
+        calls = tmp_path / "calls"
+        fake = tmp_path / "systemctl"
+        fake.write_text(
+            "#!/bin/bash\n"
+            f'echo "$*" >> {calls}\n'
+            f'if [[ "$*" == *"list-units"* ]] && ! grep -q -- "--signal=SIGKILL" {calls}; then\n'
+            '  echo "app-flatpak-io.github.kolunmi.Bazaar-1.scope loaded active running"\n'
+            "fi\n"
+        )
+        fake.chmod(0o755)
+        result = subprocess.run(
+            ["bash", "-c", env.STOP_BAZAAR], capture_output=True, text=True, timeout=20,
+            env={**os.environ, "PATH": f"{tmp_path}:{os.environ['PATH']}"},
+        )
+        assert result.returncode == 0, result.stderr
+        first, second = calls.read_text().splitlines()[:2]
+        assert first == "--user kill --signal=SIGKILL app-flatpak-io.github.kolunmi.Bazaar-*.scope"
+        assert second.startswith("--user list-units --state=active")
+
+    @pytest.mark.parametrize("outcome", [_completed(rc=1, stdout="still running"), TimeoutError("ssh")])
+    def test_stop_reports_but_never_raises(self, outcome, capsys):
+        env = _import_software_environment()
+        side_effect = outcome if isinstance(outcome, Exception) else None
+        with patch("subprocess.run", return_value=outcome, side_effect=side_effect):
+            env._stop_bazaar(MagicMock())
+        assert "WARNING" in capsys.readouterr().out
 
     @pytest.mark.parametrize(("image", "bluefin"), [
         ("ghcr.io/projectbluefin/bluefin@sha256:460d3a74", True),

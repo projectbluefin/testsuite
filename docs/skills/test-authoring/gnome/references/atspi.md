@@ -119,6 +119,26 @@ Source-backed facts used by `tests/software/features/steps/steps.py`:
   the app. A `flatpak ps` error must fail the check, not read as "closed".
 - **Coredumps.** The runner container has no `coredumpctl`, so the software
   suite checks the VM over SSH with `No coredump entries exist on the VM for`.
+- **Launch and teardown.** `flatpak run` puts itself in a user scope named
+  `app-flatpak-io.github.kolunmi.Bazaar-<n>.scope`. In run 41224716141, one
+  launch created its scope 3.6 s after the previous scope had ended, then never
+  reached the GUI. It made no portal call, no AT-SPI registration and no window.
+  The scope never ended, and no later `flatpak kill` reached it. The exact hang
+  point is unknown because the shared launcher discards output, so `Bazaar main
+  window is accessible` now appends `flatpak ps` and the `systemctl --user status`
+  process tree of those scopes to its failure. The software environment's
+  teardown SIGKILLs the scopes rather than `flatpak kill`, and waits up to 10 s
+  until none is active.
+  Run 41227112796 showed a second stuck shape. `bwrap`, `xdg-dbus-proxy`,
+  `bazaar-daemon` and `/app/bin/bazaar` were all running, but the scope had used
+  210 ms CPU in 30 s. The launch made none of the
+  `xdg-desktop-portal: Backend call failed: Collection login doesn't exist` calls
+  that every good launch makes about 0.5 s in, and the screenshot showed no Shell
+  modal. That rules out a keyring or GCR prompt: every good launch already hits
+  the missing `login` collection without blocking. The failure now also records
+  each process's state and `wchan`, the owners of `io.github.kolunmi.Bazaar` and
+  `.SearchProvider`, and whether `org.a11y.Bus.GetAddress` answers. GTK makes that
+  call synchronously at startup.
 - **Keyboard focus.** uinput keys go to the active window. On fresh CI VMs the
   "Welcome to Bluefin" Shell modal (Skip / Take Tour) grabs the keyboard. AT-SPI
   tab clicks still worked behind it, but typing and Ctrl+Q went nowhere (run

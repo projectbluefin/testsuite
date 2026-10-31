@@ -263,8 +263,8 @@ run 41182977349 for 100 minutes. A view is loaded only when its
 `AdwViewStackPage` `panel` has showing descendants, because the header tabs stay
 visible behind the first-launch **Refreshing** page (allow ~120 s). Search by
 typing into the window, then assert the field text and a result `label`. Quit
-with `<Ctrl><Q>`. Only `@bazaar_ui` scenarios get qecore hooks and a
-`flatpak kill`. Details: [Bazaar lookup](references/atspi.md#bazaar-gtk4-flatpak).
+with `<Ctrl><Q>`. Only `@bazaar_ui` scenarios get qecore hooks and a SIGKILL of
+Bazaar's systemd scopes. Details: [Bazaar lookup](references/atspi.md#bazaar-gtk4-flatpak).
 
 ## Desktop notifications via gdbus (smoke suite)
 
