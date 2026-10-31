@@ -53,7 +53,7 @@ inputs:
     description: 'VM CPU count'
     default: '4'
   free-disk-space:
-    description: 'Run ublue-os/remove-unwanted-software to free ~10 GB before provisioning'
+    description: 'Run projectbluefin/actions bootc-build/setup-runner to free disk space before provisioning'
     default: 'true'
 
 outputs:
@@ -85,15 +85,11 @@ runs:
         sparse-checkout-cone-mode: true
 
     # ── Free disk space ───────────────────────────────────────────────────────
-    # ubuntu-latest ships with ~25 GB free; bootc BIB + QEMU disk needs ~12 GB.
     - name: Free disk space
       if: inputs.free-disk-space == 'true'
-      uses: ublue-os/remove-unwanted-software@cc0becac701cf642c8f0a6613bbdaf5dc36b259e # v9
+      uses: projectbluefin/actions/bootc-build/setup-runner@d0abf8999cf9fe16d2ef5bdc2a42a91ce8809645 # v1
       with:
-        remove-dotnet: 'true'
-        remove-android: 'true'
-        remove-haskell: 'true'
-        remove-codeql: 'true'
+        update-podman: "false"
 
     # ── KVM access ───────────────────────────────────────────────────────────
     - name: Enable KVM access
