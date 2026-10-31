@@ -27,15 +27,26 @@ Verified against `projectbluefin/dakota` `origin/testing` @ `7da52839` and image
 | zswap kargs + sysctls, zram off, swapfile | `zswap-config.bst`, `swapfile.bst` |
 | `/home` `/root` `/snap` bind mounts | `bindmounts.bst` |
 | `/var/home` passwd migration | `migrate-var-home-passwd.bst` (harness creates a legacy `/var/home/bluefin-test` entry) |
-| composefs erofs loop hidden from UDisks | `files/udev/90-hide-composefs-loop.rules` |
+| erofs loop hidden from UDisks (attaches a temporary erofs loop) | `files/udev/90-hide-composefs-loop.rules` |
 | libvirt / virtiofsd / QEMU, daemons preset-disabled | `virtualization.bst`, `libvirt.bst`, `files/libvirt/80-libvirt.preset` |
 | duplicate launchers removed (#1829) | `elements/bluefin/common.bst` |
 
-## Known product failure
+## Known product failures
 
-`duplicate common launchers are removed` fails on `7da52839`: `common.bst`
-removes `%{install-root}%{prefix}/usr/share/applications/…` (`/usr/usr/…`), so
-`system-update.desktop`, `discourse.desktop`, `documentation.desktop` still ship.
+- `duplicate common launchers are removed` fails on `7da52839`: `common.bst`
+  removes `%{install-root}%{prefix}/usr/share/applications/…` (`/usr/usr/…`), so
+  `system-update.desktop`, `discourse.desktop`, `documentation.desktop` still ship.
+- `legacy /var/home passwd entries are migrated to /home` fails: the fast path in
+  `files/migrate-var-home-passwd/bluefin-migrate-var-home-passwd` greps
+  `:(/var/home/|/var/roothome)(:|$)`, which only matches a bare `/var/home/`
+  field, so `/var/home/<user>` entries exit before the rewrite loop.
+
+## Lane notes
+
+- The e2e lane boots with the legacy ostree bind mount, not composefs, so no
+  composefs erofs loop exists; the UDisks scenario attaches its own erofs loop.
+- Published `/etc/sudoers.d/*` are mode 0600 although the source chmods 0440;
+  the scenario asserts root ownership and no group/other write.
 
 ## Not covered on the fast lane
 
