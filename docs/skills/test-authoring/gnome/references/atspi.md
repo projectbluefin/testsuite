@@ -72,6 +72,68 @@ A scenario-level `@retry` tag does not replace helper polling: it re-launches th
 whole scenario and may open another app instance. Use it only for infrastructure
 flakiness, not application registration lag.
 
+## Bazaar (GTK4 Flatpak)
+
+Source-backed facts used by `tests/software/features/steps/steps.py`:
+
+- **Application name `bazaar`.** GTK4's AT-SPI root reports `g_get_prgname()`
+  (`gtk/a11y/gtkatspiroot.c`). `g_application_run()` sets that name to
+  `basename(argv[0])`, and `bazaar-daemon` execs `/app/bin/bazaar`. The old
+  aliases `gnome-software`, `org.gnome.Software` and `Bazaar` never matched.
+  `_bazaar_app()` called `tree.root.application()` for each of them inside an
+  iteration-counted loop, which kept software run 41182977349 searching from
+  08:20 until it was cancelled at 10:03.
+- **Window.** The main window is a `frame` named `Bazaar` that is a direct child
+  of the app. The title becomes `Bazaar — <page>` only on pushed pages.
+- **Views.** libadwaita exposes each `AdwViewStackPage` as a `panel` labelled
+  with its title (`Curated`, `Explore`, `Library`, `Search`). Only the visible
+  page has showing widgets. The header-bar tabs (`page tab`, or `toggle button`
+  on older libadwaita) stay showing behind the **Refreshing** page, so "the tab
+  exists plus any showing widget" passes before any content loads. The Curated
+  page stays hidden until a curated config parses into at least one row
+  (`has-inputs` in `bz-content-provider.c`). Bazaar's YAML parser is strict:
+  an unknown key rejects the whole file. Bazaar 0.9.x (Flathub 0.9.10) expects
+  `rows:` of `section`/`banner`/`featured-carousel`/`articles`, so the
+  pre-0.9 `css:` + `rows: [{sections: …}]` file in Bluefin
+  `testing-44.20260917.5` shows no Curated tab (run 41193940707). Dakota and
+  common main ship the new format.
+- **Search.** A printable key typed into the window switches to the Search view,
+  focuses the field and seeds it (`key_pressed` in `bz-window.c`). The field is
+  `BzSearchBar`, a `GtkEditable` delegate with `accessible-role: search_box`.
+  GTK4 exposes it as an `entry` with the Text interface; its inner `GtkText` has
+  role NONE and is absent from the tree, so a `text`-role lookup misses a field
+  that visibly holds the query (run 41201865894). Results are `label`s with the
+  app title. Type lower case: python-uinput's `_chars_to_events` maps only unshifted
+  characters, so qecore's `Type text … with uinput` gets `None` for `F` and
+  errors with no message.
+- **Quit.** `<primary>q` is `app.quit`, which also calls the daemon's `Quit`.
+  Send it as `Key combo: "<LEFTCTRL><Q>" with uinput`: qecore 4.19.3 turns each
+  token into `KEY_<TOKEN>`, so `<Ctrl>` raises `KEY_CTRL … does not exist`.
+  Alt+F4 only closes the window, and the daemon exits on its own after 5 s idle.
+  Assert that no `Bazaar` frame is showing and that `flatpak ps` does not list
+  the app. A `flatpak ps` error must fail the check, not read as "closed".
+- **Coredumps.** The runner container has no `coredumpctl`, so the software
+  suite checks the VM over SSH with `No coredump entries exist on the VM for`.
+- **Keyboard focus.** uinput keys go to the active window. On fresh CI VMs the
+  "Welcome to Bluefin" Shell modal (Skip / Take Tour) grabs the keyboard. AT-SPI
+  tab clicks still worked behind it, but typing and Ctrl+Q went nowhere (run
+  41196660163). Shell St buttons expose no AT-SPI actions, so `atspi_click` on
+  Skip raises `available=[]` (run 41199678665). gnome-shell's `WelcomeDialog`
+  binds Skip to `Clutter.KEY_Escape`, and the modal holds the grab. After
+  qecore's `before_scenario` (which sets up `context.embed`), the software
+  environment sends one uinput `ESC` and polls until the Skip button is gone. A
+  modal that stays is a hook error. A Flatpak launched over SSH has no
+  activation token, so mutter may map Bazaar without focusing it (run
+  41210513366, intermittent). Before typing or Ctrl+Q, `Focus the Bazaar window`
+  calls `Main.activateWindow()` through Shell.Eval (shared `_eval_bool`) on the
+  MetaWindow titled `Bazaar` whose GTK app ID or WM class is the app ID. It then
+  still waits for the Bazaar frame's AT-SPI `active` state.
+- **qecore "No scenario matched tags".** qecore's `after_all` asserts unless its
+  own `before_scenario` cleared `sandbox._scenario_skipped`. The software
+  environment calls that hook only for GUI scenarios, so it clears the flag
+  itself once a scenario passes every skip gate. A run where every scenario
+  skips still fails.
+
 
 When scaffolding multiple feature areas at once:
 - One agent per feature area, all in parallel

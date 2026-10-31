@@ -179,10 +179,437 @@ class TestFlatpakContextForwarding:
     def test_bazaar_close_wait_forwards_context(self):
         m = _import_software_steps()
         ctx = MagicMock()
-        with patch.object(m, "_bazaar_window", side_effect=RuntimeError), \
+        with patch.object(m, "_visible_bazaar_window", side_effect=LookupError), \
              patch.object(m, "_bazaar_flatpak_is_running", return_value=False) as running:
             m._wait_for_bazaar_to_close(ctx)
         running.assert_called_once_with(ctx)
+
+
+# ---------------------------------------------------------------------------
+# Bazaar AT-SPI lookup — bounded, Bazaar-only, content-proving
+# ---------------------------------------------------------------------------
+
+def _node(name="", role="", showing=True, children=(), descendants=(), **attrs):
+    node = types.SimpleNamespace(name=name, roleName=role, showing=showing, children=list(children), **attrs)
+    node.findChildren = lambda pred: [n for n in descendants if pred(n)]
+    return node
+
+
+def _with_apps(m, *apps):
+    m.tree = types.SimpleNamespace(root=types.SimpleNamespace(applications=lambda: list(apps)))
+
+
+class TestBazaarLookup:
+    def test_finds_bazaar_by_gtk4_prgname(self):
+        m = _import_software_steps()
+        window = _node("Bazaar", "frame")
+        _with_apps(m, _node("gnome-shell"), _node("bazaar", children=[window]))
+        assert m._visible_bazaar_window() is window
+
+    def test_gnome_software_is_not_bazaar(self):
+        m = _import_software_steps()
+        _with_apps(m, _node("gnome-software", children=[_node("Bazaar", "frame")]))
+        with pytest.raises(LookupError, match="gnome-software"):
+            m._bazaar_app()
+
+    def test_window_wait_honours_deadline(self):
+        m = _import_software_steps()
+        _with_apps(m)
+        with patch.object(m, "POLL_INTERVAL", 0.01), pytest.raises(AssertionError, match="Visible Bazaar window"):
+            m._bazaar_window(timeout=0.05)
+
+    def test_poll_retries_probe_errors(self):
+        m = _import_software_steps()
+        outcomes = iter([RuntimeError("cache drop"), None, "ok"])
+
+        def probe():
+            outcome = next(outcomes)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+        with patch.object(m, "POLL_INTERVAL", 0):
+            assert m._poll("x", 5, probe) == "ok"
+
+    def test_refreshing_window_shows_no_view(self):
+        """Header chrome is showing while every view page is still hidden."""
+        m = _import_software_steps()
+        hidden = _node("Explore", "panel", descendants=[_node("tile", "label", showing=False)])
+        window = _node("Bazaar", "frame", descendants=[_node("Explore", "page tab"), hidden])
+        with pytest.raises(LookupError, match="Refreshing"):
+            m._shown_bazaar_view(window)
+
+    def test_view_requires_named_panel_content_and_selected_tab(self):
+        m = _import_software_steps()
+        panel = _node("Library", "panel", descendants=[_node("Calculator", "label")])
+        tab = _node("Library", "page tab", selected=True)
+        window = _node("Bazaar", "frame", descendants=[tab, panel])
+        _with_apps(m, _node("bazaar", children=[window]))
+        assert m._bazaar_view("Library") is panel
+        with pytest.raises(LookupError, match="not 'Search'"):
+            m._bazaar_view("Search")
+        tab.selected = False
+        with pytest.raises(LookupError, match="not selected"):
+            m._bazaar_view("Library")
+
+    def test_process_probe_fails_closed(self):
+        m = _import_software_steps()
+        with patch.object(m, "_flatpak", return_value=_completed(rc=1, stderr="boom")):
+            with pytest.raises(AssertionError, match="flatpak ps failed"):
+                m._bazaar_flatpak_is_running(MagicMock())
+
+
+class TestBazaarSearchLocators:
+    """Run 41201865894: the field showed "flatseal" and the Flatseal tile was
+    visible, but the step looked for a `text` node (GtkText has role NONE)."""
+
+    @staticmethod
+    def _search_view(m, *content):
+        panel = _node("Search", "panel", descendants=list(content))
+        tab = _node("Search", "page tab", selected=True)
+        window = _node("Bazaar", "frame", descendants=[tab, panel])
+        _with_apps(m, _node("bazaar", children=[window]))
+
+    @staticmethod
+    def _expired_clock(m):
+        clock = patch.object(m, "time")
+        mocked = clock.start()
+        mocked.monotonic.side_effect = [0, 100]
+        return clock
+
+    def test_field_is_the_search_box_entry(self):
+        m = _import_software_steps()
+        self._search_view(m, _node("", "entry", text="flatseal"), _node("Flatseal", "label"))
+        m.bazaar_search_field_shows(MagicMock(), "flatseal")
+
+    def test_a_text_node_is_not_the_search_field(self):
+        m = _import_software_steps()
+        self._search_view(m, _node("", "text", text="flatseal"))
+        clock = self._expired_clock(m)
+        try:
+            with patch.object(m, "POLL_INTERVAL", 0), pytest.raises(AssertionError, match="entry"):
+                m.bazaar_search_field_shows(MagicMock(), "flatseal")
+        finally:
+            clock.stop()
+
+    def test_field_reports_what_it_holds(self):
+        m = _import_software_steps()
+        self._search_view(m, _node("", "entry", text="flat"))
+        clock = self._expired_clock(m)
+        try:
+            with patch.object(m, "POLL_INTERVAL", 0), pytest.raises(AssertionError, match="found \\['flat'\\]"):
+                m.bazaar_search_field_shows(MagicMock(), "flatseal")
+        finally:
+            clock.stop()
+
+    def test_result_is_a_visible_label_with_the_app_title(self):
+        m = _import_software_steps()
+        self._search_view(m, _node("", "entry", text="flatseal"), _node("Flatseal", "label"))
+        m.bazaar_search_results_include(MagicMock(), "Flatseal")
+        self._search_view(m, _node("", "entry", text="flatseal"), _node("Flatseal", "label", showing=False))
+        clock = self._expired_clock(m)
+        try:
+            with patch.object(m, "POLL_INTERVAL", 0), pytest.raises(AssertionError, match="Flatseal"):
+                m.bazaar_search_results_include(MagicMock(), "Flatseal")
+        finally:
+            clock.stop()
+
+
+class TestBazaarYamlCheck:
+    """Run the shipped YAML check script against real files."""
+
+    @staticmethod
+    def _run(m, directory):
+        import subprocess
+        return subprocess.run(
+            [sys.executable, "-c", m._BAZAAR_YAML_CHECK, str(directory)],
+            capture_output=True, text=True,
+        )
+
+    def test_valid_mappings_pass(self, tmp_path):
+        m = _import_software_steps()
+        (tmp_path / "bazaar.yaml").write_text("curated-config-paths:\n  - /x.yaml\n")
+        result = self._run(m, tmp_path)
+        assert result.returncode == 0, result.stderr
+        assert "bazaar.yaml" in result.stdout
+
+    @pytest.mark.parametrize("files", [{}, {"a.yaml": ""}, {"a.yaml": "- list\n"}, {"a.yaml": "a: [\n"}])
+    def test_empty_glob_empty_doc_non_mapping_and_syntax_errors_fail(self, tmp_path, files):
+        m = _import_software_steps()
+        for name, text in files.items():
+            (tmp_path / name).write_text(text)
+        assert self._run(m, tmp_path).returncode != 0
+
+    def test_step_reports_failure(self):
+        m = _import_software_steps()
+        with patch.object(m, "_run_in_session", return_value=_completed(rc=1, stderr="no *.yaml files")):
+            with pytest.raises(AssertionError, match="no \\*.yaml files"):
+                m.bazaar_yaml_files_parse(MagicMock(), "/etc/bazaar")
+
+    def test_step_quotes_script_for_the_remote_shell(self):
+        """Regression: Gherkin kept the old step's backslash quotes, so python3 hit SyntaxError."""
+        m = _import_software_steps()
+        with patch.object(m, "_run_in_session", return_value=_completed()) as run:
+            m.bazaar_yaml_files_parse(MagicMock(), "/etc/bazaar")
+        import shlex
+        argv = shlex.split(run.call_args.args[1])
+        assert argv == ["python3", "-c", m._BAZAAR_YAML_CHECK, "/etc/bazaar"]
+
+
+class TestUinputUsage:
+    """qecore 4.19.3 builds KEY_<TOKEN> per combo token, and python-uinput's
+    _chars_to_events maps only unshifted characters (others become None)."""
+
+    def test_close_shortcut_uses_evdev_modifier_names(self):
+        m = _import_software_steps()
+        ctx = MagicMock()
+        with patch.object(m, "focus_the_bazaar_window") as focus, \
+             patch.object(m, "_wait_for_bazaar_to_close"):
+            m.tree = object()
+            m.close_bazaar_via_shortcut(ctx)
+        focus.assert_called_once_with(ctx)
+        ctx.execute_steps.assert_called_once_with('* Key combo: "<LEFTCTRL><Q>" with uinput')
+
+    def test_keys_wait_for_an_active_bazaar_window(self):
+        m = _import_software_steps()
+        window = _node("Bazaar", "frame", active=False)
+        _with_apps(m, _node("bazaar", children=[window]))
+        with patch.object(m, "POLL_INTERVAL", 0.01), patch.object(m, "time") as clock:
+            clock.monotonic.side_effect = [0, 0, 10]
+            with pytest.raises(AssertionError, match="not the active window"):
+                m.bazaar_window_has_keyboard_focus(MagicMock())
+        window.active = True
+        m.bazaar_window_has_keyboard_focus(MagicMock())
+
+    def test_focus_activates_bazaar_through_shell_then_requires_active(self):
+        """Run 41210513366: an SSH-launched window was mapped without focus."""
+        m = _import_software_steps()
+        window = _node("Bazaar", "frame", active=True)
+        _with_apps(m, _node("bazaar", children=[window]))
+        with patch.object(m, "_shell_eval_bool", return_value=True) as shell:
+            m.focus_the_bazaar_window(MagicMock())
+        js = shell.call_args.args[0]
+        assert "Main.activateWindow(win)" in js
+        assert "'io.github.kolunmi.Bazaar'" in js and "get_title() === 'Bazaar'" in js
+
+    def test_focus_fails_when_shell_has_no_bazaar_window(self):
+        m = _import_software_steps()
+        _with_apps(m, _node("bazaar", children=[_node("Bazaar", "frame", active=True)]))
+        with patch.object(m, "_shell_eval_bool", return_value=False):
+            with pytest.raises(AssertionError, match="no Bazaar MetaWindow"):
+                m.focus_the_bazaar_window(MagicMock())
+
+    def test_focus_still_requires_atspi_active_after_activation(self):
+        m = _import_software_steps()
+        _with_apps(m, _node("bazaar", children=[_node("Bazaar", "frame", active=False)]))
+        with patch.object(m, "_shell_eval_bool", return_value=True), \
+             patch.object(m, "_bazaar_window"), \
+             patch.object(m, "POLL_INTERVAL", 0), patch.object(m, "time") as clock:
+            clock.monotonic.side_effect = [0, 10]
+            with pytest.raises(AssertionError, match="not the active window"):
+                m.focus_the_bazaar_window(MagicMock())
+
+    def test_typed_uinput_text_is_unshifted(self):
+        import re
+        from pathlib import Path
+        features = Path(__file__).resolve().parents[1] / "software" / "features"
+        typed = [
+            text for f in features.glob("*.feature")
+            for text in re.findall(r'Type text: "([^"]*)" with uinput', f.read_text())
+        ]
+        assert typed
+        for text in typed:
+            assert re.fullmatch(r"[a-z0-9 ]+", text), text
+
+
+class TestWelcomeModal:
+    """Bluefin's first-run Shell modal grabs the keyboard (run 41196660163); its St
+    buttons have no AT-SPI actions (run 41199678665), so Escape (Skip's key) closes it."""
+
+    def _shell(self, m, skip):
+        _with_apps(m, _node("gnome-shell", descendants=[skip] if skip else []))
+
+    @staticmethod
+    def _keyboard(side_effect=None):
+        utility = types.ModuleType("qecore.utility")
+        utility.keyboard_key_input = MagicMock(side_effect=side_effect)
+        return patch.dict(sys.modules, {"qecore.utility": utility}), utility.keyboard_key_input
+
+    def test_absent_modal_is_a_no_op(self):
+        m = _import_software_steps()
+        self._shell(m, None)
+        modules, key = self._keyboard()
+        with modules:
+            m.dismiss_bluefin_welcome_dialog()
+        key.assert_not_called()
+
+    def test_escape_is_pressed_and_modal_verified_gone(self):
+        m = _import_software_steps()
+        skip = _node("Skip", "push button")
+        self._shell(m, skip)
+        modules, key = self._keyboard(side_effect=lambda _: setattr(skip, "showing", False))
+        with modules, patch.object(m, "atspi_click") as click:
+            m.dismiss_bluefin_welcome_dialog()
+        key.assert_called_once_with("ESC")
+        click.assert_not_called()
+
+    def test_modal_that_stays_fails(self):
+        m = _import_software_steps()
+        self._shell(m, _node("Skip", "push button"))
+        modules, _ = self._keyboard()
+        with modules, patch.object(m, "POLL_INTERVAL", 0.01):
+            with pytest.raises(AssertionError, match="welcome dialog dismissed"):
+                m.dismiss_bluefin_welcome_dialog(timeout=0.05)
+
+    def test_only_gnome_shell_buttons_count(self):
+        m = _import_software_steps()
+        _with_apps(m, _node("bazaar", descendants=[_node("Skip", "push button")]))
+        assert m._welcome_skip_buttons() == []
+
+
+class TestVmCoredumpStep:
+    def test_no_entries_passes(self):
+        m = _import_software_steps()
+        with patch.object(m, "_run_in_session", return_value=_completed(rc=1)):
+            m.no_vm_coredump_entries_exist(MagicMock(), "bazaar")
+
+    @pytest.mark.parametrize(("rc", "match"), [(0, "Unexpected coredump"), (127, "coredumpctl failed")])
+    def test_entries_or_errors_fail(self, rc, match):
+        m = _import_software_steps()
+        with patch.object(m, "_run_in_session", return_value=_completed(rc=rc, stdout="bazaar 1234")):
+            with pytest.raises(AssertionError, match=match):
+                m.no_vm_coredump_entries_exist(MagicMock(), "bazaar")
+
+
+# ---------------------------------------------------------------------------
+# environment.py — fail-closed Bazaar probe, GUI-only sandbox hooks
+# ---------------------------------------------------------------------------
+
+def _import_software_environment():
+    for name in ("qecore", "qecore.sandbox", "qecore.common_steps"):
+        stub = types.ModuleType(name)
+        stub.TestSandbox = MagicMock
+        sys.modules[name] = stub
+    sys.modules.pop("tests.software.features.environment", None)
+    import tests.software.features.environment as env  # noqa: PLC0415
+    return env
+
+
+def _scenario(*tags, status="passed"):
+    return types.SimpleNamespace(
+        tags=set(tags), effective_tags=set(tags), feature=types.SimpleNamespace(tags=set()),
+        name="s", skip=MagicMock(), status=types.SimpleNamespace(name=status),
+    )
+
+
+class TestSoftwareEnvironment:
+    @pytest.mark.parametrize(("rc", "present"), [(0, True), (1, False)])
+    def test_probe_reads_presence(self, rc, present):
+        env = _import_software_environment()
+        with patch("subprocess.run", return_value=_completed(rc=rc)):
+            assert env._has_bazaar(MagicMock()) is present
+
+    @pytest.mark.parametrize("rc", [2, 255])
+    def test_probe_fails_closed_on_ssh_or_flatpak_error(self, rc):
+        env = _import_software_environment()
+        with patch("subprocess.run", return_value=_completed(rc=rc, stderr="Connection refused")):
+            with pytest.raises(RuntimeError, match="Connection refused"):
+                env._has_bazaar(MagicMock())
+
+    def test_cli_scenario_skips_gui_hooks(self):
+        env = _import_software_environment()
+        ctx = types.SimpleNamespace(sandbox=MagicMock(_scenario_skipped=True))
+        scenario = _scenario("software", "flatpak_cli")
+        with patch.object(env, "_stop_bazaar") as stop, \
+             patch.object(env, "_dismiss_bluefin_welcome_dialog") as modal, \
+             patch.object(env, "take_screenshot"), patch.object(env, "record_end"):
+            env.before_scenario(ctx, scenario)
+            env.after_scenario(ctx, scenario)
+        ctx.sandbox.before_scenario.assert_not_called()
+        ctx.sandbox.after_scenario.assert_not_called()
+        stop.assert_not_called()
+        modal.assert_not_called()
+        assert ctx.sandbox._scenario_skipped is False, "qecore after_all would assert"
+
+    def test_skipped_scenario_leaves_qecore_no_scenario_check_armed(self):
+        env = _import_software_environment()
+        ctx = types.SimpleNamespace(sandbox=MagicMock(_scenario_skipped=True))
+        with patch.object(env, "_has_bazaar", return_value=False):
+            env.before_scenario(ctx, _scenario("software", "bazaar_ui"))
+        assert ctx.sandbox._scenario_skipped is True
+
+    def test_gui_scenario_runs_hooks_and_stops_bazaar(self):
+        env = _import_software_environment()
+        ctx = types.SimpleNamespace(sandbox=MagicMock())
+        scenario = _scenario("software", "bazaar_ui")
+        with patch.object(env, "_has_bazaar", return_value=True), \
+             patch.object(env, "_stop_bazaar") as stop, \
+             patch.object(env, "_dismiss_bluefin_welcome_dialog") as modal, \
+             patch.object(env, "take_screenshot"), patch.object(env, "record_end"):
+            env.before_scenario(ctx, scenario)
+            env.after_scenario(ctx, scenario)
+        ctx.sandbox.before_scenario.assert_called_once_with(ctx, scenario)
+        ctx.sandbox.after_scenario.assert_called_once_with(ctx, scenario)
+        stop.assert_called_once_with(ctx)
+        modal.assert_called_once_with()
+
+    @pytest.mark.parametrize(("image", "bluefin"), [
+        ("ghcr.io/projectbluefin/bluefin@sha256:460d3a74", True),
+        ("ghcr.io/projectbluefin/bluefin-dx:testing", True),
+        ("ghcr.io/projectbluefin/dakota:testing", False),
+        ("ghcr.io/projectbluefin/utah:latest", False),
+        ("", False),
+    ])
+    def test_bluefin_is_matched_on_image_name_not_org(self, image, bluefin):
+        assert _import_software_environment()._is_bluefin_image(image) is bluefin
+
+    @pytest.mark.parametrize(("image", "skipped"), [
+        ("ghcr.io/projectbluefin/bluefin@sha256:460d3a74", True),
+        ("ghcr.io/projectbluefin/dakota:testing", False),
+    ])
+    def test_skip_bluefin_gate(self, image, skipped):
+        env = _import_software_environment()
+        ctx = types.SimpleNamespace(sandbox=MagicMock(), config=types.SimpleNamespace(userdata={}))
+        scenario = _scenario("software", "flatpak_cli", "flatpark", "skip_bluefin")
+        with patch.dict(os.environ, {"IMAGE": image}):
+            env.before_scenario(ctx, scenario)
+        if skipped:
+            scenario.skip.assert_called_once_with(reason=env.SKIP_BLUEFIN_REASON)
+            assert "#1549" in env.SKIP_BLUEFIN_REASON
+        else:
+            scenario.skip.assert_not_called()
+
+    def test_skip_bluefin_reads_userdata_when_image_env_unset(self):
+        env = _import_software_environment()
+        ctx = types.SimpleNamespace(config=types.SimpleNamespace(
+            userdata={"image": "ghcr.io/projectbluefin/bluefin:stable"}))
+        scenario = _scenario("software", "flatpak_cli", "skip_bluefin")
+        with patch.dict(os.environ, {"IMAGE": ""}):
+            env.before_scenario(ctx, scenario)
+        scenario.skip.assert_called_once_with(reason=env.SKIP_BLUEFIN_REASON)
+
+    def test_skip_bluefin_prefers_base_image_over_composed_image(self):
+        env = _import_software_environment()
+        ctx = types.SimpleNamespace(config=types.SimpleNamespace(userdata={}))
+        scenario = _scenario("software", "flatpak_cli", "skip_bluefin")
+        with patch.dict(os.environ, {
+            "BASE_IMAGE": "ghcr.io/projectbluefin/bluefin:stable",
+            "IMAGE": "ghcr.io/projectbluefin/testsuite-e2e:run-1",
+        }):
+            env.before_scenario(ctx, scenario)
+        scenario.skip.assert_called_once_with(reason=env.SKIP_BLUEFIN_REASON)
+
+    def test_only_flatpark_scenarios_carry_skip_bluefin(self):
+        from pathlib import Path
+        import re
+        feature = Path(__file__).resolve().parents[1] / "software" / "features" / "compass_flatpark.feature"
+        lines = feature.read_text().splitlines()
+        for i, line in enumerate(lines):
+            if re.match(r"\s*Scenario:", line):
+                tags = set(re.findall(r"@(\w+)", lines[i - 1]))
+                assert ("skip_bluefin" in tags) == ("flatpark" in tags), line
+        other = (Path(__file__).resolve().parents[1] / "software" / "features").glob("*.feature")
+        assert [f.name for f in other if "@skip_bluefin" in f.read_text()] == ["compass_flatpark.feature"]
 
 
 # ---------------------------------------------------------------------------
@@ -215,34 +642,6 @@ class TestFlatpakPermissionsTable:
             ctx = MagicMock()
             with pytest.raises(AssertionError, match="failed unexpectedly"):
                 m.flatpak_permissions_table_is_queryable(ctx, "notifications")
-
-
-# ---------------------------------------------------------------------------
-# flatpak_user_override_is_active — fragment assertion
-# ---------------------------------------------------------------------------
-
-class TestFlatpakUserOverrideIsActive:
-    def test_passes_when_fragment_in_output(self):
-        m = _import_software_steps()
-        with patch.object(m, "_flatpak", return_value=_completed(stdout="--filesystem=home", rc=0)):
-            ctx = MagicMock()
-            m.flatpak_user_override_is_active(ctx, "--filesystem=home", "myapp")
-
-    def test_raises_when_fragment_missing(self):
-        m = _import_software_steps()
-        import pytest
-        with patch.object(m, "_flatpak", return_value=_completed(stdout="[Context]", rc=0)):
-            ctx = MagicMock()
-            with pytest.raises(AssertionError, match="not found"):
-                m.flatpak_user_override_is_active(ctx, "--filesystem=home", "myapp")
-
-    def test_raises_on_nonzero_rc(self):
-        m = _import_software_steps()
-        import pytest
-        with patch.object(m, "_flatpak", return_value=_completed(stdout="", rc=1)):
-            ctx = MagicMock()
-            with pytest.raises(AssertionError, match="failed"):
-                m.flatpak_user_override_is_active(ctx, "--filesystem=home", "myapp")
 
 
 # ---------------------------------------------------------------------------
