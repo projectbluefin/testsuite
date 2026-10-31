@@ -55,6 +55,19 @@ channel via a temp `IMAGE_INFO_FILE`, and `report --confirm abc` printing usage
 is `@skip_utah`: Utah overrides `report` in `60-custom.just`, and its routing
 defect is owned by `utah_os.feature`.
 
+## `bazaar-preview` — safe refusal path (verified 2026-10)
+
+`ujust bazaar-preview <path>` checks for `bazaar.yaml`, `curated.yaml`, and
+`blocklist.yaml` under `<path>/system_files/bluefin/etc/bazaar` before `sudo`,
+so a nonexistent path is non-mutating: it must print `Missing …` plus
+`Usage: ujust bazaar-preview /path/to/common` and exit 1. Never pass a real
+checkout; that path writes `/etc/bazaar` and launches Bazaar.
+
+At common `e33665e2` the recipe body reads shell `${source}` instead of the
+just parameter `{{ source }}`, so `set -u` aborts with `source: unbound
+variable` on Bluefin and Utah. `common_ujust.feature` keeps that scenario
+failing until the recipe is fixed. Dakota does not ship the recipe.
+
 ## `toggle-devmode` has no non-interactive entry point (verified 2026-09)
 
 `ujust toggle-devmode`
