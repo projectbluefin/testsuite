@@ -274,11 +274,33 @@ def launch_bazaar(context) -> None:
     context.bazaar_launch_target = launch_background((("flatpak", BAZAAR_APP_ID),))
 
 
+# `flatpak run` moves itself into a systemd user scope named after the app, so
+# the scope's process tree shows how far a launch got (flatpak run, bwrap,
+# bazaar-daemon, bazaar). Run 41224716141: one launch created its scope but
+# never reached the GUI, AT-SPI or a window, and outlived `flatpak kill`.
+BAZAAR_SCOPES = f"app-flatpak-{BAZAAR_APP_ID}-*.scope"
+
+
+def _bazaar_launch_state(context) -> str:
+    try:
+        result = _run_in_session(
+            context,
+            "flatpak ps --columns=instance,pid,application; "
+            f"systemctl --user status --no-pager --lines=0 '{BAZAAR_SCOPES}'",
+        )
+    except Exception as exc:  # noqa: BLE001 - diagnostics must not hide the real failure
+        return f"<launch state unavailable: {type(exc).__name__}: {exc}>"
+    return (result.stdout + result.stderr).strip() or "<no Bazaar instance or scope>"
+
+
 @step("Bazaar main window is accessible")
 def bazaar_main_window_is_accessible(context) -> None:
     if _skip_if_no_atspi(context):
         return
-    context.bazaar_window = _bazaar_window()
+    try:
+        context.bazaar_window = _bazaar_window()
+    except AssertionError as exc:
+        raise AssertionError(f"{exc}\nBazaar launch state:\n{_bazaar_launch_state(context)}") from exc
 
 
 @step("Bazaar main content is loaded")

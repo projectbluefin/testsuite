@@ -100,15 +100,33 @@ def _has_bazaar(context) -> bool:
     return result.returncode == 0
 
 
+BAZAAR_SCOPES = f"app-flatpak-{BAZAAR_APP_ID}-*.scope"
+# `flatpak kill` only reaches registered instances. Run 41224716141 left a launch
+# whose scope never got that far, and it outlived every later `flatpak kill`.
+# Killing the app's systemd user scopes reaches every process `flatpak run`
+# started, and the bounded wait proves they are gone before the next launch.
+STOP_BAZAAR = (
+    "source /tmp/session.env 2>/dev/null; "
+    f"systemctl --user kill --signal=SIGKILL '{BAZAAR_SCOPES}' 2>/dev/null; "
+    "for _ in $(seq 50); do "
+    f"systemctl --user list-units --state=active --no-legend '{BAZAAR_SCOPES}' | grep -q . || exit 0; "
+    "sleep 0.2; done; "
+    f"systemctl --user status --no-pager --lines=0 '{BAZAAR_SCOPES}'; exit 1"
+)
+
+
 def _stop_bazaar(context) -> None:
-    """Kill the Bazaar instance (GUI + daemon) a GUI scenario left behind."""
+    """Kill every Bazaar process a GUI scenario left behind (GUI, daemon, stuck launch)."""
     try:
-        subprocess.run(
-            ssh_argv(context, quiet=True) + [f"flatpak kill {BAZAAR_APP_ID} 2>/dev/null || true"],
+        result = subprocess.run(
+            ssh_argv(context, quiet=True) + [STOP_BAZAAR],
             capture_output=True, text=True, timeout=30,
         )
     except Exception as exc:  # noqa: BLE001 - cleanup must not mask the real failure
         print(f"WARNING: stopping Bazaar failed: {exc}", flush=True)
+        return
+    if result.returncode != 0:
+        print(f"WARNING: Bazaar scopes survived SIGKILL:\n{result.stdout}{result.stderr}", flush=True)
 
 
 def before_all(context) -> None:
