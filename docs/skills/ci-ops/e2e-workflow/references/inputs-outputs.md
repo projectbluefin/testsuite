@@ -17,7 +17,7 @@ metadata:
 3. On a miss, run `flatpak install --user --no-deploy ...` on the runner to download refs/runtimes without deploying them.
 4. Copy that repo into the VM, then deploy missing apps system-wide with `sudo flatpak install --system --sideload-repo=<copied repo> ...`, falling back to a normal pull only if the cache is incomplete.
 
-Do **not** preload these apps on non-Bluefin images: that mutates dakota/gnomeos coverage instead of testing what those images actually ship.
+Preload only image refs containing `/bluefin` or `/utah`. Do **not** preload these apps on Dakota or GNOME OS: that mutates their coverage instead of testing what those images ship. Dakota's shipped Flatpak preinstall belongs in startup qualification, where `flatpak-preinstall.service` is not masked.
 ## Screenshots and GHCR artifacts
 
 Every e2e run produces a desktop screenshot at end-of-run as visual proof of a working GNOME session.
