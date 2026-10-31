@@ -339,30 +339,41 @@ class TestUinputUsage:
 
 
 class TestWelcomeModal:
-    """Bluefin's first-run Shell modal grabs the keyboard (run 41196660163)."""
+    """Bluefin's first-run Shell modal grabs the keyboard (run 41196660163); its St
+    buttons have no AT-SPI actions (run 41199678665), so Escape (Skip's key) closes it."""
 
     def _shell(self, m, skip):
         _with_apps(m, _node("gnome-shell", descendants=[skip] if skip else []))
 
+    @staticmethod
+    def _keyboard(side_effect=None):
+        utility = types.ModuleType("qecore.utility")
+        utility.keyboard_key_input = MagicMock(side_effect=side_effect)
+        return patch.dict(sys.modules, {"qecore.utility": utility}), utility.keyboard_key_input
+
     def test_absent_modal_is_a_no_op(self):
         m = _import_software_steps()
         self._shell(m, None)
-        with patch.object(m, "atspi_click") as click:
+        modules, key = self._keyboard()
+        with modules:
             m.dismiss_bluefin_welcome_dialog()
-        click.assert_not_called()
+        key.assert_not_called()
 
-    def test_skip_is_clicked_and_verified_gone(self):
+    def test_escape_is_pressed_and_modal_verified_gone(self):
         m = _import_software_steps()
         skip = _node("Skip", "push button")
         self._shell(m, skip)
-        with patch.object(m, "atspi_click", side_effect=lambda n: setattr(n, "showing", False)) as click:
+        modules, key = self._keyboard(side_effect=lambda _: setattr(skip, "showing", False))
+        with modules, patch.object(m, "atspi_click") as click:
             m.dismiss_bluefin_welcome_dialog()
-        click.assert_called_once_with(skip)
+        key.assert_called_once_with("ESC")
+        click.assert_not_called()
 
     def test_modal_that_stays_fails(self):
         m = _import_software_steps()
         self._shell(m, _node("Skip", "push button"))
-        with patch.object(m, "atspi_click"), patch.object(m, "POLL_INTERVAL", 0.01):
+        modules, _ = self._keyboard()
+        with modules, patch.object(m, "POLL_INTERVAL", 0.01):
             with pytest.raises(AssertionError, match="welcome dialog dismissed"):
                 m.dismiss_bluefin_welcome_dialog(timeout=0.05)
 

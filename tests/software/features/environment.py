@@ -165,9 +165,9 @@ def before_scenario(context, scenario) -> None:
     # scenario really runs; a run where everything skips still fails.
     context.sandbox._scenario_skipped = False
     if GUI_TAG in tags:
-        # First: the modal would block qecore's overview hide and all keys.
-        _dismiss_bluefin_welcome_dialog()
         context.sandbox.before_scenario(context, scenario)
+        # The modal grabs the keyboard; every uinput step needs it gone.
+        _dismiss_bluefin_welcome_dialog()
 
 
 def _dismiss_bluefin_welcome_dialog() -> None:

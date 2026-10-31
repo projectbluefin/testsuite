@@ -203,13 +203,17 @@ def dismiss_bluefin_welcome_dialog(timeout: float = 5) -> None:
     """Close Bluefin's first-run "Welcome to Bluefin" Shell modal if it is up.
 
     The modal grabs the keyboard, so uinput keys never reach Bazaar behind it
-    (run 41196660163). Same Skip control as smoke's _dismiss_welcome_dialog,
-    but scoped to gnome-shell and verified gone instead of best-effort.
+    (run 41196660163). Its St buttons expose no AT-SPI actions (run 41199678665),
+    but gnome-shell's WelcomeDialog binds Skip to Escape
+    (js/ui/welcomeDialog.js: ``key: Clutter.KEY_Escape``), and the modal holds the
+    keyboard grab, so one uinput Escape is the supported dismissal. The Skip
+    button is the presence probe and must be gone afterwards.
     """
-    buttons = _welcome_skip_buttons()
-    if not buttons:
+    if not _welcome_skip_buttons():
         return
-    atspi_click(buttons[0])
+    from qecore.utility import keyboard_key_input
+
+    keyboard_key_input("ESC")
     _poll("Bluefin welcome dialog dismissed", timeout, lambda: not _welcome_skip_buttons())
 
 

@@ -114,10 +114,13 @@ Source-backed facts used by `tests/software/features/steps/steps.py`:
 - **Keyboard focus.** uinput keys go to the active window. On fresh CI VMs the
   "Welcome to Bluefin" Shell modal (Skip / Take Tour) grabs the keyboard. AT-SPI
   tab clicks still worked behind it, but typing and Ctrl+Q went nowhere (run
-  41196660163). Before each `@bazaar_ui` scenario the software environment
-  clicks the modal's Skip button and verifies it is gone, before qecore's
-  overview hide. A modal that will not close is a hook error. Every keyboard
-  step first waits for the Bazaar frame's `active` state.
+  41196660163). Shell St buttons expose no AT-SPI actions, so `atspi_click` on
+  Skip raises `available=[]` (run 41199678665). gnome-shell's `WelcomeDialog`
+  binds Skip to `Clutter.KEY_Escape`, and the modal holds the grab. After
+  qecore's `before_scenario` (which sets up `context.embed`), the software
+  environment sends one uinput `ESC` and polls until the Skip button is gone. A
+  modal that stays is a hook error. Every keyboard step first waits for the
+  Bazaar frame's `active` state.
 - **qecore "No scenario matched tags".** qecore's `after_all` asserts unless its
   own `before_scenario` cleared `sandbox._scenario_skipped`. The software
   environment calls that hook only for GUI scenarios, so it clears the flag
