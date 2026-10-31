@@ -176,21 +176,43 @@ def _compass_running(context) -> bool:
     return rc == 0
 
 
+# The engine runs as a transient unit of the user's systemd manager, not inside
+# the SSH login session. Dakota's logind keeps systemd's built-in
+# KillUserProcesses=yes (its /etc/systemd/logind.conf shows
+# `#KillUserProcesses=yes`; Utah's shows `no`), so anything started from an SSH
+# command dies when that command's session closes: run 41219770747 left an empty
+# serve log and ping never answered, while Utah passed. A unit also releases
+# run_ssh's pipes at once (a plain `&` held them until the 60 s timeout).
+COMPASS_UNIT = "testsuite-compass-serve"
+COMPASS_SERVE_LOG = "/tmp/compass-serve.log"
+_COMPASS_LAUNCH = (
+    f"{_IN_SESSION}systemd-run --user --collect --expand-environment=no --unit={COMPASS_UNIT} "
+    f"-p StandardOutput=truncate:{COMPASS_SERVE_LOG} -p StandardError=inherit "
+    f"sh -c {shlex.quote(f'{_COMPASS_RUN} serve --no-hotkey')}"
+)
+_COMPASS_DIAGNOSTICS = (
+    ". /tmp/session.env; "
+    f"echo '== systemctl --user show {COMPASS_UNIT}'; "
+    f"systemctl --user show -p ActiveState -p SubState -p Result -p ExecMainStatus {COMPASS_UNIT}; "
+    f"echo '== {COMPASS_SERVE_LOG}'; cat {COMPASS_SERVE_LOG}; "
+    "echo '== flatpak ps'; flatpak ps --columns=instance,pid,application; "
+    "echo \"== $XDG_RUNTIME_DIR/app/org.tunaos.compass\"; "
+    "ls -la \"$XDG_RUNTIME_DIR/app/org.tunaos.compass\"; "
+    "echo '== logind KillUserProcesses'; busctl get-property org.freedesktop.login1 "
+    "/org/freedesktop/login1 org.freedesktop.login1.Manager KillUserProcesses"
+)
+
+
 def _stop_compass(context) -> None:
     run_ssh(context, f"{_COMPASS_RUN} shutdown")
+    run_ssh(context, f"{_IN_SESSION}systemctl --user stop {COMPASS_UNIT}")
     if _compass_running(context):
         _checked(context, f"flatpak kill {COMPASS_APP_ID}")
 
 
-# setsid -f detaches the engine and every fd it holds points at /dev/null or the
-# log. A plain `... &` left the backgrounded `. env && flatpak run` list holding
-# the caller's stdout/stderr pipes, so run_ssh waited for EOF until its 60 s
-# timeout (runs 41216241735 and 41216246249 errored at 60.0 s).
-COMPASS_SERVE_LOG = "/tmp/compass-serve.log"
-_COMPASS_LAUNCH = (
-    f"setsid -f sh -c {shlex.quote(f'{_COMPASS_RUN} serve --no-hotkey')} "
-    f"</dev/null >{COMPASS_SERVE_LOG} 2>&1"
-)
+def _compass_diagnostics(context) -> str:
+    stdout, _ = run_ssh(context, f"{{ {_COMPASS_DIAGNOSTICS}; }} 2>&1")
+    return stdout
 
 
 @step("the Compass engine started from the Flatpak in the GNOME session answers ping and shuts down")
@@ -203,10 +225,12 @@ def compass_engine_runs_in_session(context) -> None:
         out, rc = run_ssh(context, f"{_COMPASS_RUN} ping")
         if rc == 0:
             break
-        assert time.monotonic() < deadline, (
-            f"compass ping never answered (rc {rc}): {out}\n"
-            + run_ssh(context, f"cat {COMPASS_SERVE_LOG}")[0]
-        )
+        if time.monotonic() >= deadline:
+            stderr = getattr(getattr(context, "last_ssh_result", None), "stderr", "")
+            raise AssertionError(
+                f"compass ping never answered (rc {rc})\nstdout: {out}\nstderr: {stderr}\n"
+                + _compass_diagnostics(context)
+            )
         time.sleep(3)
     # ipc.rs: "engine alive on {socket}: protocol v{N}, pid {pid}"
     assert out.startswith("engine alive on ") and "/app/org.tunaos.compass/testsuite-ipc.sock: protocol v" in out, out
@@ -214,5 +238,7 @@ def compass_engine_runs_in_session(context) -> None:
     _checked(context, f"{_COMPASS_RUN} shutdown")
     deadline = time.monotonic() + 30
     while _compass_running(context):
-        assert time.monotonic() < deadline, "Compass still running 30 s after `compass shutdown`"
+        assert time.monotonic() < deadline, (
+            "Compass still running 30 s after `compass shutdown`\n" + _compass_diagnostics(context)
+        )
         time.sleep(2)
