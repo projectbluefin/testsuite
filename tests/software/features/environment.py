@@ -51,8 +51,8 @@ except Exception as exc:  # noqa: BLE001
 SUITE_NAME = "software"
 BAZAAR_APP_ID = "io.github.kolunmi.Bazaar"
 GUI_TAG = "bazaar_ui"
-# Applicability, not a live probe: the image under test is named by $IMAGE
-# (e2e.yml passes it into the runner) or `-D image=`. Bluefin's pinned common
+# Applicability, not a live probe: read BASE_IMAGE before IMAGE because composed
+# runs replace IMAGE with ghcr.io/<owner>/testsuite-e2e:run-<id>. Bluefin's pinned common
 # predates projectbluefin/common#1549 (FlatPark remote); remove the tag from
 # compass_flatpark.feature once the pin includes it.
 SKIP_BLUEFIN_TAG = "skip_bluefin"
@@ -63,7 +63,11 @@ SKIP_BLUEFIN_REASON = (
 
 
 def _image_ref(context) -> str:
-    return os.environ.get("IMAGE") or context.config.userdata.get("image", "")
+    return (
+        os.environ.get("BASE_IMAGE")
+        or context.config.userdata.get("image", "")
+        or os.environ.get("IMAGE", "")
+    )
 
 
 def _is_bluefin_image(image_ref: str) -> bool:

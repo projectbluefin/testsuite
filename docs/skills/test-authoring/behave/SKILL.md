@@ -249,7 +249,7 @@ never matches and passes falsely.
 `@flatpak_cli` (image-agnostic, so they run on gnomeos too). The Bazaar probe fails
 closed: an SSH or `flatpak list` error is a HOOK-ERROR, never "absent". Only
 `@bazaar_ui` scenarios get the qecore sandbox hooks and the `flatpak kill` cleanup.
-`@skip_bluefin` is an image-name applicability tag (`$IMAGE` or `-D image=`), not a
+`@skip_bluefin` is an image-name applicability tag (`$BASE_IMAGE`, `-D image=`, then `$IMAGE`), not a
 live probe. It is on the FlatPark scenarios only, because Bluefin's pinned common
 predates common#1549. Drop it when the pin catches up. Never write `\"` in a step
 argument ([why](references/shared-ssh.md#quoting)).

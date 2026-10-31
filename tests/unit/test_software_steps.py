@@ -363,7 +363,7 @@ class TestUinputUsage:
     def test_close_shortcut_uses_evdev_modifier_names(self):
         m = _import_software_steps()
         ctx = MagicMock()
-        with patch.object(m, "bazaar_window_has_keyboard_focus") as focus, \
+        with patch.object(m, "focus_the_bazaar_window") as focus, \
              patch.object(m, "_wait_for_bazaar_to_close"):
             m.tree = object()
             m.close_bazaar_via_shortcut(ctx)
@@ -380,6 +380,34 @@ class TestUinputUsage:
                 m.bazaar_window_has_keyboard_focus(MagicMock())
         window.active = True
         m.bazaar_window_has_keyboard_focus(MagicMock())
+
+    def test_focus_activates_bazaar_through_shell_then_requires_active(self):
+        """Run 41210513366: an SSH-launched window was mapped without focus."""
+        m = _import_software_steps()
+        window = _node("Bazaar", "frame", active=True)
+        _with_apps(m, _node("bazaar", children=[window]))
+        with patch.object(m, "_shell_eval_bool", return_value=True) as shell:
+            m.focus_the_bazaar_window(MagicMock())
+        js = shell.call_args.args[0]
+        assert "Main.activateWindow(win)" in js
+        assert "'io.github.kolunmi.Bazaar'" in js and "get_title() === 'Bazaar'" in js
+
+    def test_focus_fails_when_shell_has_no_bazaar_window(self):
+        m = _import_software_steps()
+        _with_apps(m, _node("bazaar", children=[_node("Bazaar", "frame", active=True)]))
+        with patch.object(m, "_shell_eval_bool", return_value=False):
+            with pytest.raises(AssertionError, match="no Bazaar MetaWindow"):
+                m.focus_the_bazaar_window(MagicMock())
+
+    def test_focus_still_requires_atspi_active_after_activation(self):
+        m = _import_software_steps()
+        _with_apps(m, _node("bazaar", children=[_node("Bazaar", "frame", active=False)]))
+        with patch.object(m, "_shell_eval_bool", return_value=True), \
+             patch.object(m, "_bazaar_window"), \
+             patch.object(m, "POLL_INTERVAL", 0), patch.object(m, "time") as clock:
+            clock.monotonic.side_effect = [0, 10]
+            with pytest.raises(AssertionError, match="not the active window"):
+                m.focus_the_bazaar_window(MagicMock())
 
     def test_typed_uinput_text_is_unshifted(self):
         import re
@@ -557,6 +585,17 @@ class TestSoftwareEnvironment:
             userdata={"image": "ghcr.io/projectbluefin/bluefin:stable"}))
         scenario = _scenario("software", "flatpak_cli", "skip_bluefin")
         with patch.dict(os.environ, {"IMAGE": ""}):
+            env.before_scenario(ctx, scenario)
+        scenario.skip.assert_called_once_with(reason=env.SKIP_BLUEFIN_REASON)
+
+    def test_skip_bluefin_prefers_base_image_over_composed_image(self):
+        env = _import_software_environment()
+        ctx = types.SimpleNamespace(config=types.SimpleNamespace(userdata={}))
+        scenario = _scenario("software", "flatpak_cli", "skip_bluefin")
+        with patch.dict(os.environ, {
+            "BASE_IMAGE": "ghcr.io/projectbluefin/bluefin:stable",
+            "IMAGE": "ghcr.io/projectbluefin/testsuite-e2e:run-1",
+        }):
             env.before_scenario(ctx, scenario)
         scenario.skip.assert_called_once_with(reason=env.SKIP_BLUEFIN_REASON)
 

@@ -234,6 +234,39 @@ def bazaar_window_has_keyboard_focus(context) -> None:
     _poll("Active Bazaar window", 5, _bazaar_has_keyboard_focus)
 
 
+# Main.activateWindow() is the Shell's own "bring this window forward" path
+# (dash, alt-tab): it activates the MetaWindow on its workspace and hides the
+# overview. A window mapped from an SSH-launched Flatpak carries no activation
+# token, so mutter may leave focus elsewhere (run 41210513366).
+_ACTIVATE_BAZAAR_JS = f"""(() => {{
+    const win = global.get_window_actors().map(actor => actor.get_meta_window()).find(w =>
+        w && w.get_title() === 'Bazaar' &&
+        [w.get_gtk_application_id(), w.get_wm_class()].includes({BAZAAR_APP_ID!r}));
+    if (!win)
+        return false;
+    Main.activateWindow(win);
+    return true;
+}})()"""
+
+
+def _shell_eval_bool(js: str) -> bool:
+    # Lazy: the shared module imports behave.runner and registers Shell steps,
+    # which the CLI-only step modules and their unit tests do not need.
+    from tests.shared.gnome_shell_steps import _eval_bool
+
+    return _eval_bool(js)
+
+
+@step("Focus the Bazaar window")
+def focus_the_bazaar_window(context) -> None:
+    """Activate Bazaar through GNOME Shell, then require AT-SPI to agree."""
+    if _skip_if_no_atspi(context):
+        return
+    _bazaar_window()
+    assert _shell_eval_bool(_ACTIVATE_BAZAAR_JS), "GNOME Shell has no Bazaar MetaWindow to activate"
+    bazaar_window_has_keyboard_focus(context)
+
+
 @step("Launch Bazaar")
 def launch_bazaar(context) -> None:
     if _skip_if_no_atspi(context):
@@ -327,7 +360,7 @@ def bazaar_search_results_include(context, title: str) -> None:
 def close_bazaar_via_shortcut(context) -> None:
     if _skip_if_no_atspi(context):
         return
-    bazaar_window_has_keyboard_focus(context)
+    focus_the_bazaar_window(context)
     # <primary>q is app.quit, which also tells bazaar-daemon to Quit. qecore
     # builds KEY_<NAME> from each token, so modifiers need evdev names.
     context.execute_steps('* Key combo: "<LEFTCTRL><Q>" with uinput')

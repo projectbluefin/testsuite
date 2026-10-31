@@ -122,8 +122,12 @@ Source-backed facts used by `tests/software/features/steps/steps.py`:
   binds Skip to `Clutter.KEY_Escape`, and the modal holds the grab. After
   qecore's `before_scenario` (which sets up `context.embed`), the software
   environment sends one uinput `ESC` and polls until the Skip button is gone. A
-  modal that stays is a hook error. Every keyboard step first waits for the
-  Bazaar frame's `active` state.
+  modal that stays is a hook error. A Flatpak launched over SSH has no
+  activation token, so mutter may map Bazaar without focusing it (run
+  41210513366, intermittent). Before typing or Ctrl+Q, `Focus the Bazaar window`
+  calls `Main.activateWindow()` through Shell.Eval (shared `_eval_bool`) on the
+  MetaWindow titled `Bazaar` whose GTK app ID or WM class is the app ID. It then
+  still waits for the Bazaar frame's AT-SPI `active` state.
 - **qecore "No scenario matched tags".** qecore's `after_all` asserts unless its
   own `before_scenario` cleared `sandbox._scenario_skipped`. The software
   environment calls that hook only for GUI scenarios, so it clears the flag

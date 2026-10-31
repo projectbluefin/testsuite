@@ -103,6 +103,7 @@ def test_remote_filters_splits_on_tab():
     (["host"], ["host"]),
     (["~"], ["~"]),
     (["!home"], []),
+    (["host-os:ro", "host-root:ro"], ["host-root:ro"]),
 ])
 def test_home_grants(grants, expected):
     assert m.home_grants(grants) == expected

@@ -24,8 +24,8 @@ COMPASS_APP_ID = "org.tunaos.compass"
 # --delete-data keeps ~/.var/app; cleanup removes only this file.
 COMPASS_DATA_MARKER = "~/.var/app/org.tunaos.compass/config/compass/testsuite-uninstall-marker"
 
-# Filesystem grants that expose the user's home directory.
-_HOME_GRANTS = {"home", "~", "host"}
+# Filesystem grants that expose the user's home directory, directly or via host root.
+_HOME_GRANTS = {"home", "~", "host", "host-root"}
 
 
 def parse_flatpak_info(text: str) -> dict[str, str]:
