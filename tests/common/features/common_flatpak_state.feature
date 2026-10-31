@@ -28,10 +28,3 @@ Feature: Flatpak first-boot state
   Scenario: flatpak user installations directory exists
     * Run SSH command: "test -d /var/home/$(id -un)/.local/share/flatpak 2>/dev/null || test -d /root/.local/share/flatpak"
     * SSH command return code is "0"
-
-  # Pending: flatpak-preinstall.service is masked in CI, so preinstalled
-  # system Flatpaks (Compass from the flatpark remote) are absent there.
-  @pending
-  Scenario: Compass launcher Flatpak is preinstalled
-    * Run SSH command: "flatpak info --system org.tunaos.compass"
-    * SSH command return code is "0"

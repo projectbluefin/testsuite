@@ -892,3 +892,50 @@ def flatpak_no_excessive_permissions(context, app_id: str) -> None:
     assert not re.search(r"filesystems=(host|home)", perms_out), (
         f"{app_id} has excessive filesystem access:\n{perms_out}"
     )
+
+
+# ── Compass launcher (org.tunaos.compass Flatpak, Super+Space) ──
+
+_COMPASS_VISIBLE_JS = (
+    "global.get_window_actors().some(a => { const w = a.meta_window; "
+    "const ids = [w.get_wm_class(), w.get_wm_class_instance(), "
+    "w.get_gtk_application_id(), w.get_sandboxed_app_id(), w.get_title()]"
+    ".join(' ').toLowerCase(); "
+    "return ids.includes('compass') && a.visible && !w.minimized "
+    "&& w.showing_on_its_workspace(); })"
+)
+_WINDOWS_JS = (
+    "JSON.stringify(global.get_window_actors().map(a => { const w = a.meta_window; "
+    "return [w.get_wm_class(), w.get_gtk_application_id(), "
+    "w.get_sandboxed_app_id(), w.get_title(), a.visible, w.minimized]; }))"
+)
+
+
+@step("Compass Flatpak is installed system-wide within {timeout:d} seconds")
+def compass_flatpak_installed_within(context, timeout: int) -> None:
+    # flatpak-preinstall downloads a ~71 MB extra-data AppImage at boot.
+    # The VM e2e lane masks flatpak-preinstall.service (no first-boot network
+    # pulls), so Compass can never appear there: skip instead of timing out.
+    state, _, _ = _run_host("systemctl is-enabled flatpak-preinstall.service")
+    if state == "masked":
+        context.scenario.skip("flatpak-preinstall.service is masked in this lane")
+        return
+    deadline = time.monotonic() + timeout
+    while True:
+        out, rc, err = _run_host("flatpak info --system org.tunaos.compass")
+        if rc == 0:
+            return
+        assert time.monotonic() < deadline, (
+            f"org.tunaos.compass not installed after {timeout}s: {err or out}"
+        )
+        sleep(10)
+
+
+@step("Compass launcher window is {state} within {timeout:d} seconds")
+def compass_window_state_within(context, state: str, timeout: int) -> None:
+    assert state in ("visible", "hidden"), f"unknown state {state!r}"
+    if _wait_eval_bool(_COMPASS_VISIBLE_JS, state == "visible", retries=timeout, delay=1):
+        return
+    raise AssertionError(
+        f"Compass window not {state} after {timeout}s; windows: {_shell_eval(_WINDOWS_JS)}"
+    )
