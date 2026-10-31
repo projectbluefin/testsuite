@@ -84,10 +84,16 @@ Feature: Bluefin common dconf and GSettings defaults
     * SSH command return code is "0"
     * SSH command output stripped "is" "'xdg-terminal-exec'"
 
-  Scenario: Searchlight extension is configured
-    * Run SSH command: "dconf read /org/gnome/shell/extensions/search-light/shortcut-search"
+  Scenario: Compass launcher keybinding is configured
+    * Run SSH command: "gsettings get org.gnome.settings-daemon.plugins.media-keys custom-keybindings"
     * SSH command return code is "0"
-    * SSH command output stripped "is" "['<Super>space']"
+    * SSH command output contains "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/compass/"
+    * Run SSH command: "dconf read /org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/compass/binding"
+    * SSH command return code is "0"
+    * SSH command output stripped "is" "'<Super>space'"
+    * Run SSH command: "dconf read /org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/compass/command"
+    * SSH command return code is "0"
+    * SSH command output contains "org.tunaos.compass toggle"
 
   # Pending: the Ptyxis palette is user-session dconf state, not image state.
   @pending

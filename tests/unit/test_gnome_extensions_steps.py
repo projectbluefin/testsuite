@@ -220,7 +220,7 @@ class TestExtensionListSteps:
 
 
 class TestExtensionInstalledOrSkip:
-    UUID = "search-light@icedman.github.com"
+    UUID = "gsconnect@andyholmes.github.io"
 
     def _run(self, installed: bool, major):
         m = _import_gnome_extensions_steps()
