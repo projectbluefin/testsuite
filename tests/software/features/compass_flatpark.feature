@@ -32,7 +32,7 @@ Feature: FlatPark remote and the Compass Flatpak lifecycle
     * SSH command return code is "0"
 
   @software @flatpak_cli @flatpark @compass @skip_bluefin
-  Scenario: Compass installs system-wide from FlatPark and uninstalls keeping user data
+  Scenario: Compass installs from FlatPark, runs in the session, updates, reinstalls and uninstalls keeping user data
     * the VM is x86_64, the only arch FlatPark builds Compass for
     * Compass is absent now and removed again when the scenario ends
     # sudo -n: the SSH session has no polkit agent; the flatpak argv is ChairLift's.
@@ -42,6 +42,9 @@ Feature: FlatPark remote and the Compass Flatpak lifecycle
     # apply_extra unpacked the AppImage into /app/extra/compass.
     * Run SSH command: "test -x $(flatpak info --system --show-location org.tunaos.compass)/files/extra/compass/AppRun"
     * SSH command return code is "0"
+    # Compass v0.28.3 `serve`/`ping`/`shutdown`, run through FlatPark's wrapper
+    # (exec /app/extra/compass/AppRun) inside the live GNOME session.
+    * the Compass engine started from the Flatpak in the GNOME session answers ping and shuts down
     * Flatpak system app "org.tunaos.compass" permission "Session Bus Policy" sets "org.freedesktop.Flatpak" to "talk"
     * Flatpak system app "org.tunaos.compass" filesystem permissions include "host-os:ro"
     * Flatpak system app "org.tunaos.compass" has no home filesystem grant
@@ -49,11 +52,23 @@ Feature: FlatPark remote and the Compass Flatpak lifecycle
     * SSH command return code is "0"
     * Run SSH command: "grep -qx X-Flatpak=org.tunaos.compass /var/lib/flatpak/exports/share/applications/org.tunaos.compass.UrlHandler.desktop && grep -q '^MimeType=.*x-scheme-handler/compass;' /var/lib/flatpak/exports/share/applications/org.tunaos.compass.UrlHandler.desktop"
     * SSH command return code is "0"
+    # GIO resolves the compass:// scheme to the exported handler (Dakota ships no
+    # xdg-mime); XDG_DATA_DIRS is the session's, from flatpak's environment generator.
+    * Run SSH command: ". /tmp/session.env && XDG_DATA_DIRS=$(/usr/lib/systemd/user-environment-generators/60-flatpak | sed -n 's/^XDG_DATA_DIRS=//p') LC_ALL=C gio mime x-scheme-handler/compass | grep -qx 'Default application for .*x-scheme-handler/compass.*: org.tunaos.compass.UrlHandler.desktop'"
+    * SSH command return code is "0"
     * Run SSH command: "mkdir -p ~/.var/app/org.tunaos.compass/config/compass && echo testsuite > ~/.var/app/org.tunaos.compass/config/compass/testsuite-uninstall-marker"
     * SSH command return code is "0"
+    # The upgrade and repair paths ChairLift's Compass switch relies on.
+    * Run long SSH command: "sudo -n flatpak update -y --system org.tunaos.compass"
+    * SSH command return code is "0"
+    * Run long SSH command: "sudo -n flatpak install --reinstall -y --system flatpark org.tunaos.compass"
+    * SSH command return code is "0"
+    * Flatpak system app "org.tunaos.compass" reports origin "flatpark", branch "stable" and arch "x86_64"
+    * Run SSH command: "test -x $(flatpak info --system --show-location org.tunaos.compass)/files/extra/compass/AppRun && cat ~/.var/app/org.tunaos.compass/config/compass/testsuite-uninstall-marker"
+    * SSH command output "is" "testsuite"
     * Run long SSH command: "sudo -n flatpak uninstall -y --system org.tunaos.compass"
     * SSH command return code is "0"
-    * Run SSH command: "! flatpak info --system org.tunaos.compass >/dev/null 2>&1"
+    * Run SSH command: "! flatpak info --system org.tunaos.compass >/dev/null 2>&1 && ! test -e /var/lib/flatpak/exports/share/applications/org.tunaos.compass.desktop && ! test -e /var/lib/flatpak/exports/share/applications/org.tunaos.compass.UrlHandler.desktop"
     * SSH command return code is "0"
     * Run SSH command: "cat ~/.var/app/org.tunaos.compass/config/compass/testsuite-uninstall-marker"
     * SSH command output "is" "testsuite"

@@ -7,6 +7,8 @@ far beyond ``_flatpak``'s 10 s timeout.
 """
 from __future__ import annotations
 
+import time
+
 from behave import step
 
 from tests.shared.ssh_steps import run_ssh
@@ -153,3 +155,52 @@ def flatpak_system_app_has_no_home_grant(context, app_id: str) -> None:
     output = _permissions(context, app_id)
     grants = home_grants(context_values(output, "filesystems"))
     assert not grants, f"{app_id} grants home access via {grants}:\n{output}"
+
+
+# The engine IPC socket, passed as COMPASS_SOCKET (compass v0.28.3 cli.rs uses it
+# verbatim). $XDG_RUNTIME_DIR/app/<id> is the one runtime directory Flatpak
+# shares between instances of an app, so a second `flatpak run` reaches the
+# engine the first one started; the default $XDG_RUNTIME_DIR/compass is
+# per-sandbox.
+_COMPASS_SOCKET = "$XDG_RUNTIME_DIR/app/org.tunaos.compass/testsuite-ipc.sock"
+# Session bus, Wayland display and XDG_RUNTIME_DIR of the logged-in GNOME session.
+_IN_SESSION = ". /tmp/session.env && "
+_COMPASS_RUN = (
+    f'{_IN_SESSION}flatpak run --env=COMPASS_SOCKET="{_COMPASS_SOCKET}" {COMPASS_APP_ID}'
+)
+
+
+def _compass_running(context) -> bool:
+    _, rc = run_ssh(context, f"flatpak ps --columns=application | grep -qx {COMPASS_APP_ID}")
+    return rc == 0
+
+
+def _stop_compass(context) -> None:
+    run_ssh(context, f"{_COMPASS_RUN} shutdown")
+    if _compass_running(context):
+        _checked(context, f"flatpak kill {COMPASS_APP_ID}")
+
+
+@step("the Compass engine started from the Flatpak in the GNOME session answers ping and shuts down")
+def compass_engine_runs_in_session(context) -> None:
+    # `serve --no-hotkey` is the engine without the Super+Space portal prompt.
+    context.add_cleanup(_stop_compass, context)
+    _checked(context, f"{_COMPASS_RUN} serve --no-hotkey </dev/null >/tmp/compass-serve.log 2>&1 &")
+    deadline = time.monotonic() + 90
+    while True:
+        out, rc = run_ssh(context, f"{_COMPASS_RUN} ping")
+        if rc == 0:
+            break
+        assert time.monotonic() < deadline, (
+            f"compass ping never answered (rc {rc}): {out}\n"
+            + run_ssh(context, "cat /tmp/compass-serve.log")[0]
+        )
+        time.sleep(3)
+    # ipc.rs: "engine alive on {socket}: protocol v{N}, pid {pid}"
+    assert out.startswith("engine alive on ") and "/app/org.tunaos.compass/testsuite-ipc.sock: protocol v" in out, out
+    assert _compass_running(context), "ping answered but flatpak ps lists no Compass instance"
+    _checked(context, f"{_COMPASS_RUN} shutdown")
+    deadline = time.monotonic() + 30
+    while _compass_running(context):
+        assert time.monotonic() < deadline, "Compass still running 30 s after `compass shutdown`"
+        time.sleep(2)
