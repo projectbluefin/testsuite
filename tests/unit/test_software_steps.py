@@ -277,6 +277,19 @@ class TestBazaarLookup:
             with pytest.raises(AssertionError, match="(?s)not reached.*launch state unavailable: TimeoutError"):
                 m.bazaar_main_window_is_accessible(MagicMock())
 
+    def test_launch_state_probes_processes_bus_names_and_a11y_bus(self):
+        """Run 41227112796: /app/bin/bazaar sat at 210 ms CPU with no window or portal call."""
+        import subprocess
+        m = _import_software_steps()
+        script = m._BAZAAR_LAUNCH_STATE
+        assert subprocess.run(["bash", "-n", "-c", script], capture_output=True).returncode == 0
+        for probe in ("wchan:32", "cgroup.procs", "GetNameOwner", "io.github.kolunmi.Bazaar.SearchProvider",
+                      "org.a11y.Bus.GetAddress", "--timeout 3"):
+            assert probe in script, probe
+        with patch.object(m, "_run_in_session", return_value=_completed(stdout="state")) as run:
+            assert m._bazaar_launch_state(MagicMock()) == "state"
+        assert run.call_args.kwargs["timeout"] == 30
+
 
 class TestBazaarSearchLocators:
     """Run 41201865894: the field showed "flatseal" and the Flatseal tile was
@@ -398,14 +411,47 @@ class TestUinputUsage:
             with pytest.raises(AssertionError, match="not the active window"):
                 m.bazaar_window_has_keyboard_focus(MagicMock())
         window.active = True
-        m.bazaar_window_has_keyboard_focus(MagicMock())
+        with patch.object(m, "_uinput_keyboard_ready") as ready:
+            m.bazaar_window_has_keyboard_focus(MagicMock())
+        ready.assert_called_once_with()
+
+    def test_uinput_keyboard_is_created_then_awaited_in_the_shell_seat(self):
+        """Run 41216246249: the first key of a fresh device was lost ("latseal")."""
+        m = _import_software_steps()
+        utility = types.ModuleType("qecore.utility")
+        calls = []
+        utility._get_uinput_device = MagicMock(side_effect=lambda: calls.append("device"))
+        seat = iter([False, True])
+
+        def listed(js):
+            calls.append("seat")
+            return next(seat)
+
+        with patch.dict(sys.modules, {"qecore.utility": utility}), \
+             patch.object(m, "_shell_eval_bool", side_effect=listed) as shell, \
+             patch.object(m, "POLL_INTERVAL", 0):
+            m._uinput_keyboard_ready()
+        assert calls == ["device", "seat", "seat"]
+        js = shell.call_args.args[0]
+        assert "get_default_seat().list_devices()" in js and "'python-uinput'" in js
+
+    def test_uinput_keyboard_missing_from_seat_fails(self):
+        m = _import_software_steps()
+        utility = types.ModuleType("qecore.utility")
+        utility._get_uinput_device = MagicMock()
+        with patch.dict(sys.modules, {"qecore.utility": utility}), \
+             patch.object(m, "_shell_eval_bool", return_value=False), \
+             patch.object(m, "POLL_INTERVAL", 0.01):
+            with pytest.raises(AssertionError, match="python-uinput keyboard in the GNOME Shell seat"):
+                m._uinput_keyboard_ready(timeout=0.05)
 
     def test_focus_activates_bazaar_through_shell_then_requires_active(self):
         """Run 41210513366: an SSH-launched window was mapped without focus."""
         m = _import_software_steps()
         window = _node("Bazaar", "frame", active=True)
         _with_apps(m, _node("bazaar", children=[window]))
-        with patch.object(m, "_shell_eval_bool", return_value=True) as shell:
+        with patch.object(m, "_shell_eval_bool", return_value=True) as shell, \
+             patch.object(m, "_uinput_keyboard_ready"):
             m.focus_the_bazaar_window(MagicMock())
         js = shell.call_args.args[0]
         assert "Main.activateWindow(win)" in js
@@ -462,21 +508,29 @@ class TestWelcomeModal:
             m.dismiss_bluefin_welcome_dialog()
         key.assert_not_called()
 
-    def test_escape_is_pressed_and_modal_verified_gone(self):
+    def test_escape_is_pressed_once_the_keyboard_is_registered(self):
         m = _import_software_steps()
         skip = _node("Skip", "push button")
         self._shell(m, skip)
-        modules, key = self._keyboard(side_effect=lambda _: setattr(skip, "showing", False))
-        with modules, patch.object(m, "atspi_click") as click:
+        order = []
+
+        def escape(name):
+            order.append(name)
+            skip.showing = False
+
+        modules, key = self._keyboard(side_effect=escape)
+        with modules, patch.object(m, "atspi_click") as click, \
+             patch.object(m, "_uinput_keyboard_ready", side_effect=lambda: order.append("ready")):
             m.dismiss_bluefin_welcome_dialog()
         key.assert_called_once_with("ESC")
+        assert order == ["ready", "ESC"]
         click.assert_not_called()
 
     def test_modal_that_stays_fails(self):
         m = _import_software_steps()
         self._shell(m, _node("Skip", "push button"))
         modules, _ = self._keyboard()
-        with modules, patch.object(m, "POLL_INTERVAL", 0.01):
+        with modules, patch.object(m, "POLL_INTERVAL", 0.01), patch.object(m, "_uinput_keyboard_ready"):
             with pytest.raises(AssertionError, match="welcome dialog dismissed"):
                 m.dismiss_bluefin_welcome_dialog(timeout=0.05)
 

@@ -215,8 +215,28 @@ def dismiss_bluefin_welcome_dialog(timeout: float = 5) -> None:
         return
     from qecore.utility import keyboard_key_input
 
+    _uinput_keyboard_ready()
     keyboard_key_input("ESC")
     _poll("Bluefin welcome dialog dismissed", timeout, lambda: not _welcome_skip_buttons())
+
+
+# qecore 4.19.3 creates its python-uinput keyboard on the first key (utility.py
+# _get_uinput_device: uinput.Device(all_keys), default name "python-uinput") and
+# sleeps only 0.5 s before emitting. Mutter had not added the device yet, so
+# that first key was lost: the welcome modal's Escape (hook_error) and the "f"
+# of "flatseal" (the field showed "latseal", run 41216246249). Create the
+# device up front and wait until the Shell's seat lists it.
+_UINPUT_KEYBOARD_IN_SEAT_JS = """(() => global.stage.context.get_backend()
+    .get_default_seat().list_devices()
+    .some(device => device.get_device_name() === 'python-uinput'))()"""
+
+
+def _uinput_keyboard_ready(timeout: float = 10) -> None:
+    from qecore.utility import _get_uinput_device
+
+    _get_uinput_device()
+    _poll("python-uinput keyboard in the GNOME Shell seat", timeout,
+          lambda: _shell_eval_bool(_UINPUT_KEYBOARD_IN_SEAT_JS))
 
 
 def _bazaar_has_keyboard_focus():
@@ -232,6 +252,7 @@ def bazaar_window_has_keyboard_focus(context) -> None:
     if _skip_if_no_atspi(context):
         return
     _poll("Active Bazaar window", 5, _bazaar_has_keyboard_focus)
+    _uinput_keyboard_ready()
 
 
 # Main.activateWindow() is the Shell's own "bring this window forward" path
@@ -278,16 +299,29 @@ def launch_bazaar(context) -> None:
 # the scope's process tree shows how far a launch got (flatpak run, bwrap,
 # bazaar-daemon, bazaar). Run 41224716141: one launch created its scope but
 # never reached the GUI, AT-SPI or a window, and outlived `flatpak kill`.
+# Run 41227112796: /app/bin/bazaar was running but the whole scope had used
+# 210 ms CPU, it never made the secret-portal call every good launch makes, and
+# no Shell modal was on screen. The probe below records where each process
+# sleeps (wchan), who owns Bazaar's bus names, and whether the a11y bus answers,
+# because GTK asks org.a11y.Bus for its address while it starts up.
 BAZAAR_SCOPES = f"app-flatpak-{BAZAAR_APP_ID}-*.scope"
+_BAZAAR_LAUNCH_STATE = (
+    "flatpak ps --columns=instance,pid,application; "
+    f"systemctl --user status --no-pager --lines=0 '{BAZAAR_SCOPES}'; "
+    f"for unit in $(systemctl --user list-units --plain --no-legend '{BAZAAR_SCOPES}' | cut -d' ' -f1); do "
+    'procs=/sys/fs/cgroup$(systemctl --user show -P ControlGroup "$unit")/cgroup.procs; '
+    'ps -o pid,stat,nlwp,wchan:32,args -p "$(paste -sd, "$procs")"; done; '
+    f"for name in {BAZAAR_APP_ID} {BAZAAR_APP_ID}.SearchProvider; do "
+    'echo "owner $name: $(gdbus call --session --timeout 3 --dest org.freedesktop.DBus '
+    '--object-path /org/freedesktop/DBus --method org.freedesktop.DBus.GetNameOwner "$name" 2>&1)"; done; '
+    'echo "a11y bus: $(gdbus call --session --timeout 3 --dest org.a11y.Bus '
+    '--object-path /org/a11y/bus --method org.a11y.Bus.GetAddress 2>&1)"'
+)
 
 
 def _bazaar_launch_state(context) -> str:
     try:
-        result = _run_in_session(
-            context,
-            "flatpak ps --columns=instance,pid,application; "
-            f"systemctl --user status --no-pager --lines=0 '{BAZAAR_SCOPES}'",
-        )
+        result = _run_in_session(context, _BAZAAR_LAUNCH_STATE, timeout=30)
     except Exception as exc:  # noqa: BLE001 - diagnostics must not hide the real failure
         return f"<launch state unavailable: {type(exc).__name__}: {exc}>"
     return (result.stdout + result.stderr).strip() or "<no Bazaar instance or scope>"

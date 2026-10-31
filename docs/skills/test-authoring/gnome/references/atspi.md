@@ -106,6 +106,11 @@ Source-backed facts used by `tests/software/features/steps/steps.py`:
   app title. Type lower case: python-uinput's `_chars_to_events` maps only unshifted
   characters, so qecore's `Type text … with uinput` gets `None` for `F` and
   errors with no message.
+- **First uinput key.** qecore creates its `python-uinput` keyboard on the first
+  key and waits only 0.5 s; mutter had not added it yet, so that key was dropped
+  (the Welcome modal's Escape, and `flatseal` arriving as `latseal`, run
+  41216246249). `_uinput_keyboard_ready()` creates the device first and polls the
+  Shell seat (`list_devices()`) for `python-uinput` before any key is sent.
 - **Quit.** `<primary>q` is `app.quit`, which also calls the daemon's `Quit`.
   Send it as `Key combo: "<LEFTCTRL><Q>" with uinput`: qecore 4.19.3 turns each
   token into `KEY_<TOKEN>`, so `<Ctrl>` raises `KEY_CTRL … does not exist`.
@@ -124,6 +129,16 @@ Source-backed facts used by `tests/software/features/steps/steps.py`:
   process tree of those scopes to its failure. The software environment's
   teardown SIGKILLs the scopes rather than `flatpak kill`, and waits up to 10 s
   until none is active.
+  Run 41227112796 showed a second stuck shape. `bwrap`, `xdg-dbus-proxy`,
+  `bazaar-daemon` and `/app/bin/bazaar` were all running, but the scope had used
+  210 ms CPU in 30 s. The launch made none of the
+  `xdg-desktop-portal: Backend call failed: Collection login doesn't exist` calls
+  that every good launch makes about 0.5 s in, and the screenshot showed no Shell
+  modal. That rules out a keyring or GCR prompt: every good launch already hits
+  the missing `login` collection without blocking. The failure now also records
+  each process's state and `wchan`, the owners of `io.github.kolunmi.Bazaar` and
+  `.SearchProvider`, and whether `org.a11y.Bus.GetAddress` answers. GTK makes that
+  call synchronously at startup.
 - **Keyboard focus.** uinput keys go to the active window. On fresh CI VMs the
   "Welcome to Bluefin" Shell modal (Skip / Take Tour) grabs the keyboard. AT-SPI
   tab clicks still worked behind it, but typing and Ctrl+Q went nowhere (run
