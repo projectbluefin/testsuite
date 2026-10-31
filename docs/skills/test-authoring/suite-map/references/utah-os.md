@@ -22,8 +22,8 @@ Evidence: projectbluefin/utah `527c5aff` and
 | resolved `PrivateTmp=no` | `scripts/configure-services.sh` |
 | tuna-os remote | `/etc/flatpak/remotes.d/tuna-os.flatpakrepo` |
 | Bazaar and Ghostty preinstall | `/usr/share/flatpak/preinstall.d/*.preinstall` |
-| CountMe timer, burst limit, opt-out | common CountMe units plus `10-utah-burst-tolerance.conf`; opt-out mirrors `iso/scripts/verify-countme-runtime.sh` and never runs the client |
 | `ujust report` routing | `60-custom.just`, `scripts/image-repo.sh` |
+| CountMe timer, burst limit, opt-out | common CountMe units plus `10-utah-burst-tolerance.conf`; opt-out mirrors `iso/scripts/verify-countme-runtime.sh` and never runs the client. The e2e harness writes `/etc/projectbluefin/countme/disabled`, so the shipped default is read from `/usr/etc` and the opt-out probe reuses a pre-existing marker, restoring the prior state either way |
 | Ghostty user hook | `user-setup.hooks.d/30-ghostty.sh` |
 
 ## Known defect
