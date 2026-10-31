@@ -211,6 +211,12 @@ def before_scenario(context, scenario):
             f"(IMAGE={os.environ.get('IMAGE', 'unknown')})"
         )
         return
+    if "utah_only" in scenario_tags and not getattr(context, "is_utah_image", False):
+        scenario.skip(
+            f"Skipping @utah_only scenario on non-Utah image "
+            f"(IMAGE={os.environ.get('IMAGE', 'unknown')})"
+        )
+        return
     if "skip_utah" in scenario_tags and getattr(context, "is_utah_image", False):
         scenario.skip("Scenario documents a Bluefin pin that Utah does not ship")
         return

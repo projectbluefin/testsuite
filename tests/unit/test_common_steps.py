@@ -249,6 +249,26 @@ class TestCommonEnvironmentDakotaOnly:
         assert scenario.skip_message is None
 
 
+class TestCommonEnvironmentUtahOnly:
+    def test_skips_utah_only_on_non_utah_image(self):
+        m = _import_common_environment()
+        context = _ctx(is_bluefin_image=True, is_utah_image=False)
+        scenario = _Scenario(["utah_only"])
+
+        m.before_scenario(context, scenario)
+
+        assert "Skipping @utah_only scenario" in scenario.skip_message
+
+    def test_allows_utah_only_on_utah_image(self):
+        m = _import_common_environment()
+        context = _ctx(is_bluefin_image=True, is_utah_image=True, has_brew=True)
+        scenario = _Scenario(["utah_only"])
+
+        m.before_scenario(context, scenario)
+
+        assert scenario.skip_message is None
+
+
 class TestCommonEnvironmentRequiresToggleAction:
     def test_skips_when_recipe_lacks_action_value(self):
         m = _import_common_environment(run_ssh_returncode=1)
