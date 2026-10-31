@@ -2,7 +2,7 @@
 Feature: Bazaar GUI deep navigation
   Validates Bazaar search and category navigation on Bluefin images.
   Complements bazaar_ui.feature (launch + tab visibility) by exercising
-  the Curated tab, the Search tab, and search-result interaction.
+  the Curated tab and a typed search that must show a matching result.
   Scenarios skip automatically on images where Bazaar is absent via the
   existing _skip_if_no_atspi guard and the _has_bazaar() runtime check.
 
@@ -11,7 +11,7 @@ Feature: Bazaar GUI deep navigation
   the software steps module, so no per-scenario workaround is needed.
 
   Background:
-    * Launch Bazaar via fallback targets
+    * Launch Bazaar
     * Bazaar main window is accessible
     * Bazaar main content is loaded
 
@@ -21,11 +21,16 @@ Feature: Bazaar GUI deep navigation
     * Activate Bazaar tab "Curated"
     * Bazaar view "Curated" is loaded
 
-  @retry @software @bazaar_ui @navigation
-  Scenario: Search tab is accessible
+  # Bazaar's window turns typed characters into a search (type-to-search),
+  # so the query lands in the search field once the window has focus.
+  @retry @software @bazaar_ui @navigation @search
+  Scenario: Search tab finds an app by its typed name
     * Bazaar tab "Search" is accessible
     * Activate Bazaar tab "Search"
     * Bazaar view "Search" is loaded
+    * Type text: "Flatseal" with uinput
+    * Bazaar search field shows "Flatseal"
+    * Bazaar search results include "Flatseal"
 
   @retry @software @bazaar_ui @navigation
   Scenario: Navigation between Explore and Library is stateless
@@ -53,8 +58,7 @@ Feature: Bazaar GUI deep navigation
     * Activate Bazaar tab "Search"
     * Bazaar view "Search" is loaded
     * Bazaar main window is accessible
-    * No coredump entries exist for "bazaar"
-    * No coredump entries exist for "gnome-software"
+    * No coredump entries exist on the VM for "bazaar"
 
   @software @bazaar_ui @close
   Scenario: Bazaar closes cleanly after deep navigation
@@ -64,4 +68,4 @@ Feature: Bazaar GUI deep navigation
     * Bazaar view "Library" is loaded
     * Close Bazaar via shortcut
     * Bazaar is no longer running
-    * No coredump entries exist for "bazaar"
+    * No coredump entries exist on the VM for "bazaar"

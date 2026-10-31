@@ -135,3 +135,13 @@ single builder for SSH argv. Two properties of that contract are easy to get wro
 Suites must not hand-roll `ssh` argv. `tests/unit/test_ssh_transport_contract.py`
 enforces this for the modules listed in its `MIGRATED_MODULES` set — add new suites there
 rather than copying an argv list.
+
+## Quoting
+
+Gherkin does not unescape step text. `Run SSH command: "python3 -c '…glob(\"/x\")…'"`
+reaches the VM shell with the backslashes intact. Inside single quotes they stay, so
+Python raises `SyntaxError: unexpected character after line continuation character`.
+That made the Bazaar YAML scenario fail on a correct Bluefin image. A bare inner `"`
+parses fine, because the `"{cmd}"` matcher is anchored at the end of the step
+(see `compass_flatpark.feature`). For multi-line programs, add a step that builds the
+command with `shlex.quote`, as `bazaar_yaml_files_parse` does.

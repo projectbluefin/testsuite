@@ -10,8 +10,7 @@ Feature: Bazaar app store configuration integrity
 
   @software
   Scenario: Bazaar YAML configuration files are syntactically valid
-    * Run SSH command: "python3 -c 'import yaml, glob; files = glob.glob(\"/etc/bazaar/*.yaml\"); [yaml.safe_load(open(f)) for f in files]; print(len(files))'"
-    * SSH command return code is "0"
+    * Bazaar YAML configuration files in "/etc/bazaar" parse as non-empty mappings
 
   @software
   Scenario: Bazaar blocklist config is present

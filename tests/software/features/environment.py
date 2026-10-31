@@ -1,8 +1,10 @@
 """
-Software test environment — qecore TestSandbox for Bazaar (gnome-software in Bluefin).
+Software test environment for Bazaar (io.github.kolunmi.Bazaar) and Flatpak.
 
-Regressions: bluefin#4062, #4471.
+Only @bazaar_ui scenarios touch the GUI: they get the qecore sandbox hooks and
+a Bazaar kill afterwards. CLI/config scenarios never wait on AT-SPI.
 """
+import subprocess
 import traceback
 
 from qecore.sandbox import TestSandbox
@@ -46,19 +48,43 @@ except Exception as exc:  # noqa: BLE001
 
 
 SUITE_NAME = "software"
+BAZAAR_APP_ID = "io.github.kolunmi.Bazaar"
+GUI_TAG = "bazaar_ui"
+
+
+def _tags(scenario) -> set:
+    return set(scenario.tags) | set(scenario.feature.tags)
 
 
 def _has_bazaar(context) -> bool:
-    """Return True when Bazaar (io.github.kolunmi.Bazaar) is installed on the VM."""
-    import subprocess
-    ssh_args = ssh_argv(context, quiet=True) + [
-        'flatpak list --app --columns=application 2>/dev/null | grep -q io.github.kolunmi.Bazaar',
-    ]
+    """Return whether Bazaar is installed on the VM.
+
+    Fails closed: an SSH or flatpak failure raises (a scenario HOOK-ERROR)
+    instead of reading as "absent" (silent skip) or "present".
+    """
+    probe = (
+        "apps=$(flatpak list --app --columns=application) || exit 2; "
+        f"printf '%s\\n' \"$apps\" | grep -qx {BAZAAR_APP_ID}"
+    )
+    result = subprocess.run(
+        ssh_argv(context, quiet=True) + [probe], capture_output=True, text=True, timeout=30,
+    )
+    if result.returncode not in (0, 1):
+        raise RuntimeError(
+            f"Bazaar presence probe failed (rc={result.returncode}): {result.stderr.strip()}"
+        )
+    return result.returncode == 0
+
+
+def _stop_bazaar(context) -> None:
+    """Kill the Bazaar instance (GUI + daemon) a GUI scenario left behind."""
     try:
-        result = subprocess.run(ssh_args, capture_output=True, timeout=15)
-        return result.returncode == 0
-    except Exception:
-        return True  # assume present if SSH fails (local dev / unknown environment)
+        subprocess.run(
+            ssh_argv(context, quiet=True) + [f"flatpak kill {BAZAAR_APP_ID} 2>/dev/null || true"],
+            capture_output=True, text=True, timeout=30,
+        )
+    except Exception as exc:  # noqa: BLE001 - cleanup must not mask the real failure
+        print(f"WARNING: stopping Bazaar failed: {exc}", flush=True)
 
 
 def before_all(context) -> None:
@@ -70,22 +96,12 @@ def before_all(context) -> None:
     # from userdata/environment so those steps work in this suite.
     populate_ssh_context(context)
     try:
-        # In GNOME 50 / Fedora 44 the desktop file is org.gnome.Software.desktop
-        # (reverse-DNS naming); qecore TestSandbox resolves it from the component name.
-        # Bazaar is the Bluefin-customized GNOME Software app manager.
-        context.sandbox = TestSandbox("org.gnome.Software", context=context)
+        # No qecore application is registered: Bazaar is driven by the
+        # software steps, which find it by its AT-SPI name with a deadline.
+        context.sandbox = TestSandbox(BAZAAR_APP_ID, context=context)
         context.sandbox.attach_faf = False
         context.sandbox.production = False
         context.sandbox.set_keyring = False  # GNOME 50: GDM restart flushes PATH
-
-        context.software = context.sandbox.get_application(
-            name="gnome-software",
-            a11y_app_name="gnome-software",
-            # Use desktop_file_path (absolute) so qecore skips rpm -qlf lookup,
-            # which fails in the runner container where gnome-software is not installed.
-            desktop_file_path="/usr/share/applications/org.gnome.Software.desktop",
-        )
-        context.software.exit_shortcut = "<Ctrl>Q"
         configure_screenshot_context(context, SUITE_NAME)
     except Exception as error:
         print(f"Environment error: before_all: {error}")
@@ -97,11 +113,10 @@ def before_scenario(context, scenario) -> None:
 
     if skip_quarantine(scenario):
         return
-    # Skip Bazaar-specific scenarios on images that don't ship Bazaar (e.g. gnomeos).
-    # Bazaar (io.github.kolunmi.Bazaar) ships only on Bluefin/UBlue images.
-    # flatpak_cli scenarios carry @flatpak_cli and are image-agnostic.
-    scenario_tags = {t for t in scenario.tags} | {t for t in scenario.feature.tags}
-    if "software" in scenario_tags and "flatpak_cli" not in scenario_tags and not _has_bazaar(context):
+    # Bazaar ships only on Bluefin-family images; @flatpak_cli scenarios are
+    # image-agnostic and run everywhere.
+    tags = _tags(scenario)
+    if "software" in tags and "flatpak_cli" not in tags and not _has_bazaar(context):
         try:
             scenario.skip(reason="Bazaar not installed on this image")
         except TypeError:
@@ -118,12 +133,8 @@ def before_scenario(context, scenario) -> None:
     context.scenario = scenario
     configure_screenshot_context(context, SUITE_NAME, scenario.name)
     record_start(context)
-    try:
+    if GUI_TAG in tags:
         context.sandbox.before_scenario(context, scenario)
-    except Exception:
-        tb = traceback.format_exc()
-        print(f"WARNING: before_scenario setup error — skipping scenario:\n{tb}", flush=True)
-        scenario.skip(reason="before_scenario setup failed (environment not ready)")
 
 
 def _reset_flatpak_permission_probe(context, scenario) -> None:
@@ -133,8 +144,7 @@ def _reset_flatpak_permission_probe(context, scenario) -> None:
     step would leave the override installed and contaminate retries, so the
     reset is repeated here unconditionally for the tagged scenarios.
     """
-    tags = set(scenario.tags) | set(scenario.feature.tags)
-    if "flatpak_permissions_mgmt" not in tags:
+    if "flatpak_permissions_mgmt" not in _tags(scenario):
         return
     try:
         try:
@@ -156,7 +166,8 @@ def after_scenario(context, scenario) -> None:
     if scenario.status.name in ('passed', 'failed'):
         configure_screenshot_context(context, SUITE_NAME, scenario.name)
         take_screenshot(scenario.status.name)
-    if hasattr(context, 'sandbox'):
+    if GUI_TAG in _tags(scenario) and scenario.status.name != "skipped":
+        _stop_bazaar(context)
         try:
             context.sandbox.after_scenario(context, scenario)
         except Exception as exc:

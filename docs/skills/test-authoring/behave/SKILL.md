@@ -242,17 +242,14 @@ Parse it (`parse_flatpak_context` in
 `=` and compare the key — matching bare key names against `filesystems=home;`
 never matches and passes falsely.
 
-## Software suite SSH context
+## Software suite gates (`@flatpak_cli`, `@bazaar_ui`)
 
-`tests/software/features/environment.py` calls `populate_ssh_context(context)` in
-`before_all` (#718), so the shared `tests/shared/ssh_steps.py` steps work there.
-
-## `@flatpak_cli` marks image-agnostic software scenarios
-
-`tests/software/features/environment.py` skips any `@software` scenario when Bazaar
-(`io.github.kolunmi.Bazaar`) is absent — unless the scenario also carries
-`@flatpak_cli`. Tag CLI-only, image-agnostic software scenarios with `@flatpak_cli`
-so they still run on gnomeos and other non-Bluefin images.
+`tests/software/features/environment.py` calls `populate_ssh_context` in `before_all`
+(#718) and skips `@software` scenarios when Bazaar is absent unless they carry
+`@flatpak_cli` (image-agnostic, so they run on gnomeos too). The Bazaar probe fails
+closed: an SSH or `flatpak list` error is a HOOK-ERROR, never "absent". Only
+`@bazaar_ui` scenarios get the qecore sandbox hooks and the `flatpak kill` cleanup.
+Never write `\"` in a step argument ([why](references/shared-ssh.md#quoting)).
 
 ## `@requires_cached_image` gates scenarios on a pre-pulled OCI image
 

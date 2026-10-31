@@ -179,10 +179,200 @@ class TestFlatpakContextForwarding:
     def test_bazaar_close_wait_forwards_context(self):
         m = _import_software_steps()
         ctx = MagicMock()
-        with patch.object(m, "_bazaar_window", side_effect=RuntimeError), \
+        with patch.object(m, "_visible_bazaar_window", side_effect=LookupError), \
              patch.object(m, "_bazaar_flatpak_is_running", return_value=False) as running:
             m._wait_for_bazaar_to_close(ctx)
         running.assert_called_once_with(ctx)
+
+
+# ---------------------------------------------------------------------------
+# Bazaar AT-SPI lookup — bounded, Bazaar-only, content-proving
+# ---------------------------------------------------------------------------
+
+def _node(name="", role="", showing=True, children=(), descendants=(), **attrs):
+    node = types.SimpleNamespace(name=name, roleName=role, showing=showing, children=list(children), **attrs)
+    node.findChildren = lambda pred: [n for n in descendants if pred(n)]
+    return node
+
+
+def _with_apps(m, *apps):
+    m.tree = types.SimpleNamespace(root=types.SimpleNamespace(applications=lambda: list(apps)))
+
+
+class TestBazaarLookup:
+    def test_finds_bazaar_by_gtk4_prgname(self):
+        m = _import_software_steps()
+        window = _node("Bazaar", "frame")
+        _with_apps(m, _node("gnome-shell"), _node("bazaar", children=[window]))
+        assert m._visible_bazaar_window() is window
+
+    def test_gnome_software_is_not_bazaar(self):
+        m = _import_software_steps()
+        _with_apps(m, _node("gnome-software", children=[_node("Bazaar", "frame")]))
+        with pytest.raises(LookupError, match="gnome-software"):
+            m._bazaar_app()
+
+    def test_window_wait_honours_deadline(self):
+        m = _import_software_steps()
+        _with_apps(m)
+        with patch.object(m, "POLL_INTERVAL", 0.01), pytest.raises(AssertionError, match="Visible Bazaar window"):
+            m._bazaar_window(timeout=0.05)
+
+    def test_poll_retries_probe_errors(self):
+        m = _import_software_steps()
+        outcomes = iter([RuntimeError("cache drop"), None, "ok"])
+
+        def probe():
+            outcome = next(outcomes)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+        with patch.object(m, "POLL_INTERVAL", 0):
+            assert m._poll("x", 5, probe) == "ok"
+
+    def test_refreshing_window_shows_no_view(self):
+        """Header chrome is showing while every view page is still hidden."""
+        m = _import_software_steps()
+        hidden = _node("Explore", "panel", descendants=[_node("tile", "label", showing=False)])
+        window = _node("Bazaar", "frame", descendants=[_node("Explore", "page tab"), hidden])
+        with pytest.raises(LookupError, match="Refreshing"):
+            m._shown_bazaar_view(window)
+
+    def test_view_requires_named_panel_content_and_selected_tab(self):
+        m = _import_software_steps()
+        panel = _node("Library", "panel", descendants=[_node("Calculator", "label")])
+        tab = _node("Library", "page tab", selected=True)
+        window = _node("Bazaar", "frame", descendants=[tab, panel])
+        _with_apps(m, _node("bazaar", children=[window]))
+        assert m._bazaar_view("Library") is panel
+        with pytest.raises(LookupError, match="not 'Search'"):
+            m._bazaar_view("Search")
+        tab.selected = False
+        with pytest.raises(LookupError, match="not selected"):
+            m._bazaar_view("Library")
+
+    def test_process_probe_fails_closed(self):
+        m = _import_software_steps()
+        with patch.object(m, "_flatpak", return_value=_completed(rc=1, stderr="boom")):
+            with pytest.raises(AssertionError, match="flatpak ps failed"):
+                m._bazaar_flatpak_is_running(MagicMock())
+
+
+class TestBazaarYamlCheck:
+    """Run the shipped YAML check script against real files."""
+
+    @staticmethod
+    def _run(m, directory):
+        import subprocess
+        return subprocess.run(
+            [sys.executable, "-c", m._BAZAAR_YAML_CHECK, str(directory)],
+            capture_output=True, text=True,
+        )
+
+    def test_valid_mappings_pass(self, tmp_path):
+        m = _import_software_steps()
+        (tmp_path / "bazaar.yaml").write_text("curated-config-paths:\n  - /x.yaml\n")
+        result = self._run(m, tmp_path)
+        assert result.returncode == 0, result.stderr
+        assert "bazaar.yaml" in result.stdout
+
+    @pytest.mark.parametrize("files", [{}, {"a.yaml": ""}, {"a.yaml": "- list\n"}, {"a.yaml": "a: [\n"}])
+    def test_empty_glob_empty_doc_non_mapping_and_syntax_errors_fail(self, tmp_path, files):
+        m = _import_software_steps()
+        for name, text in files.items():
+            (tmp_path / name).write_text(text)
+        assert self._run(m, tmp_path).returncode != 0
+
+    def test_step_reports_failure(self):
+        m = _import_software_steps()
+        with patch.object(m, "_run_in_session", return_value=_completed(rc=1, stderr="no *.yaml files")):
+            with pytest.raises(AssertionError, match="no \\*.yaml files"):
+                m.bazaar_yaml_files_parse(MagicMock(), "/etc/bazaar")
+
+    def test_step_quotes_script_for_the_remote_shell(self):
+        """Regression: Gherkin kept the old step's backslash quotes, so python3 hit SyntaxError."""
+        m = _import_software_steps()
+        with patch.object(m, "_run_in_session", return_value=_completed()) as run:
+            m.bazaar_yaml_files_parse(MagicMock(), "/etc/bazaar")
+        import shlex
+        argv = shlex.split(run.call_args.args[1])
+        assert argv == ["python3", "-c", m._BAZAAR_YAML_CHECK, "/etc/bazaar"]
+
+
+class TestVmCoredumpStep:
+    def test_no_entries_passes(self):
+        m = _import_software_steps()
+        with patch.object(m, "_run_in_session", return_value=_completed(rc=1)):
+            m.no_vm_coredump_entries_exist(MagicMock(), "bazaar")
+
+    @pytest.mark.parametrize(("rc", "match"), [(0, "Unexpected coredump"), (127, "coredumpctl failed")])
+    def test_entries_or_errors_fail(self, rc, match):
+        m = _import_software_steps()
+        with patch.object(m, "_run_in_session", return_value=_completed(rc=rc, stdout="bazaar 1234")):
+            with pytest.raises(AssertionError, match=match):
+                m.no_vm_coredump_entries_exist(MagicMock(), "bazaar")
+
+
+# ---------------------------------------------------------------------------
+# environment.py — fail-closed Bazaar probe, GUI-only sandbox hooks
+# ---------------------------------------------------------------------------
+
+def _import_software_environment():
+    for name in ("qecore", "qecore.sandbox", "qecore.common_steps"):
+        stub = types.ModuleType(name)
+        stub.TestSandbox = MagicMock
+        sys.modules[name] = stub
+    sys.modules.pop("tests.software.features.environment", None)
+    import tests.software.features.environment as env  # noqa: PLC0415
+    return env
+
+
+def _scenario(*tags, status="passed"):
+    return types.SimpleNamespace(
+        tags=set(tags), effective_tags=set(tags), feature=types.SimpleNamespace(tags=set()),
+        name="s", skip=MagicMock(), status=types.SimpleNamespace(name=status),
+    )
+
+
+class TestSoftwareEnvironment:
+    @pytest.mark.parametrize(("rc", "present"), [(0, True), (1, False)])
+    def test_probe_reads_presence(self, rc, present):
+        env = _import_software_environment()
+        with patch("subprocess.run", return_value=_completed(rc=rc)):
+            assert env._has_bazaar(MagicMock()) is present
+
+    @pytest.mark.parametrize("rc", [2, 255])
+    def test_probe_fails_closed_on_ssh_or_flatpak_error(self, rc):
+        env = _import_software_environment()
+        with patch("subprocess.run", return_value=_completed(rc=rc, stderr="Connection refused")):
+            with pytest.raises(RuntimeError, match="Connection refused"):
+                env._has_bazaar(MagicMock())
+
+    def test_cli_scenario_skips_gui_hooks(self):
+        env = _import_software_environment()
+        ctx = types.SimpleNamespace(sandbox=MagicMock())
+        scenario = _scenario("software", "flatpak_cli")
+        with patch.object(env, "_stop_bazaar") as stop, \
+             patch.object(env, "take_screenshot"), patch.object(env, "record_end"):
+            env.before_scenario(ctx, scenario)
+            env.after_scenario(ctx, scenario)
+        ctx.sandbox.before_scenario.assert_not_called()
+        ctx.sandbox.after_scenario.assert_not_called()
+        stop.assert_not_called()
+
+    def test_gui_scenario_runs_hooks_and_stops_bazaar(self):
+        env = _import_software_environment()
+        ctx = types.SimpleNamespace(sandbox=MagicMock())
+        scenario = _scenario("software", "bazaar_ui")
+        with patch.object(env, "_has_bazaar", return_value=True), \
+             patch.object(env, "_stop_bazaar") as stop, \
+             patch.object(env, "take_screenshot"), patch.object(env, "record_end"):
+            env.before_scenario(ctx, scenario)
+            env.after_scenario(ctx, scenario)
+        ctx.sandbox.before_scenario.assert_called_once_with(ctx, scenario)
+        ctx.sandbox.after_scenario.assert_called_once_with(ctx, scenario)
+        stop.assert_called_once_with(ctx)
 
 
 # ---------------------------------------------------------------------------

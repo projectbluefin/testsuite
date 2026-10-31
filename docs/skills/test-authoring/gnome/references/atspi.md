@@ -72,6 +72,36 @@ A scenario-level `@retry` tag does not replace helper polling: it re-launches th
 whole scenario and may open another app instance. Use it only for infrastructure
 flakiness, not application registration lag.
 
+## Bazaar (GTK4 Flatpak)
+
+Source-backed facts used by `tests/software/features/steps/steps.py`:
+
+- **Application name `bazaar`.** GTK4's AT-SPI root reports `g_get_prgname()`
+  (`gtk/a11y/gtkatspiroot.c`). `g_application_run()` sets that name to
+  `basename(argv[0])`, and `bazaar-daemon` execs `/app/bin/bazaar`. The old
+  aliases `gnome-software`, `org.gnome.Software` and `Bazaar` never matched.
+  `_bazaar_app()` called `tree.root.application()` for each of them inside an
+  iteration-counted loop, which kept software run 41182977349 searching from
+  08:20 until it was cancelled at 10:03.
+- **Window.** The main window is a `frame` named `Bazaar` that is a direct child
+  of the app. The title becomes `Bazaar — <page>` only on pushed pages.
+- **Views.** libadwaita exposes each `AdwViewStackPage` as a `panel` labelled
+  with its title (`Curated`, `Explore`, `Library`, `Search`). Only the visible
+  page has showing widgets. The header-bar tabs (`page tab`, or `toggle button`
+  on older libadwaita) stay showing behind the **Refreshing** page, so "the tab
+  exists plus any showing widget" passes before any content loads. The Curated
+  page is hidden until a curated config loads.
+- **Search.** A printable key typed into the window switches to the Search view,
+  focuses the field and seeds it (`key_pressed` in `bz-window.c`). The field is
+  a `text` node inside the Search panel, and results are `label`s with the app
+  title.
+- **Quit.** `<primary>q` is `app.quit`, which also calls the daemon's `Quit`.
+  Alt+F4 only closes the window, and the daemon exits on its own after 5 s idle.
+  Assert that no `Bazaar` frame is showing and that `flatpak ps` does not list
+  the app. A `flatpak ps` error must fail the check, not read as "closed".
+- **Coredumps.** The runner container has no `coredumpctl`, so the software
+  suite checks the VM over SSH with `No coredump entries exist on the VM for`.
+
 
 When scaffolding multiple feature areas at once:
 - One agent per feature area, all in parallel

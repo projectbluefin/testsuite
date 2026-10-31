@@ -255,20 +255,16 @@ bazzite's `Extension "{uuid}" is enabled`) to avoid cross-suite step collisions.
 ## Bazaar on Bluefin: wait out the Refreshing spinner
 
 
-Bluefin ships **Bazaar** (`io.github.kolunmi.Bazaar`), not GNOME Software's old
-Explore/Installed toggle-button layout. For Bazaar UI tests:
-
-- wait for a visible window named **`Bazaar`**
-- then poll until any visible tab named **`Curated`**, **`Explore`**,
-  **`Library`**, or **`Search`** appears
-- accept both `page tab` and `toggle button` roles for those tabs
-
-The first launch often shows a **Refreshing** spinner page before the
-`AdwViewStack` content is ready. On GNOME 50/51, AT-SPI cache drops can also make
-nodes disappear mid-query, so wrap Bazaar window/tab lookups in retry loops
-with short sleeps and re-query the tree each attempt. Upstream GNOME Software
-legacy navigation scenarios remain `@future` (#847) while Bluefin exercises
-Bazaar natively via `bazaar_ui.feature` and `bazaar_navigation.feature`.
+Bluefin ships **Bazaar** (`io.github.kolunmi.Bazaar`), not GNOME Software. Its
+AT-SPI application is named **`bazaar`** (GTK4 uses the prgname), never
+`gnome-software`/`Bazaar`. Poll `tree.root.applications()` against one
+monotonic deadline: a missed `tree.root.application(name)` in a loop ran
+run 41182977349 for 100 minutes. A view is loaded only when its
+`AdwViewStackPage` `panel` has showing descendants, because the header tabs stay
+visible behind the first-launch **Refreshing** page (allow ~120 s). Search by
+typing into the window, then assert the field text and a result `label`. Quit
+with `<Ctrl><Q>`. Only `@bazaar_ui` scenarios get qecore hooks and a
+`flatpak kill`. Details: [Bazaar lookup](references/atspi.md#bazaar-gtk4-flatpak).
 
 ## Desktop notifications via gdbus (smoke suite)
 

@@ -5,7 +5,7 @@ Feature: Bazaar UI accessibility for Bluefin
   on images without Bazaar via the existing _has_bazaar() guard.
 
   Background:
-    * Launch Bazaar via fallback targets
+    * Launch Bazaar
     * Bazaar main window is accessible
     * Bazaar main content is loaded
 
@@ -30,5 +30,4 @@ Feature: Bazaar UI accessibility for Bluefin
   Scenario: Bazaar closes cleanly
     * Close Bazaar via shortcut
     * Bazaar is no longer running
-    * No coredump entries exist for "bazaar"
-    * No coredump entries exist for "gnome-software"
+    * No coredump entries exist on the VM for "bazaar"
