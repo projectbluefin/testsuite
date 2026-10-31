@@ -145,7 +145,8 @@ Feature: Dakota OS shipping contracts
     * SSH command output stripped "is" "enabled success"
     * Run SSH command: "getent passwd $(id -un) | cut -d: -f6"
     * SSH command output stripped "is" "/home/bluefin-test"
-    * Run SSH command: "grep -cE ':(/var/home/|/var/roothome)(:|$)' /etc/passwd"
+    # Inspect the home field itself so any unmigrated account is caught (and named).
+    * Run SSH command: "awk -F: '$6 ~ /^\/var\/(home\/|roothome$)/ {n++; print $1} END {print n+0}' /etc/passwd"
     * SSH command output stripped "is" "0"
 
   # files/udev/90-hide-composefs-loop.rules. The e2e lane boots with the legacy
