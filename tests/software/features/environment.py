@@ -160,8 +160,23 @@ def before_scenario(context, scenario) -> None:
     context.scenario = scenario
     configure_screenshot_context(context, SUITE_NAME, scenario.name)
     record_start(context)
+    # qecore's after_all asserts "No scenario matched tags" unless its own
+    # before_scenario ran. CLI scenarios never call it, so record here that this
+    # scenario really runs; a run where everything skips still fails.
+    context.sandbox._scenario_skipped = False
     if GUI_TAG in tags:
+        # First: the modal would block qecore's overview hide and all keys.
+        _dismiss_bluefin_welcome_dialog()
         context.sandbox.before_scenario(context, scenario)
+
+
+def _dismiss_bluefin_welcome_dialog() -> None:
+    """GUI precondition; a modal that will not close fails the scenario."""
+    try:
+        from steps.steps import dismiss_bluefin_welcome_dialog
+    except ImportError:
+        from tests.software.features.steps.steps import dismiss_bluefin_welcome_dialog
+    dismiss_bluefin_welcome_dialog()
 
 
 def _reset_flatpak_permission_probe(context, scenario) -> None:

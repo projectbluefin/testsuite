@@ -111,6 +111,18 @@ Source-backed facts used by `tests/software/features/steps/steps.py`:
   the app. A `flatpak ps` error must fail the check, not read as "closed".
 - **Coredumps.** The runner container has no `coredumpctl`, so the software
   suite checks the VM over SSH with `No coredump entries exist on the VM for`.
+- **Keyboard focus.** uinput keys go to the active window. On fresh CI VMs the
+  "Welcome to Bluefin" Shell modal (Skip / Take Tour) grabs the keyboard. AT-SPI
+  tab clicks still worked behind it, but typing and Ctrl+Q went nowhere (run
+  41196660163). Before each `@bazaar_ui` scenario the software environment
+  clicks the modal's Skip button and verifies it is gone, before qecore's
+  overview hide. A modal that will not close is a hook error. Every keyboard
+  step first waits for the Bazaar frame's `active` state.
+- **qecore "No scenario matched tags".** qecore's `after_all` asserts unless its
+  own `before_scenario` cleared `sandbox._scenario_skipped`. The software
+  environment calls that hook only for GUI scenarios, so it clears the flag
+  itself once a scenario passes every skip gate. A run where every scenario
+  skips still fails.
 
 
 When scaffolding multiple feature areas at once:

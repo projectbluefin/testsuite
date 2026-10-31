@@ -307,10 +307,23 @@ class TestUinputUsage:
     def test_close_shortcut_uses_evdev_modifier_names(self):
         m = _import_software_steps()
         ctx = MagicMock()
-        with patch.object(m, "_bazaar_window"), patch.object(m, "_wait_for_bazaar_to_close"):
+        with patch.object(m, "bazaar_window_has_keyboard_focus") as focus, \
+             patch.object(m, "_wait_for_bazaar_to_close"):
             m.tree = object()
             m.close_bazaar_via_shortcut(ctx)
+        focus.assert_called_once_with(ctx)
         ctx.execute_steps.assert_called_once_with('* Key combo: "<LEFTCTRL><Q>" with uinput')
+
+    def test_keys_wait_for_an_active_bazaar_window(self):
+        m = _import_software_steps()
+        window = _node("Bazaar", "frame", active=False)
+        _with_apps(m, _node("bazaar", children=[window]))
+        with patch.object(m, "POLL_INTERVAL", 0.01), patch.object(m, "time") as clock:
+            clock.monotonic.side_effect = [0, 0, 10]
+            with pytest.raises(AssertionError, match="not the active window"):
+                m.bazaar_window_has_keyboard_focus(MagicMock())
+        window.active = True
+        m.bazaar_window_has_keyboard_focus(MagicMock())
 
     def test_typed_uinput_text_is_unshifted(self):
         import re
@@ -323,6 +336,40 @@ class TestUinputUsage:
         assert typed
         for text in typed:
             assert re.fullmatch(r"[a-z0-9 ]+", text), text
+
+
+class TestWelcomeModal:
+    """Bluefin's first-run Shell modal grabs the keyboard (run 41196660163)."""
+
+    def _shell(self, m, skip):
+        _with_apps(m, _node("gnome-shell", descendants=[skip] if skip else []))
+
+    def test_absent_modal_is_a_no_op(self):
+        m = _import_software_steps()
+        self._shell(m, None)
+        with patch.object(m, "atspi_click") as click:
+            m.dismiss_bluefin_welcome_dialog()
+        click.assert_not_called()
+
+    def test_skip_is_clicked_and_verified_gone(self):
+        m = _import_software_steps()
+        skip = _node("Skip", "push button")
+        self._shell(m, skip)
+        with patch.object(m, "atspi_click", side_effect=lambda n: setattr(n, "showing", False)) as click:
+            m.dismiss_bluefin_welcome_dialog()
+        click.assert_called_once_with(skip)
+
+    def test_modal_that_stays_fails(self):
+        m = _import_software_steps()
+        self._shell(m, _node("Skip", "push button"))
+        with patch.object(m, "atspi_click"), patch.object(m, "POLL_INTERVAL", 0.01):
+            with pytest.raises(AssertionError, match="welcome dialog dismissed"):
+                m.dismiss_bluefin_welcome_dialog(timeout=0.05)
+
+    def test_only_gnome_shell_buttons_count(self):
+        m = _import_software_steps()
+        _with_apps(m, _node("bazaar", descendants=[_node("Skip", "push button")]))
+        assert m._welcome_skip_buttons() == []
 
 
 class TestVmCoredumpStep:
@@ -376,15 +423,25 @@ class TestSoftwareEnvironment:
 
     def test_cli_scenario_skips_gui_hooks(self):
         env = _import_software_environment()
-        ctx = types.SimpleNamespace(sandbox=MagicMock())
+        ctx = types.SimpleNamespace(sandbox=MagicMock(_scenario_skipped=True))
         scenario = _scenario("software", "flatpak_cli")
         with patch.object(env, "_stop_bazaar") as stop, \
+             patch.object(env, "_dismiss_bluefin_welcome_dialog") as modal, \
              patch.object(env, "take_screenshot"), patch.object(env, "record_end"):
             env.before_scenario(ctx, scenario)
             env.after_scenario(ctx, scenario)
         ctx.sandbox.before_scenario.assert_not_called()
         ctx.sandbox.after_scenario.assert_not_called()
         stop.assert_not_called()
+        modal.assert_not_called()
+        assert ctx.sandbox._scenario_skipped is False, "qecore after_all would assert"
+
+    def test_skipped_scenario_leaves_qecore_no_scenario_check_armed(self):
+        env = _import_software_environment()
+        ctx = types.SimpleNamespace(sandbox=MagicMock(_scenario_skipped=True))
+        with patch.object(env, "_has_bazaar", return_value=False):
+            env.before_scenario(ctx, _scenario("software", "bazaar_ui"))
+        assert ctx.sandbox._scenario_skipped is True
 
     def test_gui_scenario_runs_hooks_and_stops_bazaar(self):
         env = _import_software_environment()
@@ -392,12 +449,14 @@ class TestSoftwareEnvironment:
         scenario = _scenario("software", "bazaar_ui")
         with patch.object(env, "_has_bazaar", return_value=True), \
              patch.object(env, "_stop_bazaar") as stop, \
+             patch.object(env, "_dismiss_bluefin_welcome_dialog") as modal, \
              patch.object(env, "take_screenshot"), patch.object(env, "record_end"):
             env.before_scenario(ctx, scenario)
             env.after_scenario(ctx, scenario)
         ctx.sandbox.before_scenario.assert_called_once_with(ctx, scenario)
         ctx.sandbox.after_scenario.assert_called_once_with(ctx, scenario)
         stop.assert_called_once_with(ctx)
+        modal.assert_called_once_with()
 
     @pytest.mark.parametrize(("image", "bluefin"), [
         ("ghcr.io/projectbluefin/bluefin@sha256:460d3a74", True),

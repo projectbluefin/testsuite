@@ -29,6 +29,7 @@ Feature: Bazaar GUI deep navigation
     * Bazaar tab "Search" is accessible
     * Activate Bazaar tab "Search"
     * Bazaar view "Search" is loaded
+    * Bazaar window has keyboard focus
     * Type text: "flatseal" with uinput
     * Bazaar search field shows "flatseal"
     * Bazaar search results include "Flatseal"

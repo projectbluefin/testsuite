@@ -189,6 +189,45 @@ def _wait_for_bazaar_to_close(context, timeout: float = 15) -> None:
     _poll("Bazaar window closed and Bazaar Flatpak exited", timeout, lambda: _bazaar_gone(context))
 
 
+def _welcome_skip_buttons() -> list:
+    for app in tree.root.applications():
+        if _name(app) == "gnome-shell":
+            return app.findChildren(
+                lambda n: n.showing and n.roleName in {"push button", "button"}
+                and _name(n).casefold() == "skip"
+            )
+    return []
+
+
+def dismiss_bluefin_welcome_dialog(timeout: float = 5) -> None:
+    """Close Bluefin's first-run "Welcome to Bluefin" Shell modal if it is up.
+
+    The modal grabs the keyboard, so uinput keys never reach Bazaar behind it
+    (run 41196660163). Same Skip control as smoke's _dismiss_welcome_dialog,
+    but scoped to gnome-shell and verified gone instead of best-effort.
+    """
+    buttons = _welcome_skip_buttons()
+    if not buttons:
+        return
+    atspi_click(buttons[0])
+    _poll("Bluefin welcome dialog dismissed", timeout, lambda: not _welcome_skip_buttons())
+
+
+def _bazaar_has_keyboard_focus():
+    window = _visible_bazaar_window()
+    if not window.active:
+        raise LookupError("the Bazaar window is not the active window")
+    return window
+
+
+@step("Bazaar window has keyboard focus")
+def bazaar_window_has_keyboard_focus(context) -> None:
+    """Gate uinput keys: they go to whichever window is active."""
+    if _skip_if_no_atspi(context):
+        return
+    _poll("Active Bazaar window", 5, _bazaar_has_keyboard_focus)
+
+
 @step("Launch Bazaar")
 def launch_bazaar(context) -> None:
     if _skip_if_no_atspi(context):
@@ -272,7 +311,7 @@ def bazaar_search_results_include(context, title: str) -> None:
 def close_bazaar_via_shortcut(context) -> None:
     if _skip_if_no_atspi(context):
         return
-    _bazaar_window()
+    bazaar_window_has_keyboard_focus(context)
     # <primary>q is app.quit, which also tells bazaar-daemon to Quit. qecore
     # builds KEY_<NAME> from each token, so modifiers need evdev names.
     context.execute_steps('* Key combo: "<LEFTCTRL><Q>" with uinput')
