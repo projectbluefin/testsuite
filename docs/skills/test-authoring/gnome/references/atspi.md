@@ -106,6 +106,11 @@ Source-backed facts used by `tests/software/features/steps/steps.py`:
   app title. Type lower case: python-uinput's `_chars_to_events` maps only unshifted
   characters, so qecore's `Type text … with uinput` gets `None` for `F` and
   errors with no message.
+- **First uinput key.** qecore creates its `python-uinput` keyboard on the first
+  key and waits only 0.5 s; mutter had not added it yet, so that key was dropped
+  (the Welcome modal's Escape, and `flatseal` arriving as `latseal`, run
+  41216246249). `_uinput_keyboard_ready()` creates the device first and polls the
+  Shell seat (`list_devices()`) for `python-uinput` before any key is sent.
 - **Quit.** `<primary>q` is `app.quit`, which also calls the daemon's `Quit`.
   Send it as `Key combo: "<LEFTCTRL><Q>" with uinput`: qecore 4.19.3 turns each
   token into `KEY_<TOKEN>`, so `<Ctrl>` raises `KEY_CTRL … does not exist`.

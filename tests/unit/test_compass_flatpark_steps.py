@@ -172,3 +172,51 @@ def test_home_grant_fails_the_contract():
     fake, _ = _ssh({"--show-permissions": (PERMISSIONS.replace("host-os:ro;", "host-os:ro;home:ro;"), 0)})
     with patch.object(m, "run_ssh", fake), pytest.raises(AssertionError):
         m.flatpak_system_app_has_no_home_grant(MagicMock(), m.COMPASS_APP_ID)
+
+
+def test_engine_launch_detaches_from_the_callers_pipes():
+    """Runs 41216241735/41216246249: `... &` kept run_ssh's pipes open for 60 s."""
+    import shlex
+    import subprocess
+    import time
+
+    argv = shlex.split(m._COMPASS_LAUNCH)
+    assert argv[:4] == ["setsid", "-f", "sh", "-c"]
+    assert argv[4] == f"{m._COMPASS_RUN} serve --no-hotkey"
+    assert argv[5:] == ["</dev/null", f">{m.COMPASS_SERVE_LOG}", "2>&1"]
+    # The same shape returns at once even though the detached child outlives it.
+    detached = m._COMPASS_LAUNCH.replace(m._COMPASS_RUN + " serve --no-hotkey", "sleep 5").replace(
+        m.COMPASS_SERVE_LOG, "/dev/null")
+    started = time.monotonic()
+    subprocess.run(["bash", "-c", detached], capture_output=True, timeout=4, check=True)
+    assert time.monotonic() - started < 3
+
+
+PING = "engine alive on /run/user/1000/app/org.tunaos.compass/testsuite-ipc.sock: protocol v3, pid 2"
+
+
+def test_engine_step_pings_then_shuts_down_and_waits_for_exit():
+    context = MagicMock()
+    ps = iter([0, 1])
+    calls = []
+
+    def fake(ctx, cmd, timeout=60):
+        calls.append(cmd)
+        ctx.last_ssh_result = MagicMock(stderr="")
+        if cmd.endswith(" ping"):
+            return PING, 0
+        if "flatpak ps" in cmd:
+            return "", next(ps)
+        return "", 0
+
+    with patch.object(m, "run_ssh", fake):
+        m.compass_engine_runs_in_session(context)
+    context.add_cleanup.assert_called_once_with(m._stop_compass, context)
+    assert calls[0] == m._COMPASS_LAUNCH
+    assert [c for c in calls if c.endswith(" shutdown")] == [f"{m._COMPASS_RUN} shutdown"]
+
+
+def test_engine_step_rejects_a_ping_from_another_socket():
+    fake, _ = _ssh({" ping": (PING.replace("testsuite-ipc.sock", "ipc.sock"), 0)})
+    with patch.object(m, "run_ssh", fake), pytest.raises(AssertionError):
+        m.compass_engine_runs_in_session(MagicMock())

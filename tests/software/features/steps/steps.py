@@ -215,8 +215,28 @@ def dismiss_bluefin_welcome_dialog(timeout: float = 5) -> None:
         return
     from qecore.utility import keyboard_key_input
 
+    _uinput_keyboard_ready()
     keyboard_key_input("ESC")
     _poll("Bluefin welcome dialog dismissed", timeout, lambda: not _welcome_skip_buttons())
+
+
+# qecore 4.19.3 creates its python-uinput keyboard on the first key (utility.py
+# _get_uinput_device: uinput.Device(all_keys), default name "python-uinput") and
+# sleeps only 0.5 s before emitting. Mutter had not added the device yet, so
+# that first key was lost: the welcome modal's Escape (hook_error) and the "f"
+# of "flatseal" (the field showed "latseal", run 41216246249). Create the
+# device up front and wait until the Shell's seat lists it.
+_UINPUT_KEYBOARD_IN_SEAT_JS = """(() => global.stage.context.get_backend()
+    .get_default_seat().list_devices()
+    .some(device => device.get_device_name() === 'python-uinput'))()"""
+
+
+def _uinput_keyboard_ready(timeout: float = 10) -> None:
+    from qecore.utility import _get_uinput_device
+
+    _get_uinput_device()
+    _poll("python-uinput keyboard in the GNOME Shell seat", timeout,
+          lambda: _shell_eval_bool(_UINPUT_KEYBOARD_IN_SEAT_JS))
 
 
 def _bazaar_has_keyboard_focus():
@@ -232,6 +252,7 @@ def bazaar_window_has_keyboard_focus(context) -> None:
     if _skip_if_no_atspi(context):
         return
     _poll("Active Bazaar window", 5, _bazaar_has_keyboard_focus)
+    _uinput_keyboard_ready()
 
 
 # Main.activateWindow() is the Shell's own "bring this window forward" path
@@ -384,15 +405,51 @@ def no_vm_coredump_entries_exist(context, name: str) -> None:
     assert result.returncode == 1, f"Unexpected coredump entries for {name}:\n{result.stdout.strip()}"
 
 
+# Parsed with the image's own libyaml through ctypes: Utah ships libyaml-0.so.2
+# but no python3-pyyaml (run 41216246249: ModuleNotFoundError: yaml), so the
+# check needs nothing beyond python3's stdlib and the shared library.
+# Offsets are libyaml 0.2 on LP64: yaml_parser_t.problem at 8 and
+# problem_mark.line at 40; yaml_node_t.type at 0 and data.mapping.pairs
+# start/top at 16/32. YAML_MAPPING_NODE is 3.
 _BAZAAR_YAML_CHECK = """\
-import glob, sys, yaml
+import ctypes, glob, sys
+lib = ctypes.CDLL('libyaml-0.so.2')
+lib.yaml_document_get_root_node.restype = ctypes.c_void_p
 files = sorted(glob.glob(sys.argv[1] + '/*.yaml'))
 if not files:
     sys.exit('no *.yaml files in ' + sys.argv[1])
+def roots(data):
+    parser = ctypes.create_string_buffer(8192)
+    assert lib.yaml_parser_initialize(parser)
+    lib.yaml_parser_set_input_string(parser, data, ctypes.c_size_t(len(data)))
+    try:
+        while True:
+            document = ctypes.create_string_buffer(1024)
+            if not lib.yaml_parser_load(parser, document):
+                problem = ctypes.c_char_p.from_buffer(parser, 8).value or b'?'
+                line = ctypes.c_size_t.from_buffer(parser, 40).value + 1
+                raise ValueError(problem.decode() + ' at line ' + str(line))
+            root = lib.yaml_document_get_root_node(document)
+            if root:
+                yield (ctypes.c_int.from_address(root).value,
+                       ctypes.c_void_p.from_address(root + 16).value,
+                       ctypes.c_void_p.from_address(root + 32).value)
+            lib.yaml_document_delete(document)
+            if not root:
+                return
+    finally:
+        lib.yaml_parser_delete(parser)
 for path in files:
-    with open(path) as handle:
-        data = yaml.safe_load(handle)
-    if not isinstance(data, dict) or not data:
+    with open(path, 'rb') as handle:
+        data = handle.read()
+    try:
+        docs = list(roots(data))
+    except ValueError as exc:
+        sys.exit(path + ': ' + str(exc))
+    if len(docs) != 1:
+        sys.exit(path + ' holds ' + str(len(docs)) + ' YAML documents, expected 1')
+    kind, start, top = docs[0]
+    if kind != 3 or start == top:
         sys.exit(path + ' is not a non-empty YAML mapping')
     print(path)
 """

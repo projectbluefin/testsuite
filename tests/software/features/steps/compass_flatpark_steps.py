@@ -7,6 +7,7 @@ far beyond ``_flatpak``'s 10 s timeout.
 """
 from __future__ import annotations
 
+import shlex
 import time
 
 from behave import step
@@ -181,11 +182,22 @@ def _stop_compass(context) -> None:
         _checked(context, f"flatpak kill {COMPASS_APP_ID}")
 
 
+# setsid -f detaches the engine and every fd it holds points at /dev/null or the
+# log. A plain `... &` left the backgrounded `. env && flatpak run` list holding
+# the caller's stdout/stderr pipes, so run_ssh waited for EOF until its 60 s
+# timeout (runs 41216241735 and 41216246249 errored at 60.0 s).
+COMPASS_SERVE_LOG = "/tmp/compass-serve.log"
+_COMPASS_LAUNCH = (
+    f"setsid -f sh -c {shlex.quote(f'{_COMPASS_RUN} serve --no-hotkey')} "
+    f"</dev/null >{COMPASS_SERVE_LOG} 2>&1"
+)
+
+
 @step("the Compass engine started from the Flatpak in the GNOME session answers ping and shuts down")
 def compass_engine_runs_in_session(context) -> None:
     # `serve --no-hotkey` is the engine without the Super+Space portal prompt.
     context.add_cleanup(_stop_compass, context)
-    _checked(context, f"{_COMPASS_RUN} serve --no-hotkey </dev/null >/tmp/compass-serve.log 2>&1 &")
+    _checked(context, _COMPASS_LAUNCH, timeout=30)
     deadline = time.monotonic() + 90
     while True:
         out, rc = run_ssh(context, f"{_COMPASS_RUN} ping")
@@ -193,7 +205,7 @@ def compass_engine_runs_in_session(context) -> None:
             break
         assert time.monotonic() < deadline, (
             f"compass ping never answered (rc {rc}): {out}\n"
-            + run_ssh(context, "cat /tmp/compass-serve.log")[0]
+            + run_ssh(context, f"cat {COMPASS_SERVE_LOG}")[0]
         )
         time.sleep(3)
     # ipc.rs: "engine alive on {socket}: protocol v{N}, pid {pid}"
