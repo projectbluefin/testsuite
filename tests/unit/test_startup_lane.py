@@ -119,8 +119,9 @@ def test_plan_never_masks_a_required_startup_unit(inventory):
         masked = set(re.findall(r"systemd\.mask=(\S+)", env["KERNEL_MASKS"]))
         required = set(lane.required_units(inventory, profile))
         assert not masked & required, profile
-        observed = set(env["SYSTEM_UNITS"].split()) | set(env["USER_UNITS"].split())
-        assert observed == required, profile
+        assert not masked & set(lane.observed_units(inventory, profile)), profile
+        collected = set(env["SYSTEM_UNITS"].split()) | set(env["USER_UNITS"].split())
+        assert collected == required | set(lane.observed_units(inventory, profile)), profile
 
 
 def test_plan_masks_only_inapplicable_noise_and_deferred_units(inventory):
@@ -139,6 +140,8 @@ def test_plan_for_bluefin(inventory):
         "NetworkManager-wait-online.service",
         "brew-setup.service",
         "flatpak-preinstall.service",
+        "bazzite-hardware-setup.service",
+        "firewalld.service",
     ]
     assert env["USER_UNITS"].split() == ["podman-auto-update.service", "podman-auto-update.timer"]
     assert env["CHECKS"] == "flatpak"
@@ -149,12 +152,30 @@ def test_plan_for_bluefin(inventory):
 
 def test_plan_for_dakota(inventory):
     env = lane.plan(inventory, "dakota")
+    assert set(lane.required_units(inventory, "dakota")) == {
+        "NetworkManager-wait-online.service",
+        "flatpak-preinstall.service",
+    }
+    # Required units first, then the ones dakota is not yet known to ship.
     assert env["SYSTEM_UNITS"].split() == [
         "NetworkManager-wait-online.service",
         "flatpak-preinstall.service",
+        "bazzite-hardware-setup.service",
+        "brew-setup.service",
+        "firewalld.service",
     ]
-    assert env["USER_UNITS"].split() == []
+    assert env["USER_UNITS"].split() == ["podman-auto-update.service", "podman-auto-update.timer"]
+    assert "/home/linuxbrew/.linuxbrew/bin/brew" in env["PRODUCES"].split()
     assert env["CHECKS"] == "flatpak"
+    assert env["STARTUP_DEADLINE_S"] == "1800"
+
+
+def test_observed_units_exclude_required_and_deferred(inventory):
+    for profile in ("dakota", "bluefin", "bluefin-lts", "aurora", "bazzite"):
+        observed = set(lane.observed_units(inventory, profile))
+        assert not observed & set(lane.required_units(inventory, profile)), profile
+        assert not observed & set(lane.deferred_units(inventory, profile)), profile
+    assert "greenboot-healthcheck.service" not in lane.observed_units(inventory, "dakota")
 
 
 def test_inventory_expects_the_image_to_ship_its_remote(inventory):
@@ -182,6 +203,49 @@ def test_bazzite_reports_greenboot_as_not_qualified(inventory):
     assert got["greenboot-healthcheck.service"] == lane.DEFERRED
     assert got["greenboot-set-rollback-trigger.service"] == lane.DEFERRED
     assert report.verdict == lane.PASS
+
+
+DAKOTA_SYSTEM = [
+    unit("NetworkManager-wait-online.service"),
+    unit("flatpak-preinstall.service"),
+]
+
+
+def test_dakota_records_shipped_brew_setup_without_requiring_it(inventory):
+    system = DAKOTA_SYSTEM + [
+        unit("brew-setup.service", active="inactive", sub="dead"),
+        unit("firewalld.service", load="not-found", active="inactive", sub="dead"),
+    ]
+    report = lane.evaluate(inventory, "dakota", evidence(system=system, user=[]), elapsed=600)
+    got = {f.subject: f for f in report.findings}
+    assert report.verdict == lane.PASS, report.markdown("dakota")
+    assert got["brew-setup.service"].status == lane.OBSERVED
+    assert "would be pass" in got["brew-setup.service"].detail
+    assert "/home/linuxbrew/.linuxbrew/bin/brew present" in got["brew-setup.service"].detail
+    assert "not shipped on this image" in got["firewalld.service"].detail
+    assert "no state collected" in got["podman-auto-update.timer"].detail
+    # Observed paths are evidence only, never their own pass/fail rows.
+    assert "/home/linuxbrew/.linuxbrew/bin/brew" not in got
+
+
+def test_failed_observed_unit_does_not_change_the_verdict(inventory):
+    system = DAKOTA_SYSTEM + [
+        unit("brew-setup.service", active="failed", sub="failed", result="exit-code", status="1"),
+    ]
+    paths = ["no /home/linuxbrew/.linuxbrew/bin/brew", "no /etc/.linuxbrew"]
+    report = lane.evaluate(inventory, "dakota", evidence(system=system, user=[], paths=paths), elapsed=600, final=True)
+    got = {f.subject: f for f in report.findings}
+    assert report.verdict == lane.PASS, report.markdown("dakota")
+    assert got["brew-setup.service"].status == lane.OBSERVED
+    assert "would be fail" in got["brew-setup.service"].detail
+    assert "/etc/.linuxbrew missing" in got["brew-setup.service"].detail
+
+
+def test_required_unit_is_never_reported_as_observed(inventory):
+    report = lane.evaluate(inventory, "bluefin", evidence(), elapsed=600)
+    observed = {f.subject for f in report.findings if f.status == lane.OBSERVED}
+    assert observed == set(lane.observed_units(inventory, "bluefin"))
+    assert "brew-setup.service" not in observed
 
 
 # --- unit judging ------------------------------------------------------------
