@@ -16,8 +16,10 @@ Feature: Bluefin common systemd service health
 
   # hookrunner.sh runs every hook with plain `bash "$script"`, so the unit's
   # Result only reflects the last hook. Each hook that is not hardware-gated
-  # commits its version to libsetup's versioning file only after its body ran,
-  # so the recorded version must equal the one the installed hook declares.
+  # records its version in libsetup's $HOME/.local/share/ublue/setup_versioning.json
+  # (root's HOME for the system unit), so the recorded version must equal the
+  # one the installed hook declares. A hook whose version-script guard fails
+  # exits 0 without running, which is exactly what Result=success hides.
   Scenario: ublue-system-setup service completed successfully
     * Run SSH command: "systemctl show ublue-system-setup.service -p LoadState -p Result"
     * SSH command return code is "0"
