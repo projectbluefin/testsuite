@@ -304,7 +304,7 @@ jobs:
       # suites must preload any explicitly-tested Flatpaks after SSH comes up.
       # Cache a small user Flatpak repo on the runner, then inject and deploy it in-VM.
       - name: Restore Flatpak download cache
-        if: ${{ contains(inputs.image, '/bluefin') && steps.shard.outputs.suite_dir != 'common' && steps.shard.outputs.suite_dir != 'lifecycle' }}
+        if: ${{ (contains(inputs.image, '/bluefin') || contains(inputs.image, '/utah')) && steps.shard.outputs.suite_dir != 'common' && steps.shard.outputs.suite_dir != 'lifecycle' }}
         id: flatpak-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
@@ -314,7 +314,7 @@ jobs:
             flatpak-home-${{ runner.os }}-
 
       - name: Prime Flatpak download cache
-        if: ${{ contains(inputs.image, '/bluefin') && steps.shard.outputs.suite_dir != 'common' && steps.shard.outputs.suite_dir != 'lifecycle' && steps.flatpak-cache.outputs.cache-hit != 'true' }}
+        if: ${{ (contains(inputs.image, '/bluefin') || contains(inputs.image, '/utah')) && steps.shard.outputs.suite_dir != 'common' && steps.shard.outputs.suite_dir != 'lifecycle' && steps.flatpak-cache.outputs.cache-hit != 'true' }}
         run: |
           sudo apt-get update -q
           sudo apt-get install -y --no-install-recommends flatpak
@@ -832,7 +832,7 @@ jobs:
           echo "${BOOT_TIME}" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
       - name: Install cached Flatpaks in VM
-        if: ${{ contains(inputs.image, '/bluefin') && steps.shard.outputs.suite_dir != 'common' && steps.shard.outputs.suite_dir != 'lifecycle' }}
+        if: ${{ (contains(inputs.image, '/bluefin') || contains(inputs.image, '/utah')) && steps.shard.outputs.suite_dir != 'common' && steps.shard.outputs.suite_dir != 'lifecycle' }}
         run: |
           SSH_COMMON="-i /tmp/vm_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ControlMaster=auto -o ControlPersist=600 -o ControlPath=/tmp/ssh-ctrl-%C -o ConnectTimeout=3"
           CACHE_ROOT="${GITHUB_WORKSPACE}/.flatpak-cache-home/.local/share"

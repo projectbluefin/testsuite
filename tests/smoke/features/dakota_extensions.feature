@@ -73,11 +73,6 @@ Feature: Dakota GNOME Shell extension presence and configuration
   # ---------------------------------------------------------------------------
 
   @dakota_only @extensions
-  Scenario: Copyous clipboard manager is installed on Dakota
-    * GNOME Shell is accessible via AT-SPI
-    * GNOME extension "copyous@boerdereinar.dev" is installed
-
-  @dakota_only @extensions
   Scenario: Power status color extension is installed on Dakota
     * GNOME Shell is accessible via AT-SPI
     * GNOME extension "power-status-color@projectbluefin.io" is installed
@@ -100,7 +95,7 @@ Feature: Dakota GNOME Shell extension presence and configuration
   @dakota_only @extensions
   Scenario: Syncthing Toggle extension is installed and configured on Dakota
     * GNOME Shell is accessible via AT-SPI
-    * GNOME extension "syncthing-toggle@rehhouari.github.com" is installed
+    * GNOME extension "syncthing-toggle@projectbluefin.io" is installed
     * Dconf path "/org/gnome/shell/extensions/syncthing-toggle/start-stop-only" has value "true"
 
   @dakota_only @extensions

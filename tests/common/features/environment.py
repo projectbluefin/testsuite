@@ -8,6 +8,7 @@ import os
 import shlex
 
 from tests.shared.image_family import (
+    image_name,
     image_under_test,
     is_bluefin_image as _is_bluefin_image,
     is_dakota_image as _is_dakota_image,
@@ -124,6 +125,7 @@ def before_all(context):
     context.is_bluefin_image = _is_bluefin_image(image_ref) if image_ref else True
     context.is_dakota_image = _is_dakota_image(image_ref) if image_ref else False
     context.is_projectbluefin_image = _is_projectbluefin_image(image_ref)
+    context.is_utah_image = "utah" in image_name(image_ref)
     context.vm_ip = _first_value(
         userdata.get("vm_ip", ""),
         userdata.get("host", ""),
@@ -208,6 +210,9 @@ def before_scenario(context, scenario):
             f"Skipping @dakota_only scenario on non-Dakota image "
             f"(IMAGE={os.environ.get('IMAGE', 'unknown')})"
         )
+        return
+    if "skip_utah" in scenario_tags and getattr(context, "is_utah_image", False):
+        scenario.skip("Scenario documents a Bluefin pin that Utah does not ship")
         return
     if "requires_brew" in scenario_tags and not _has_brew(context):
         scenario.skip("Homebrew not present on this image")

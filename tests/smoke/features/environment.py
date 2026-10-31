@@ -542,7 +542,6 @@ def before_all(context) -> None:
 
 def before_scenario(context, scenario) -> None:
     from tests.shared.quarantine import skip_quarantine
-    from tests.shared.image_family import image_name, image_under_test
     # Initialize qecore command output attributes and screenshot context before
     # any early-return paths so that after_scenario/after_step never sees missing attrs.
     context.html_formatter = None
@@ -614,16 +613,6 @@ def before_scenario(context, scenario) -> None:
         except TypeError:
             scenario.skip()
         print(f"Skipping {scenario.name}: failed_setup set", flush=True)
-        return
-    if "bluefin_extension_defaults" in scenario_tags and "utah" in image_name(image_under_test(context.config.userdata)):
-        # Utah's zz3-bluefin-unsupported-stuff.gschema.override replaces
-        # Bluefin's enabled-extensions list and omits these extensions.
-        reason = "Utah does not ship Bluefin's default-enabled extension set"
-        try:
-            scenario.skip(reason)
-        except TypeError:
-            scenario.skip()
-        print(f"Skipping {scenario.name}: {reason}", flush=True)
         return
     context.scenario = scenario
     configure_screenshot_context(context, SUITE_NAME, scenario.name)
