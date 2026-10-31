@@ -112,7 +112,8 @@ Feature: projectbluefin/common core shipping contracts
     * SSH command output stripped "is" "{"enable":true,"bat-min-percent":20,"cpu-max-percent":50,"mem-max-percent":90,"net-max-bytes":700000}"
 
   # usr/libexec/ublue-booted-image: the unprivileged reader must report the
-  # ref bootc actually booted, and a name that is that ref's repository basename.
+  # ref bootc actually booted, and as name exactly that ref's repository
+  # basename (digest, repository path and tag stripped here independently).
   Scenario: ublue-booted-image reports the booted bootc ref
-    * Run SSH command: "b=$(sudo -n bootc status --json | jq -r .status.booted.image.image.image); r=$(/usr/libexec/ublue-booted-image ref); n=$(/usr/libexec/ublue-booted-image name); echo booted=$b ref=$r name=$n; test ${#b} -gt 0 && test $r = $b && case $b in */$n|*/$n:*|*/$n@*) echo booted-image-match;; esac"
+    * Run SSH command: "b=$(sudo -n bootc status --json | jq -r .status.booted.image.image.image); r=$(/usr/libexec/ublue-booted-image ref); n=$(/usr/libexec/ublue-booted-image name); x=${b%%@*}; x=${x##*/}; x=${x%%:*}; echo booted=$b ref=$r name=$n expected-name=$x; test ${#x} -gt 0 && test $b != null && test "$r" = "$b" && test "$n" = "$x" && echo booted-image-match"
     * SSH command output contains "booted-image-match"
