@@ -32,6 +32,16 @@ def test_digest_pinned_ref():
     assert get_image_slug(ref) == expected
 
 
+def test_tagged_digest_ref_keeps_the_stream_slug():
+    # The v1 gate pins ghcr.io/projectbluefin/dakota:testing@sha256:<digest>;
+    # its screenshot must land on the stream tag publish-to-pages pulls
+    # (dakota-testing-<suite>-latest), not a per-digest tag nothing reads.
+    digest = "f0220d0cb68d5628de4101c620202a630739733c315b246ff849c54978835933"
+    ref = f"ghcr.io/projectbluefin/dakota:testing@sha256:{digest}"
+    assert get_image_slug(ref) == "dakota-testing"
+    assert get_image_slug(f"localhost:5000/org/app:v1@sha256:{digest}") == "app-v1"
+
+
 def test_non_ghcr_bases():
     assert get_image_slug("quay.io/fedora-ostree-desktops/silverblue:44") == "silverblue-44"
     assert get_image_slug("quay.io/silverblue:44") == "silverblue-44"

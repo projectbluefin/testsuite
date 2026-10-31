@@ -139,6 +139,7 @@ The working approach:
    Strips registry host (e.g. `ghcr.io`, `quay.io`, `docker.io`, `localhost:5000`) and org/namespace,
    folds remaining `/`, `:`, and `@` into `-`, and sanitizes to the OCI tag charset (`[a-zA-Z0-9_.-]`).
    Handles digest-pinned refs (`bluefin@sha256:...` → `bluefin-sha256-...`), non-GHCR registries (`quay.io/.../silverblue:44` → `silverblue-44`), and nested paths (`subgroup/bluefin:latest` → `subgroup-bluefin-latest`).
+   A ref carrying both a tag and a digest keeps only the tag (`dakota:testing@sha256:...` → `dakota-testing`): the v1 gate in `update-v1-tag.yml` boots tag@digest refs, and its captures must land on the stream tag `publish-to-pages.yml` pulls, not on a per-digest tag nothing reads.
    In `e2e.yml`, `Capture boot time` and `upload-screenshot` derive via `scripts/image_slug.py "${BASE_IMAGE}"`, and `Write job summary` consumes `steps.upload-screenshot.outputs.image_slug` with fallback to `get_image_slug()`.
    Example: `ghcr.io/projectbluefin/bluefin:testing` → `bluefin-testing-smoke-latest`
 
