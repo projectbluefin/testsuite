@@ -228,7 +228,7 @@ Two properties make these scenarios survivable in CI, where
    scenario with `Reset flatpak user overrides for ...`.
 2. **A sweep that passes on an empty install set is not coverage.** That is why
    `Every installed flatpak app exposes a parsable permission set` is `@pending` on
-   #706. More traps: [references/flatpak-permissions.md](references/flatpak-permissions.md).
+   #706. More traps, incl. SSH install round-trips: [references/flatpak-permissions.md](references/flatpak-permissions.md).
 
 `flatpak override --show` emits a keyfile, not flag syntax:
 
