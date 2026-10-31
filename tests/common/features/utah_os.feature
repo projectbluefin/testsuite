@@ -12,9 +12,9 @@ Feature: Utah OS contract
     * SSH command output stripped "is" "Bluefin/hummingbird/utah/utah/Utahraptor"
 
   Scenario: image-info names the utah image and a published flavor
-    * Run SSH command: "jq -r '[.\"image-name\", .\"image-vendor\", .\"base-image-name\"] | join(\"/\")' /usr/share/ublue-os/image-info.json"
+    * Run SSH command: "jq -r '[.["image-name"], .["image-vendor"], .["base-image-name"]] | join("/")' /usr/share/ublue-os/image-info.json"
     * SSH command output stripped "is" "utah/projectbluefin/hummingbird"
-    * Run SSH command: "jq -r '.\"image-flavor\"' /usr/share/ublue-os/image-info.json | grep -Ex 'main|nvidia|gaming|nvidia-gaming'"
+    * Run SSH command: "jq -r '.["image-flavor"]' /usr/share/ublue-os/image-info.json | grep -Ex 'main|nvidia|gaming|nvidia-gaming'"
     * SSH command return code is "0"
 
   Scenario: zram swap is active
@@ -51,8 +51,10 @@ Feature: Utah OS contract
     * SSH command output contains "[Flatpak Preinstall com.mitchellh.ghostty]"
     * SSH command output contains "CollectionID=org.tunaos"
 
-  Scenario: CountMe timer is enabled with no opt-out marker shipped
-    * Run SSH command: "systemctl is-enabled projectbluefin-countme.timer && test -x /usr/libexec/projectbluefin-countme && test ! -e /etc/projectbluefin/countme/disabled && echo COUNTME_READY"
+  # The e2e harness writes /etc/projectbluefin/countme/disabled into every
+  # deployment, so the shipped default is read from the ostree /usr/etc copy.
+  Scenario: CountMe timer is enabled and the image ships no opt-out marker
+    * Run SSH command: "systemctl is-enabled projectbluefin-countme.timer && test -x /usr/libexec/projectbluefin-countme && test -d /usr/etc && test ! -e /usr/etc/projectbluefin/countme/disabled && echo COUNTME_READY"
     * SSH command output contains "COUNTME_READY"
 
   Scenario: CountMe start limit tolerates harness bursts
@@ -74,7 +76,7 @@ Feature: Utah OS contract
     * SSH command output stripped "is" "projectbluefin/utah"
 
   Scenario: Ghostty user setup hook links its Flatpak config to the host config
-    * Run SSH command: "jq -r '.version.user.\"30-ghostty\"' ~/.local/share/ublue/setup_versioning.json"
+    * Run SSH command: "jq -r '.version.user["30-ghostty"]' ~/.local/share/ublue/setup_versioning.json"
     * SSH command output stripped "is" "1"
-    * Run SSH command: "test \"$(readlink -f ~/.var/app/com.mitchellh.ghostty/config/ghostty)\" = \"$(readlink -f ~/.config/ghostty)\" && grep -h '^theme' ~/.config/ghostty/config ~/.config/ghostty/config.ghostty 2>/dev/null"
+    * Run SSH command: "[ $(readlink -f ~/.var/app/com.mitchellh.ghostty/config/ghostty) = $(readlink -f ~/.config/ghostty) ] && grep -h '^theme' ~/.config/ghostty/config ~/.config/ghostty/config.ghostty 2>/dev/null"
     * SSH command output contains "theme ="
