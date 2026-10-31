@@ -142,6 +142,7 @@ Set `chunked_enabled: true` once `ghcr.io/projectbluefin/bluefin:latest` ships z
 | `@bluefin` | Scenario runs on Bluefin-family image names (`bluefin`, `bazzite`, `utah`, `common`); smoke and common read `BASE_IMAGE` before `IMAGE`, so composed runs keep their family |
 | `@dakota_only` | Scenario runs only when the image name contains `dakota`; smoke and common read `BASE_IMAGE` before `IMAGE`. Only the image **name** is matched, so the `projectbluefin` org name cannot false-positive |
 | `@skip_utah` | Common scenario skips on Utah because it asserts a still-shipping Bluefin pin that Utah's newer common pin no longer ships; remove it when Bluefin's pin catches up |
+| `@fedora_bluefin_only` | Common scenario runs only when the image name is `bluefin` or `bluefin-nvidia` (the names projectbluefin/bluefin's Justfile builds), read from `BASE_IMAGE` before `IMAGE`; it asserts output of bluefin's `build_files`, which Bluefin LTS, Utah, and Dakota do not run. An unset image counts as Fedora Bluefin |
 | `@dx_only` / `@developer_suite` | DX variant only |
 | `@nvidia_only` | NVIDIA variant only |
 | `@flatcar_suite` | Flatcar OS only |

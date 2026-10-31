@@ -249,6 +249,72 @@ class TestCommonEnvironmentDakotaOnly:
         assert scenario.skip_message is None
 
 
+# ---------------------------------------------------------------------------
+# _is_fedora_bluefin_image / @fedora_bluefin_only gating
+# ---------------------------------------------------------------------------
+
+class TestIsFedoraBluefinImage:
+    @pytest.mark.parametrize(
+        "image",
+        [
+            "ghcr.io/projectbluefin/bluefin:testing",
+            "ghcr.io/projectbluefin/bluefin-nvidia@sha256:abc123",
+            "ghcr.io/projectbluefin/bluefin@sha256:460d3a74",
+            "",
+        ],
+    )
+    def test_matches_bluefin_build_files_images(self, image):
+        m = _import_common_environment()
+        assert m._is_fedora_bluefin_image(image) is True
+
+    @pytest.mark.parametrize(
+        "image",
+        [
+            "ghcr.io/projectbluefin/bluefin-lts:stable",
+            "ghcr.io/projectbluefin/bluefin-lts-nvidia@sha256:abc123",
+            "ghcr.io/projectbluefin/utah:testing",
+            "ghcr.io/projectbluefin/dakota:testing",
+            "ghcr.io/projectbluefin/testsuite-e2e:run-123",
+        ],
+    )
+    def test_rejects_images_built_elsewhere(self, image):
+        m = _import_common_environment()
+        assert m._is_fedora_bluefin_image(image) is False
+
+
+class TestCommonEnvironmentFedoraBluefinOnly:
+    def test_skips_on_bluefin_lts(self):
+        m = _import_common_environment()
+        context = _ctx(is_bluefin_image=True, is_utah_image=False, is_fedora_bluefin_image=False)
+        scenario = _Scenario(["bluefin", "fedora_bluefin_only"])
+
+        m.before_scenario(context, scenario)
+
+        assert "projectbluefin/bluefin build_files" in scenario.skip_message
+
+    def test_runs_on_fedora_bluefin(self):
+        m = _import_common_environment()
+        context = _ctx(
+            is_bluefin_image=True, is_utah_image=False, is_fedora_bluefin_image=True, has_brew=True
+        )
+        scenario = _Scenario(["bluefin", "fedora_bluefin_only"])
+
+        m.before_scenario(context, scenario)
+
+        assert scenario.skip_message is None
+
+    def test_untagged_scenario_runs_on_bluefin_lts(self):
+        m = _import_common_environment()
+        context = _ctx(
+            is_bluefin_image=True, is_utah_image=False, is_fedora_bluefin_image=False, has_brew=True
+        )
+        scenario = _Scenario(["bluefin"])
+
+        m.before_scenario(context, scenario)
+
+        assert scenario.skip_message is None
+
+
 class TestCommonEnvironmentUtahOnly:
     def test_skips_utah_only_on_non_utah_image(self):
         m = _import_common_environment()
@@ -467,6 +533,16 @@ class TestBeforeAllPrefersBaseImage:
         assert context.is_projectbluefin_image is True
         assert context.is_bluefin_image is True
         assert context.is_dakota_image is False
+        assert context.is_fedora_bluefin_image is False
+
+    def test_composed_fedora_bluefin_run_reads_base_image(self, monkeypatch):
+        context = self._run(
+            monkeypatch,
+            base_image="ghcr.io/projectbluefin/bluefin-nvidia@sha256:abc123",
+            image=self.COMPOSED,
+        )
+
+        assert context.is_fedora_bluefin_image is True
 
     def test_composed_run_under_projectbluefin_owner_does_not_gate_a_classic_base(
         self, monkeypatch
@@ -487,6 +563,7 @@ class TestBeforeAllPrefersBaseImage:
 
         assert context.is_bluefin_image is False
         assert context.is_dakota_image is False
+        assert context.is_fedora_bluefin_image is False
 
 
 class TestCommonEnvironmentBootcUnifiedStorage:
