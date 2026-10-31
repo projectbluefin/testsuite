@@ -82,6 +82,9 @@ needed:
   Point Compass's `COMPASS_SOCKET` there, start `serve --no-hotkey` in the GNOME
   session (`. /tmp/session.env`), then `ping` and `shutdown` from a second
   `flatpak run`; `flatpak ps` proves the instance exists and exits.
+- **Detach long-lived processes with `setsid -f sh -c '…' </dev/null >log 2>&1`.**
+  `cmd >log 2>&1 &` redirects only `cmd`; the backgrounded list still holds
+  `run_ssh`'s stdout/stderr pipes, so the step blocks until its 60 s timeout.
 - **URL handlers: `gio mime`, not `xdg-mime`.** Dakota ships no `xdg-utils`. Take
   `XDG_DATA_DIRS` from `/usr/lib/systemd/user-environment-generators/60-flatpak` (what
   the session gets) so the Flatpak exports are searched. GIO hides desktop files
