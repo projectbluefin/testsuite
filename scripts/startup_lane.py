@@ -10,13 +10,16 @@ candidate with every ``startup_contract`` unit from
     Print ``KEY=value`` lines for ``$GITHUB_ENV``: the kernel ``systemd.mask=``
     arguments (vm_inapplicable, ci_noise and deferred units only), the units to
     observe, the paths they must produce, the extra checks, and the overall
-    deadline.
+    deadline. The units to observe also include every other non-deferred
+    ``startup_contract`` unit, so a run records whether the image ships it.
 
 ``evaluate``
     Parse the output of ``scripts/startup_lane_collect.sh`` and judge each
     required unit and, once flatpak-preinstall has finished, the system
     Flatpak state the image itself declares (preinstall.d, remotes.d and
-    tmpfiles.d permission overrides). Exit 0 when everything passed, 1 when
+    tmpfiles.d permission overrides). Units the profile does not require are
+    reported as ``observed`` and never change the verdict. Exit 0 when
+    everything passed, 1 when
     something failed, 3 while something is still pending inside its deadline.
     ``--final`` turns anything still pending into a failure.
     ``--expect-failure UNIT`` inverts the verdict for the negative control:
@@ -42,6 +45,9 @@ REPO = Path(__file__).resolve().parents[1]
 INVENTORY = REPO / "startup_service_inventory.yaml"
 
 PASS, FAIL, PENDING, DEFERRED = "pass", "fail", "pending", "not qualified"
+# Informational: a startup unit this profile does not require. Never affects
+# the verdict; it is evidence for deciding whether the profile should require it.
+OBSERVED = "observed"
 EXIT = {PASS: 0, FAIL: 1, PENDING: 3}
 
 # Broken on purpose by the negative-control job: every profile requires it and
@@ -123,6 +129,17 @@ def required_units(inventory: dict, profile: str) -> dict[str, dict]:
     }
 
 
+def observed_units(inventory: dict, profile: str) -> dict[str, dict]:
+    """startup_contract units another profile requires: recorded, never judged."""
+    return {
+        unit: lane_entry(entry)
+        for unit, entry in inventory.items()
+        if entry["category"] == "startup_contract"
+        and not applies(entry, profile)
+        and not lane_entry(entry).get("deferred")
+    }
+
+
 def deferred_units(inventory: dict, profile: str) -> dict[str, str]:
     return {
         unit: lane_entry(entry)["deferred"]
@@ -185,15 +202,19 @@ def plan(inventory: dict, profile: str) -> dict[str, str]:
     if profile not in known_profiles(inventory):
         raise SystemExit(f"unknown profile {profile!r}; inventory knows {sorted(known_profiles(inventory))}")
     required = required_units(inventory, profile)
-    by_scope = {
-        scope: sorted(u for u, lane in required.items() if lane.get("scope", "system") == scope)
-        for scope in SCOPES
-    }
+    observed = observed_units(inventory, profile)
+
+    def scoped(units: dict[str, dict], scope: str) -> list[str]:
+        return sorted(u for u, lane in units.items() if lane.get("scope", "system") == scope)
+
+    # Required units first, then observed ones; the collector reads both.
     return {
         "KERNEL_MASKS": " ".join(f"systemd.mask={u}" for u in lane_masks(inventory)),
-        "SYSTEM_UNITS": " ".join(by_scope["system"]),
-        "USER_UNITS": " ".join(by_scope["user"]),
-        "PRODUCES": " ".join(p for lane in required.values() for p in lane.get("produces", [])),
+        "SYSTEM_UNITS": " ".join(scoped(required, "system") + scoped(observed, "system")),
+        "USER_UNITS": " ".join(scoped(required, "user") + scoped(observed, "user")),
+        "PRODUCES": " ".join(
+            p for lane in [*required.values(), *observed.values()] for p in lane.get("produces", [])
+        ),
         "CHECKS": " ".join(sorted({c for lane in required.values() for c in lane.get("checks", [])})),
         "STARTUP_DEADLINE_S": str(max(lane["deadline_s"] for lane in required.values())),
         "NEGATIVE_CONTROL_UNIT": NEGATIVE_CONTROL_UNIT,
@@ -436,7 +457,21 @@ def evaluate(inventory: dict, profile: str, evidence: str, elapsed: int, final: 
         )
     for unit, why in sorted(deferred_units(inventory, profile).items()):
         report.add(unit, DEFERRED, why)
+    for unit, lane in sorted(observed_units(inventory, profile).items()):
+        report.add(unit, OBSERVED, describe_observed(unit, lane, units.get(unit), paths, elapsed))
     return report
+
+
+def describe_observed(unit: str, lane: dict, props: dict[str, str] | None, paths: dict[str, str], elapsed: int) -> str:
+    """Say what an unrequired unit did, as evidence for adding it to a profile."""
+    if props is None:
+        return "not required by this profile; no state collected"
+    if props.get("LoadState") == "not-found":
+        return "not required by this profile; not shipped on this image"
+    status, detail = judge_unit(unit, lane, props, elapsed)
+    produced = [f"{p} {'present' if paths.get(p) == 'yes' else 'missing'}" for p in lane.get("produces", [])]
+    text = f"not required by this profile; shipped, and as a required unit would be {status}: {detail}"
+    return text + (f"; {', '.join(produced)}" if produced else "")
 
 
 # --- CLI ---------------------------------------------------------------------

@@ -45,6 +45,10 @@
 #   deferred:   why the lane cannot qualify it yet. The lane keeps the unit
 #               masked and lists it as not qualified; it never passes it.
 # vm_inapplicable and ci_noise units stay masked in the startup lane too.
+# On a profile that does not list it, a non-deferred startup_contract unit is
+# left unmasked and reported as `observed`: the lane records whether the image
+# ships it and how it ran, without changing the verdict. Add the profile here
+# only when an observed run shows the image enables it.
 
 units:
   # --- startup_contract -------------------------------------------------------

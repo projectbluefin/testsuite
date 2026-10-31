@@ -63,6 +63,12 @@ that touch the lane's own files. It is not a release gate.
 - `startup_lane.py evaluate` judges that evidence. The workflow polls every
   20s until nothing is pending; each unit fails once its `deadline_s` (seconds
   after QEMU start) passes. Exit 0 pass, 1 fail, 3 still pending.
+- Every other non-deferred `startup_contract` unit (one the profile does not
+  list) is collected too and reported as `observed`. It never changes the
+  verdict; the detail says whether the image ships it, what a required-unit
+  judgment would be, and whether its `produces` paths exist. That is the
+  evidence for adding a profile to the unit's inventory entry. Lane masks never
+  include these units, so they run as shipped.
 - The `broken` matrix job adds `ExecStartPre=/bin/false` to
   `NetworkManager-wait-online.service` (required on every profile) and passes
   only if the run goes red for that unit (`--expect-failure`).
@@ -130,8 +136,10 @@ entry uses it.
   profile.
 - The `dakota` profile requires only what the dakota build is known to
   enable: `flatpak-preinstall.service` and `NetworkManager-wait-online.service`.
-  Add `brew-setup.service` or the `podman-auto-update` units to it once a run
-  shows dakota ships them.
+  The lane now reports `brew-setup.service`, `firewalld.service`,
+  `bazzite-hardware-setup.service` and the `podman-auto-update` user units as
+  `observed` on dakota. Add `dakota` to a unit's `profiles` only when an
+  observed row shows it shipped and would pass, and cite that run as evidence.
 - Greenboot (`deferred`): automatic rollback needs a boot-counting bootloader
   path, which direct-kernel boot lacks (#706). The lane keeps both units
   masked and lists them as `not qualified`.
