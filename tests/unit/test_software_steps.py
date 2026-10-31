@@ -459,26 +459,65 @@ class TestBazaarTransaction:
             with pytest.raises(AssertionError, match="(?s)without a prompt.*auth_admin_keep"):
                 m.bazaar_needs_no_polkit_prompt(MagicMock())
 
-    def test_preinstalled_app_or_user_data_fails_the_precondition(self):
+    @staticmethod
+    def _lists(system="", user="", system_rc=0, user_rc=0):
+        """Fake _flatpak answering `flatpak list --<scope> --app` per scope."""
+        def fake(context, args, timeout=10):
+            if "--system" in args:
+                return _completed(stdout=system, rc=system_rc, stderr="system query failed")
+            return _completed(stdout=user, rc=user_rc, stderr="user query failed")
+        return fake
+
+    def test_absence_is_proven_in_both_scopes_before_cleanup_is_owned(self):
         m = _import_software_steps()
         ctx = MagicMock()
-        with patch.object(m, "_run_in_session", return_value=_completed(stdout="has-user-data")):
-            with pytest.raises(AssertionError, match="has-user-data"):
-                m.flatpak_app_absent_with_cleanup(ctx, self.APP)
-        ctx.add_cleanup.assert_not_called()
-        with patch.object(m, "_run_in_session", return_value=_completed()):
+        with patch.object(m, "_flatpak", side_effect=self._lists(system="org.mozilla.firefox\n")) as flatpak, \
+                patch.object(m, "_run_in_session", return_value=_completed(stdout="absent")):
             m.flatpak_app_absent_with_cleanup(ctx, self.APP)
+        assert [c.args[1] for c in flatpak.call_args_list] == [
+            ["list", "--system", "--app", "--columns=application"],
+            ["list", "--user", "--app", "--columns=application"],
+        ]
         ctx.add_cleanup.assert_called_once_with(m._uninstall_flatpak_app, ctx, self.APP)
 
-    def test_cleanup_uninstalls_each_scope_and_reports_failure(self):
+    @pytest.mark.parametrize("lists, data, error", [
+        # Several user branches made `flatpak info` fail, which read as "absent"
+        # while a system copy existed; listing each scope sees the system copy.
+        ({"system": f"{APP}\n", "user": f"{APP}\n{APP}\n"}, "absent", "already installed \\(system, user\\)"),
+        ({"system": f"{APP}\n"}, "absent", "already installed \\(system\\)"),
+        ({"user_rc": 1}, "absent", "flatpak list --user failed.*user query failed"),
+        ({"system_rc": 255}, "absent", "flatpak list --system failed \\(rc=255\\)"),
+        ({}, "present", "already exists"),
+        ({}, "", "checking ~/.var/app"),
+    ])
+    def test_precondition_fails_without_taking_ownership(self, lists, data, error):
         m = _import_software_steps()
-        with patch.object(m, "_run_in_session", return_value=_completed()) as run:
+        ctx = MagicMock()
+        with patch.object(m, "_flatpak", side_effect=self._lists(**lists)), \
+                patch.object(m, "_run_in_session", return_value=_completed(stdout=data, rc=0 if data else 255)):
+            with pytest.raises(AssertionError, match=error):
+                m.flatpak_app_absent_with_cleanup(ctx, self.APP)
+        ctx.add_cleanup.assert_not_called()
+
+    def test_cleanup_uninstalls_the_listed_scopes_and_reports_failure(self):
+        m = _import_software_steps()
+        with patch.object(m, "_flatpak", side_effect=self._lists(system=f"{self.APP}\n", user=f"{self.APP}\n")), \
+                patch.object(m, "_run_in_session", return_value=_completed()) as run:
             m._uninstall_flatpak_app(MagicMock(), self.APP)
-        cmd = run.call_args.args[1]
-        assert f"sudo -n flatpak uninstall -y --noninteractive --system {self.APP} || exit 1" in cmd
-        assert f"flatpak uninstall -y --noninteractive --user {self.APP} || exit 1" in cmd
-        with patch.object(m, "_run_in_session", return_value=_completed(rc=1, stderr="busy")):
-            with pytest.raises(AssertionError, match="busy"):
+        assert [c.args[1] for c in run.call_args_list] == [
+            f"sudo -n flatpak uninstall -y --noninteractive --system {self.APP}",
+            f"flatpak uninstall -y --noninteractive --user {self.APP}",
+        ]
+        with patch.object(m, "_flatpak", side_effect=self._lists()), \
+                patch.object(m, "_run_in_session") as run:
+            m._uninstall_flatpak_app(MagicMock(), self.APP)
+        run.assert_not_called()
+        with patch.object(m, "_flatpak", side_effect=self._lists(system=f"{self.APP}\n")), \
+                patch.object(m, "_run_in_session", return_value=_completed(rc=1, stderr="busy")):
+            with pytest.raises(AssertionError, match="(?s)the system .*busy"):
+                m._uninstall_flatpak_app(MagicMock(), self.APP)
+        with patch.object(m, "_flatpak", side_effect=self._lists(user_rc=1)):
+            with pytest.raises(AssertionError, match="flatpak list --user failed"):
                 m._uninstall_flatpak_app(MagicMock(), self.APP)
 
 
