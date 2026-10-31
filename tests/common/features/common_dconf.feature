@@ -31,10 +31,12 @@ Feature: Bluefin common dconf and GSettings defaults
   # distro.d/locks/01-bluefin-locked-settings locks the GNOME Software update
   # keys. dconf enforces locks without the schema (gnome-software is not
   # installed), so only dconf's non-writable-key refusal counts as locked; any
-  # other failure (e.g. no session bus) is reported as such, and an accepted
-  # write is reset before the scenario fails.
+  # other failure (e.g. no session bus) is reported as such. If a write is
+  # accepted, the key's prior user-db value (read through a user-db-only
+  # DCONF_PROFILE) is written back, or the key reset when it had none, and the
+  # restore itself is verified.
   Scenario: dconf locked keys cannot be overridden
-    * Run SSH command: "for k in allow-updates download-updates download-updates-notify; do if e=$(dconf write /org/gnome/software/$k true 2>&1); then dconf reset /org/gnome/software/$k; echo $k=writable; else case $e in *non-writable*) echo $k=locked;; *) echo $k=error:$e;; esac; fi; done | paste -sd,"
+    * Run SSH command: "t=$(mktemp); echo user-db:user > $t; for k in allow-updates download-updates download-updates-notify; do p=/org/gnome/software/$k; u=$(DCONF_PROFILE=$t dconf read $p); if e=$(dconf write $p true 2>&1); then if [ -n "$u" ]; then dconf write $p "$u"; else dconf reset $p; fi; [ "$(DCONF_PROFILE=$t dconf read $p)" = "$u" ] && echo $k=writable:restored || echo $k=writable:restore-failed; else case $e in *non-writable*) echo $k=locked;; *) echo $k=error:$e;; esac; fi; done | paste -sd,; rm -f $t"
     * SSH command output stripped "is" "allow-updates=locked,download-updates=locked,download-updates-notify=locked"
 
   Scenario: Custom keybindings are configured
