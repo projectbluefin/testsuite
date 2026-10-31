@@ -134,17 +134,12 @@ If a recipe is gated by `gum choose`, `pkexec`, or package-install side effects,
 prefer a non-interactive entry point in the recipe itself. Where the image has
 not shipped one yet, land the coverage behind a `@requires_*` skip tag so it
 activates when the contract lands, instead of leaving the scenario `@pending`
-forever. `ujust toggle-updates` flips `uupd.timer` or
-`rpm-ostreed-automatic.timer` (not `ublue-update.timer`) and is covered via its
-non-interactive `ACTION=enable|disable|cancel` argument (see the reference
-below).
-
-Two recipes are worked out in detail in
-[`references/ujust-noninteractive.md`](references/ujust-noninteractive.md):
-`toggle-updates` gained a non-interactive `ACTION` entry point in
-`projectbluefin/common` and is covered by a `@requires_toggle_action` scenario
-(`projectbluefin/testsuite#499`), while `toggle-devmode` still has none and is
-deliberately uncovered (`projectbluefin/testsuite#500`).
+forever. `ujust toggle-updates` coverage follows each image's shipped recipe:
+current common/Utah toggles `uupd.timer` and `uupd-resume.timer`, while the
+Bluefin pin toggles only `uupd.timer`. Use explicit source-backed image tags,
+never a live recipe probe that turns a regression into a skip. See
+[`references/ujust-noninteractive.md`](references/ujust-noninteractive.md);
+`toggle-devmode` still has no non-interactive entry point (`projectbluefin/testsuite#500`).
 
 Image-content contracts use the same gate: `@requires_custom_command_list` skips
 the Logo Menu swap scenarios on images predating it (Classic). Never add `@pending`.

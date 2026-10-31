@@ -269,39 +269,6 @@ class TestCommonEnvironmentUtahOnly:
         assert scenario.skip_message is None
 
 
-class TestCommonEnvironmentRequiresToggleAction:
-    def test_skips_when_recipe_lacks_action_value(self):
-        m = _import_common_environment(run_ssh_returncode=1)
-        context = _ctx(is_bluefin_image=True, has_brew=True, has_toggle_action=None)
-        scenario = _Scenario(["requires_toggle_action"])
-
-        m.before_scenario(context, scenario)
-
-        assert scenario.skip_message == "ujust toggle-updates ACTION support not present on this image"
-        assert context.has_toggle_action is False
-
-    def test_allows_when_recipe_has_action_value(self):
-        m = _import_common_environment(run_ssh_returncode=0)
-        context = _ctx(is_bluefin_image=True, has_brew=True, has_toggle_action=None)
-        scenario = _Scenario(["requires_toggle_action"])
-
-        m.before_scenario(context, scenario)
-
-        assert scenario.skip_message is None
-        assert context.has_toggle_action is True
-
-    def test_probes_recipe_definition_directly(self):
-        m = _import_common_environment(run_ssh_returncode=0)
-        calls = []
-        m.run_ssh = lambda context, cmd, **kw: (calls.append(cmd), ("", 0))[1]
-        context = _ctx(has_toggle_action=None)
-
-        result = m._has_toggle_action(context)
-
-        assert result is True
-        assert calls == ["ujust --show toggle-updates 2>/dev/null | grep -q 'ACTION_VALUE'"]
-
-
 class TestCommonEnvironmentRequiresCustomCommandList:
     @staticmethod
     def _stub_run_ssh(m, stdout, returncode, calls=None):
@@ -318,7 +285,7 @@ class TestCommonEnvironmentRequiresCustomCommandList:
         self._stub_run_ssh(m, "['logomenu@aryan_k']", 0)
         context = _ctx(
             is_bluefin_image=True, is_projectbluefin_image=False,
-            has_brew=True, has_toggle_action=True, has_custom_command_list=None,
+            has_brew=True, has_custom_command_list=None,
         )
         scenario = _Scenario(["requires_custom_command_list"])
 
@@ -334,7 +301,7 @@ class TestCommonEnvironmentRequiresCustomCommandList:
         self._stub_run_ssh(m, "['logomenu@aryan_k']", 0, calls)
         context = _ctx(
             is_bluefin_image=True, is_projectbluefin_image=True,
-            has_brew=True, has_toggle_action=True, has_custom_command_list=None,
+            has_brew=True, has_custom_command_list=None,
         )
         scenario = _Scenario(["requires_custom_command_list"])
 
@@ -349,7 +316,7 @@ class TestCommonEnvironmentRequiresCustomCommandList:
         self._stub_run_ssh(m, "['custom-command-list@storageb.github.com']", 0)
         context = _ctx(
             is_bluefin_image=True, is_projectbluefin_image=False,
-            has_brew=True, has_toggle_action=True, has_custom_command_list=None,
+            has_brew=True, has_custom_command_list=None,
         )
         scenario = _Scenario(["requires_custom_command_list"])
 
@@ -364,7 +331,7 @@ class TestCommonEnvironmentRequiresCustomCommandList:
         self._stub_run_ssh(m, "No such schema 'org.gnome.shell'", 1)
         context = _ctx(
             is_bluefin_image=True, is_projectbluefin_image=False,
-            has_brew=True, has_toggle_action=True, has_custom_command_list=None,
+            has_brew=True, has_custom_command_list=None,
         )
         scenario = _Scenario(["requires_custom_command_list"])
 

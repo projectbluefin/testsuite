@@ -71,9 +71,9 @@ to those would leak a probe result into the scenario's first assertion.
 **It is not a non-runnable tag.** Do not add it to `_SKIP_TAGS` in
 `tests/shared/quarantine.py`, to `NON_RUNNABLE_TAGS` in
 `tests/shared/behave_retry.py`, or to `BEHAVE_TAG_ARGS` in `e2e.yml`. It is a
-runtime capability gate in the family of `@requires_brew` and
-`@requires_toggle_action`: the scenario must begin running the moment the image
-is cached, with no feature-file edit and no follow-up PR.
+runtime capability gate in the family of `@requires_brew`: the scenario must
+begin running the moment the image is cached, with no feature-file edit and no
+follow-up PR.
 
 **Never pair it with `@pending`, `@future`, `@quarantine`, or `@hardware_blocked`.**
 `skip_quarantine` runs first and returns early, so the gate never executes and the

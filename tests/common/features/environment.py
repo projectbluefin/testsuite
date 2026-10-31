@@ -62,29 +62,6 @@ def _is_container_target(context) -> bool:
     return context.is_container_target
 
 
-def _has_toggle_action(context) -> bool:
-    """Return True when the image's toggle-updates recipe honors ACTION.
-
-    ``ujust toggle-updates`` gained non-interactive ``ACTION=enable|disable|
-    cancel`` support in projectbluefin/common (see projectbluefin/testsuite#499).
-    Probe the recipe body for ``ACTION_VALUE``: the new recipe interpolates
-    ``ACTION`` into ``ACTION_VALUE``, while the old recipe declares
-    ``ACTION="prompt":`` but ignores it in the body and falls through to gum.
-    Without a TTY, the old gum prompt fails and exits 0 on empty selection,
-    so running ``ujust toggle-updates cancel`` falsely passes on old images.
-    Scenarios tagged ``@requires_toggle_action`` skip until the image ships
-    the contract, then activate automatically.
-    """
-    cached = getattr(context, "has_toggle_action", None)
-    if cached is not None:
-        return cached
-    _, returncode = run_ssh(
-        context, "ujust --show toggle-updates 2>/dev/null | grep -q 'ACTION_VALUE'"
-    )
-    context.has_toggle_action = returncode == 0
-    return context.has_toggle_action
-
-
 def _has_custom_command_list(context) -> bool:
     """Return True when the effective enabled-extensions lists custom-command-list.
 
@@ -222,9 +199,6 @@ def before_scenario(context, scenario):
         return
     if "requires_brew" in scenario_tags and not _has_brew(context):
         scenario.skip("Homebrew not present on this image")
-        return
-    if "requires_toggle_action" in scenario_tags and not _has_toggle_action(context):
-        scenario.skip("ujust toggle-updates ACTION support not present on this image")
         return
     if (
         "requires_custom_command_list" in scenario_tags
