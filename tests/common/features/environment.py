@@ -38,6 +38,21 @@ def _is_projectbluefin_image(image: str) -> bool:
     return len(parts) >= 2 and parts[-2] == "projectbluefin"
 
 
+# Image names produced by projectbluefin/bluefin's Justfile `image_name` recipe
+# (image "bluefin", flavors main/nvidia). Bluefin LTS (bluefin-lts*), Utah, and
+# Dakota build from other repositories and do not run bluefin's build_files.
+_FEDORA_BLUEFIN_IMAGE_NAMES = frozenset({"bluefin", "bluefin-nvidia"})
+
+
+def _is_fedora_bluefin_image(image: str) -> bool:
+    """Return True for images built by projectbluefin/bluefin build_files.
+
+    An empty ref is treated as Fedora Bluefin, matching the `is_bluefin_image`
+    default for local runs that do not pass an image.
+    """
+    return not image or image_name(image) in _FEDORA_BLUEFIN_IMAGE_NAMES
+
+
 def _scenario_tags(scenario) -> set[str]:
     return set(getattr(scenario, "effective_tags", scenario.tags))
 
@@ -126,6 +141,7 @@ def before_all(context):
     context.is_dakota_image = _is_dakota_image(image_ref) if image_ref else False
     context.is_projectbluefin_image = _is_projectbluefin_image(image_ref)
     context.is_utah_image = "utah" in image_name(image_ref)
+    context.is_fedora_bluefin_image = _is_fedora_bluefin_image(image_ref)
     context.vm_ip = _first_value(
         userdata.get("vm_ip", ""),
         userdata.get("host", ""),
@@ -213,6 +229,14 @@ def before_scenario(context, scenario):
         return
     if "skip_utah" in scenario_tags and getattr(context, "is_utah_image", False):
         scenario.skip("Scenario documents a Bluefin pin that Utah does not ship")
+        return
+    if "fedora_bluefin_only" in scenario_tags and not getattr(
+        context, "is_fedora_bluefin_image", True
+    ):
+        scenario.skip(
+            "Scenario asserts projectbluefin/bluefin build_files output "
+            f"(IMAGE={os.environ.get('IMAGE', 'unknown')})"
+        )
         return
     if "requires_brew" in scenario_tags and not _has_brew(context):
         scenario.skip("Homebrew not present on this image")
