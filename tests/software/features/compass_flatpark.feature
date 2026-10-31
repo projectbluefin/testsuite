@@ -8,11 +8,15 @@ Feature: FlatPark remote and the Compass Flatpak lifecycle
   Install needs network to dl.flatpark.org, github.com (extra-data) and a
   system remote serving org.freedesktop.Platform//26.08 (Flathub).
 
-  @software @flatpak_cli @flatpark
+  The skip_bluefin tag marks scenarios that need the FlatPark remote: Bluefin's
+  pinned common predates projectbluefin/common#1549, which added it. Drop the
+  tag when Bluefin's common pin includes #1549.
+
+  @software @flatpak_cli @flatpark @skip_bluefin
   Scenario: FlatPark system remote is configured with its shipped filter
     * Flatpak system remote "flatpark" uses filter "/usr/share/flatpak/flatpark.filter"
 
-  @software @flatpak_cli @flatpark @compass
+  @software @flatpak_cli @flatpark @compass @skip_bluefin
   Scenario: FlatPark lists Compass for this architecture
     * the VM is x86_64, the only arch FlatPark builds Compass for
     * Run SSH command: "flatpak remote-ls --system flatpark --app --columns=application | grep -qx org.tunaos.compass"
@@ -27,7 +31,7 @@ Feature: FlatPark remote and the Compass Flatpak lifecycle
     * Run SSH command: "grep -Eq '"uuid": *"compass@tunaos.org"' /usr/share/gnome-shell/extensions/compass@tunaos.org/metadata.json"
     * SSH command return code is "0"
 
-  @software @flatpak_cli @flatpark @compass
+  @software @flatpak_cli @flatpark @compass @skip_bluefin
   Scenario: Compass installs system-wide from FlatPark and uninstalls keeping user data
     * the VM is x86_64, the only arch FlatPark builds Compass for
     * Compass is absent now and removed again when the scenario ends

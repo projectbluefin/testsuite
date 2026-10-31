@@ -300,6 +300,31 @@ class TestBazaarYamlCheck:
         assert argv == ["python3", "-c", m._BAZAAR_YAML_CHECK, "/etc/bazaar"]
 
 
+class TestUinputUsage:
+    """qecore 4.19.3 builds KEY_<TOKEN> per combo token, and python-uinput's
+    _chars_to_events maps only unshifted characters (others become None)."""
+
+    def test_close_shortcut_uses_evdev_modifier_names(self):
+        m = _import_software_steps()
+        ctx = MagicMock()
+        with patch.object(m, "_bazaar_window"), patch.object(m, "_wait_for_bazaar_to_close"):
+            m.tree = object()
+            m.close_bazaar_via_shortcut(ctx)
+        ctx.execute_steps.assert_called_once_with('* Key combo: "<LEFTCTRL><Q>" with uinput')
+
+    def test_typed_uinput_text_is_unshifted(self):
+        import re
+        from pathlib import Path
+        features = Path(__file__).resolve().parents[1] / "software" / "features"
+        typed = [
+            text for f in features.glob("*.feature")
+            for text in re.findall(r'Type text: "([^"]*)" with uinput', f.read_text())
+        ]
+        assert typed
+        for text in typed:
+            assert re.fullmatch(r"[a-z0-9 ]+", text), text
+
+
 class TestVmCoredumpStep:
     def test_no_entries_passes(self):
         m = _import_software_steps()
@@ -373,6 +398,53 @@ class TestSoftwareEnvironment:
         ctx.sandbox.before_scenario.assert_called_once_with(ctx, scenario)
         ctx.sandbox.after_scenario.assert_called_once_with(ctx, scenario)
         stop.assert_called_once_with(ctx)
+
+    @pytest.mark.parametrize(("image", "bluefin"), [
+        ("ghcr.io/projectbluefin/bluefin@sha256:460d3a74", True),
+        ("ghcr.io/projectbluefin/bluefin-dx:testing", True),
+        ("ghcr.io/projectbluefin/dakota:testing", False),
+        ("ghcr.io/projectbluefin/utah:latest", False),
+        ("", False),
+    ])
+    def test_bluefin_is_matched_on_image_name_not_org(self, image, bluefin):
+        assert _import_software_environment()._is_bluefin_image(image) is bluefin
+
+    @pytest.mark.parametrize(("image", "skipped"), [
+        ("ghcr.io/projectbluefin/bluefin@sha256:460d3a74", True),
+        ("ghcr.io/projectbluefin/dakota:testing", False),
+    ])
+    def test_skip_bluefin_gate(self, image, skipped):
+        env = _import_software_environment()
+        ctx = types.SimpleNamespace(sandbox=MagicMock(), config=types.SimpleNamespace(userdata={}))
+        scenario = _scenario("software", "flatpak_cli", "flatpark", "skip_bluefin")
+        with patch.dict(os.environ, {"IMAGE": image}):
+            env.before_scenario(ctx, scenario)
+        if skipped:
+            scenario.skip.assert_called_once_with(reason=env.SKIP_BLUEFIN_REASON)
+            assert "#1549" in env.SKIP_BLUEFIN_REASON
+        else:
+            scenario.skip.assert_not_called()
+
+    def test_skip_bluefin_reads_userdata_when_image_env_unset(self):
+        env = _import_software_environment()
+        ctx = types.SimpleNamespace(config=types.SimpleNamespace(
+            userdata={"image": "ghcr.io/projectbluefin/bluefin:stable"}))
+        scenario = _scenario("software", "flatpak_cli", "skip_bluefin")
+        with patch.dict(os.environ, {"IMAGE": ""}):
+            env.before_scenario(ctx, scenario)
+        scenario.skip.assert_called_once_with(reason=env.SKIP_BLUEFIN_REASON)
+
+    def test_only_flatpark_scenarios_carry_skip_bluefin(self):
+        from pathlib import Path
+        import re
+        feature = Path(__file__).resolve().parents[1] / "software" / "features" / "compass_flatpark.feature"
+        lines = feature.read_text().splitlines()
+        for i, line in enumerate(lines):
+            if re.match(r"\s*Scenario:", line):
+                tags = set(re.findall(r"@(\w+)", lines[i - 1]))
+                assert ("skip_bluefin" in tags) == ("flatpark" in tags), line
+        other = (Path(__file__).resolve().parents[1] / "software" / "features").glob("*.feature")
+        assert [f.name for f in other if "@skip_bluefin" in f.read_text()] == ["compass_flatpark.feature"]
 
 
 # ---------------------------------------------------------------------------

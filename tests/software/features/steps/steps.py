@@ -273,8 +273,9 @@ def close_bazaar_via_shortcut(context) -> None:
     if _skip_if_no_atspi(context):
         return
     _bazaar_window()
-    # <primary>q is app.quit, which also tells bazaar-daemon to Quit.
-    context.execute_steps('* Key combo: "<Ctrl><Q>" with uinput')
+    # <primary>q is app.quit, which also tells bazaar-daemon to Quit. qecore
+    # builds KEY_<NAME> from each token, so modifiers need evdev names.
+    context.execute_steps('* Key combo: "<LEFTCTRL><Q>" with uinput')
     _wait_for_bazaar_to_close(context)
 
 

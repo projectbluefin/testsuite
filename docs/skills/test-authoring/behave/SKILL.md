@@ -242,14 +242,17 @@ Parse it (`parse_flatpak_context` in
 `=` and compare the key — matching bare key names against `filesystems=home;`
 never matches and passes falsely.
 
-## Software suite gates (`@flatpak_cli`, `@bazaar_ui`)
+## Software suite gates (`@flatpak_cli`, `@bazaar_ui`, `@skip_bluefin`)
 
 `tests/software/features/environment.py` calls `populate_ssh_context` in `before_all`
 (#718) and skips `@software` scenarios when Bazaar is absent unless they carry
 `@flatpak_cli` (image-agnostic, so they run on gnomeos too). The Bazaar probe fails
 closed: an SSH or `flatpak list` error is a HOOK-ERROR, never "absent". Only
 `@bazaar_ui` scenarios get the qecore sandbox hooks and the `flatpak kill` cleanup.
-Never write `\"` in a step argument ([why](references/shared-ssh.md#quoting)).
+`@skip_bluefin` is an image-name applicability tag (`$IMAGE` or `-D image=`), not a
+live probe. It is on the FlatPark scenarios only, because Bluefin's pinned common
+predates common#1549. Drop it when the pin catches up. Never write `\"` in a step
+argument ([why](references/shared-ssh.md#quoting)).
 
 ## `@requires_cached_image` gates scenarios on a pre-pulled OCI image
 

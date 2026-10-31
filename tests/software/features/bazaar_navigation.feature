@@ -23,13 +23,14 @@ Feature: Bazaar GUI deep navigation
 
   # Bazaar's window turns typed characters into a search (type-to-search),
   # so the query lands in the search field once the window has focus.
+  # Lower case on purpose: python-uinput maps only unshifted characters.
   @retry @software @bazaar_ui @navigation @search
   Scenario: Search tab finds an app by its typed name
     * Bazaar tab "Search" is accessible
     * Activate Bazaar tab "Search"
     * Bazaar view "Search" is loaded
-    * Type text: "Flatseal" with uinput
-    * Bazaar search field shows "Flatseal"
+    * Type text: "flatseal" with uinput
+    * Bazaar search field shows "flatseal"
     * Bazaar search results include "Flatseal"
 
   @retry @software @bazaar_ui @navigation

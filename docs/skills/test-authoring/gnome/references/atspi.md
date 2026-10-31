@@ -90,12 +90,22 @@ Source-backed facts used by `tests/software/features/steps/steps.py`:
   page has showing widgets. The header-bar tabs (`page tab`, or `toggle button`
   on older libadwaita) stay showing behind the **Refreshing** page, so "the tab
   exists plus any showing widget" passes before any content loads. The Curated
-  page is hidden until a curated config loads.
+  page stays hidden until a curated config parses into at least one row
+  (`has-inputs` in `bz-content-provider.c`). Bazaar's YAML parser is strict:
+  an unknown key rejects the whole file. Bazaar 0.9.x (Flathub 0.9.10) expects
+  `rows:` of `section`/`banner`/`featured-carousel`/`articles`, so the
+  pre-0.9 `css:` + `rows: [{sections: …}]` file in Bluefin
+  `testing-44.20260917.5` shows no Curated tab (run 41193940707). Dakota and
+  common main ship the new format.
 - **Search.** A printable key typed into the window switches to the Search view,
   focuses the field and seeds it (`key_pressed` in `bz-window.c`). The field is
   a `text` node inside the Search panel, and results are `label`s with the app
-  title.
+  title. Type lower case: python-uinput's `_chars_to_events` maps only unshifted
+  characters, so qecore's `Type text … with uinput` gets `None` for `F` and
+  errors with no message.
 - **Quit.** `<primary>q` is `app.quit`, which also calls the daemon's `Quit`.
+  Send it as `Key combo: "<LEFTCTRL><Q>" with uinput`: qecore 4.19.3 turns each
+  token into `KEY_<TOKEN>`, so `<Ctrl>` raises `KEY_CTRL … does not exist`.
   Alt+F4 only closes the window, and the daemon exits on its own after 5 s idle.
   Assert that no `Bazaar` frame is showing and that `flatpak ps` does not list
   the app. A `flatpak ps` error must fail the check, not read as "closed".

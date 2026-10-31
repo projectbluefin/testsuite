@@ -4,6 +4,7 @@ Software test environment for Bazaar (io.github.kolunmi.Bazaar) and Flatpak.
 Only @bazaar_ui scenarios touch the GUI: they get the qecore sandbox hooks and
 a Bazaar kill afterwards. CLI/config scenarios never wait on AT-SPI.
 """
+import os
 import subprocess
 import traceback
 
@@ -50,6 +51,25 @@ except Exception as exc:  # noqa: BLE001
 SUITE_NAME = "software"
 BAZAAR_APP_ID = "io.github.kolunmi.Bazaar"
 GUI_TAG = "bazaar_ui"
+# Applicability, not a live probe: the image under test is named by $IMAGE
+# (e2e.yml passes it into the runner) or `-D image=`. Bluefin's pinned common
+# predates projectbluefin/common#1549 (FlatPark remote); remove the tag from
+# compass_flatpark.feature once the pin includes it.
+SKIP_BLUEFIN_TAG = "skip_bluefin"
+SKIP_BLUEFIN_REASON = (
+    "@skip_bluefin: Bluefin's pinned common predates projectbluefin/common#1549 "
+    "(no FlatPark remote)"
+)
+
+
+def _image_ref(context) -> str:
+    return os.environ.get("IMAGE") or context.config.userdata.get("image", "")
+
+
+def _is_bluefin_image(image_ref: str) -> bool:
+    """Match the image name (last path segment), never the projectbluefin org."""
+    name = image_ref.lower().rsplit("/", 1)[-1].split("@")[0].split(":")[0]
+    return "bluefin" in name
 
 
 def _tags(scenario) -> set:
@@ -113,9 +133,16 @@ def before_scenario(context, scenario) -> None:
 
     if skip_quarantine(scenario):
         return
+    tags = _tags(scenario)
+    if SKIP_BLUEFIN_TAG in tags and _is_bluefin_image(_image_ref(context)):
+        try:
+            scenario.skip(reason=SKIP_BLUEFIN_REASON)
+        except TypeError:
+            scenario.skip()
+        print(f"Skipping {scenario.name}: {SKIP_BLUEFIN_REASON}", flush=True)
+        return
     # Bazaar ships only on Bluefin-family images; @flatpak_cli scenarios are
     # image-agnostic and run everywhere.
-    tags = _tags(scenario)
     if "software" in tags and "flatpak_cli" not in tags and not _has_bazaar(context):
         try:
             scenario.skip(reason="Bazaar not installed on this image")
