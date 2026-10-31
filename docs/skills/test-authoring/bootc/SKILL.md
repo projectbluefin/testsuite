@@ -125,6 +125,14 @@ step fails — run that scenario on a fresh VM.
 `If bootc upgrade output indicates image was staged, reboot VM and wait for
 SSH` shares the same staged markers (`_UPGRADE_STAGED_MARKERS`) as the gate.
 
+## Migration target
+
+`Switch to migration target` reads `MIGRATION_TARGET` and falls back to
+`ghcr.io/projectbluefin/bluefin:stable` (Bluefin migration lane). Non-Bluefin
+suites (Dakota `homed_migration.feature`) use `Switch to required migration
+target`, which fails when `MIGRATION_TARGET` is unset instead of switching
+Dakota to Bluefin.
+
 ## ostree admin status parsing
 
 ```

@@ -576,3 +576,24 @@ class TestDigestVerification:
         with pytest.raises(AssertionError, match="Active digest"):
             getattr(self.mod, check)(context)
         context.scenario.skip.assert_not_called()
+
+
+class TestMigrationTarget:
+    def setup_method(self):
+        self.mod = _import_lifecycle_steps()
+
+    def test_default_is_bluefin_stable(self, monkeypatch):
+        monkeypatch.delenv("MIGRATION_TARGET", raising=False)
+        assert self.mod._migration_target() == "ghcr.io/projectbluefin/bluefin:stable"
+
+    def test_required_fails_closed_when_unset(self, monkeypatch):
+        monkeypatch.setenv("MIGRATION_TARGET", " ")
+        with pytest.raises(AssertionError, match="MIGRATION_TARGET is not set"):
+            self.mod._migration_target(required=True)
+
+    def test_required_switch_uses_env_target(self, monkeypatch):
+        monkeypatch.setenv("MIGRATION_TARGET", "ghcr.io/projectbluefin/dakota:testing")
+        self.mod.run_ssh = MagicMock(return_value=("", 0))
+        self.mod.switch_to_required_migration_target(MagicMock())
+        cmd = self.mod.run_ssh.call_args.args[1]
+        assert cmd == "sudo bootc switch ghcr.io/projectbluefin/dakota:testing"
