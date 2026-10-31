@@ -26,20 +26,34 @@ Shipping common (`e33665e2`) toggles **two** timers when `uupd.timer` exists:
 `enable` runs `systemctl enable uupd.timer uupd-resume.timer` and starts
 `uupd.timer`; `disable` runs `systemctl disable --now` on both.
 
-Coverage lives in `tests/common/features/common_ujust.feature` (active, no
-probe gate). The scenario snapshots `is-enabled`/`is-active` for both timers,
-runs `cancel` (state must not change), `DISABLE`, then `enable` through the
-recipe, asserts the confirmation line plus both timers' state after each
-step, and restores the snapshot explicitly (with an `EXIT` trap as backstop),
-then asserts the restore. Images built on a common layer older than the
-`uupd-resume.timer` change fail this scenario by design.
+Pin applicability is explicit, not probed. Utah `sha256:a0baa947` ships the
+common-main recipe; Bluefin `sha256:460d3a74` consumes an older common layer
+whose `toggle-updates` runs `systemctl enable|disable uupd.timer` only (no
+`--now`, no `uupd-resume.timer`) and whose `check-local-overrides` still emits
+the RESET escape under `NO_COLOR=1`. `tests/common/features/common_ujust.feature`
+therefore carries two toggle scenarios:
+
+- `@utah_only`: the common-main contract. Snapshots `is-enabled`/`is-active`
+  for both timers, runs `cancel` (no change), `DISABLE`, `enable`, asserts the
+  confirmation line plus both timers' enabled state and `uupd.timer` activity.
+- `@skip_utah`: the Bluefin pin. Asserts `uupd.timer` enablement flips and
+  `uupd-resume.timer` is untouched.
+
+Both restore the snapshot explicitly (with an `EXIT` trap as backstop) and
+assert the restore. The NO_COLOR ESC-byte check is `@utah_only` for the same
+reason; every Bluefin-family image runs the colour-stripped
+planted-`/etc`-file listing check. When Bluefin bumps its common pin past the
+`uupd-resume.timer` and #1190 changes, drop the `@skip_utah` toggle scenario
+and the `@utah_only` tags.
 
 Other safe non-interactive paths covered there: `ujust --summary` strict
 parse plus the shared recipe inventory, `NO_COLOR=1 check-local-overrides`
 emitting no ESC bytes (a planted `/etc` probe file guarantees a line to
 colour), `bios-info` values (not labels), `toggle-testing` refusing an unknown
 channel via a temp `IMAGE_INFO_FILE`, and `report --confirm abc` printing usage
-(never pass a numeric issue without a TTY: that path posts).
+(never pass a numeric issue without a TTY: that path posts). The report check
+is `@skip_utah`: Utah overrides `report` in `60-custom.just`, and its routing
+defect is owned by `utah_os.feature`.
 
 ## `toggle-devmode` has no non-interactive entry point (verified 2026-09)
 
