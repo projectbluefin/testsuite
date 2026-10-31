@@ -14,5 +14,5 @@ metadata:
   It cannot here — the pulls run under `sudo`, so cache the root store or the pull will still miss.
 - "A floating `uses:` tag is fine for a speedup-only change."  
   It is not; external actions in this repo must stay SHA-pinned.
-- "We can replace `ublue-os/remove-unwanted-software` with an inline cleanup for speed."  
-  The workflow currently uses `ublue-os/remove-unwanted-software@v9` for disk cleanup. Switching to an inline cleanup is only worthwhile if the action is the measured bottleneck — do not change this without profiling.
+- "We can call `ublue-os/remove-unwanted-software` directly or inline a cleanup for speed."  
+  Disk cleanup goes through the org's `projectbluefin/actions/bootc-build/setup-runner` (v9 direct use hit `No space left on device` in E2E and manual software runs). Inline cleanup is only worthwhile if that action is the measured bottleneck — do not change this without profiling.

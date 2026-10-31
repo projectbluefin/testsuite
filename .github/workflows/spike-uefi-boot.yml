@@ -49,7 +49,9 @@ jobs:
           ls -la /dev/kvm
 
       - name: Free disk space
-        uses: ublue-os/remove-unwanted-software@cc0becac701cf642c8f0a6613bbdaf5dc36b259e # v9
+        uses: projectbluefin/actions/bootc-build/setup-runner@d0abf8999cf9fe16d2ef5bdc2a42a91ce8809645 # v1
+        with:
+          update-podman: "false"
 
       - name: Install QEMU + OVMF and pull source image
         run: |
