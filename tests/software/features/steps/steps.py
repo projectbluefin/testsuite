@@ -28,6 +28,8 @@ BAZAAR_TAB_NAMES = {"Curated", "Explore", "Library", "Search"}
 BAZAAR_TAB_ROLES = {"page tab", "toggle button"}
 # libadwaita exposes each AdwViewStackPage as a `panel` named after its title.
 BAZAAR_VIEW_ROLE = "panel"
+# GTK4 maps the search bar's search_box role to AT-SPI `entry`.
+BAZAAR_SEARCH_FIELD_ROLE = "entry"
 POLL_INTERVAL = 0.25
 
 
@@ -288,11 +290,21 @@ def bazaar_search_field_shows(context, query: str) -> None:
     if _skip_if_no_atspi(context):
         return
 
+    # BzSearchBar is a GtkEditable delegate with accessible-role search_box,
+    # which GTK4 exposes as an AT-SPI `entry` carrying the Text interface. Its
+    # inner GtkText has role NONE and is not in the tree. Run 41201865894 typed
+    # "flatseal" into the field, but the old `text`-role lookup matched nothing.
     def field():
-        for node in _bazaar_view("Search").findChildren(lambda n: n.roleName == "text" and n.showing):
+        entries = _bazaar_view("Search").findChildren(
+            lambda n: n.roleName == BAZAAR_SEARCH_FIELD_ROLE and n.showing
+        )
+        for node in entries:
             if node.text == query:
                 return node
-        raise LookupError(f"no showing Search text field contains {query!r}")
+        raise LookupError(
+            f"no showing Search {BAZAAR_SEARCH_FIELD_ROLE} contains {query!r}; "
+            f"found {[node.text for node in entries]}"
+        )
 
     _poll(f"Bazaar search field text {query!r}", 15, field)
 

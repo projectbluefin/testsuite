@@ -99,8 +99,11 @@ Source-backed facts used by `tests/software/features/steps/steps.py`:
   common main ship the new format.
 - **Search.** A printable key typed into the window switches to the Search view,
   focuses the field and seeds it (`key_pressed` in `bz-window.c`). The field is
-  a `text` node inside the Search panel, and results are `label`s with the app
-  title. Type lower case: python-uinput's `_chars_to_events` maps only unshifted
+  `BzSearchBar`, a `GtkEditable` delegate with `accessible-role: search_box`.
+  GTK4 exposes it as an `entry` with the Text interface; its inner `GtkText` has
+  role NONE and is absent from the tree, so a `text`-role lookup misses a field
+  that visibly holds the query (run 41201865894). Results are `label`s with the
+  app title. Type lower case: python-uinput's `_chars_to_events` maps only unshifted
   characters, so qecore's `Type text … with uinput` gets `None` for `F` and
   errors with no message.
 - **Quit.** `<primary>q` is `app.quit`, which also calls the daemon's `Quit`.

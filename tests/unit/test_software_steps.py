@@ -259,6 +259,62 @@ class TestBazaarLookup:
                 m._bazaar_flatpak_is_running(MagicMock())
 
 
+class TestBazaarSearchLocators:
+    """Run 41201865894: the field showed "flatseal" and the Flatseal tile was
+    visible, but the step looked for a `text` node (GtkText has role NONE)."""
+
+    @staticmethod
+    def _search_view(m, *content):
+        panel = _node("Search", "panel", descendants=list(content))
+        tab = _node("Search", "page tab", selected=True)
+        window = _node("Bazaar", "frame", descendants=[tab, panel])
+        _with_apps(m, _node("bazaar", children=[window]))
+
+    @staticmethod
+    def _expired_clock(m):
+        clock = patch.object(m, "time")
+        mocked = clock.start()
+        mocked.monotonic.side_effect = [0, 100]
+        return clock
+
+    def test_field_is_the_search_box_entry(self):
+        m = _import_software_steps()
+        self._search_view(m, _node("", "entry", text="flatseal"), _node("Flatseal", "label"))
+        m.bazaar_search_field_shows(MagicMock(), "flatseal")
+
+    def test_a_text_node_is_not_the_search_field(self):
+        m = _import_software_steps()
+        self._search_view(m, _node("", "text", text="flatseal"))
+        clock = self._expired_clock(m)
+        try:
+            with patch.object(m, "POLL_INTERVAL", 0), pytest.raises(AssertionError, match="entry"):
+                m.bazaar_search_field_shows(MagicMock(), "flatseal")
+        finally:
+            clock.stop()
+
+    def test_field_reports_what_it_holds(self):
+        m = _import_software_steps()
+        self._search_view(m, _node("", "entry", text="flat"))
+        clock = self._expired_clock(m)
+        try:
+            with patch.object(m, "POLL_INTERVAL", 0), pytest.raises(AssertionError, match="found \\['flat'\\]"):
+                m.bazaar_search_field_shows(MagicMock(), "flatseal")
+        finally:
+            clock.stop()
+
+    def test_result_is_a_visible_label_with_the_app_title(self):
+        m = _import_software_steps()
+        self._search_view(m, _node("", "entry", text="flatseal"), _node("Flatseal", "label"))
+        m.bazaar_search_results_include(MagicMock(), "Flatseal")
+        self._search_view(m, _node("", "entry", text="flatseal"), _node("Flatseal", "label", showing=False))
+        clock = self._expired_clock(m)
+        try:
+            with patch.object(m, "POLL_INTERVAL", 0), pytest.raises(AssertionError, match="Flatseal"):
+                m.bazaar_search_results_include(MagicMock(), "Flatseal")
+        finally:
+            clock.stop()
+
+
 class TestBazaarYamlCheck:
     """Run the shipped YAML check script against real files."""
 
