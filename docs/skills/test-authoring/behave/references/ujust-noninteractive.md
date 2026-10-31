@@ -22,21 +22,24 @@ arguments):
 - Any other value — including the default `ACTION="prompt"` — keeps the
   interactive behavior and blocks on `gum choose`.
 
-Asserting the timer state directly (`systemctl enable/disable uupd.timer`)
-would test systemd, not the recipe, so it does not close the coverage gap.
+Shipping common (`e33665e2`) toggles **two** timers when `uupd.timer` exists:
+`enable` runs `systemctl enable uupd.timer uupd-resume.timer` and starts
+`uupd.timer`; `disable` runs `systemctl disable --now` on both.
 
-Coverage lives in `tests/common/features/common_ujust.feature` behind a
-`@requires_toggle_action` tag: the environment probes the recipe definition
-with `ujust --show toggle-updates 2>/dev/null | grep -q 'ACTION_VALUE'`
-rather than running `ujust toggle-updates cancel`. Running without a TTY
-caused older unpatched recipes to fail in `gum choose` and set `SELECTED_OPTION=""`,
-which hit `[[ "${SELECTED_OPTION}" == "Cancel" || "${SELECTED_OPTION}" == "" ]] && exit 0`,
-falsely passing on unpatched images. Probing the recipe body for `ACTION_VALUE`
-reliably skips the scenario on images that have not shipped the contract yet.
-The scenario flips the update timer through the recipe itself (detecting
-`uupd.timer`, falling back to `rpm-ostreed-automatic.timer`, matching the
-recipe's own logic), asserts the state changed and the recipe's confirmation
-output, then restores the original state so the scenario is repeatable.
+Coverage lives in `tests/common/features/common_ujust.feature` (active, no
+probe gate). The scenario snapshots `is-enabled`/`is-active` for both timers,
+runs `cancel` (state must not change), `DISABLE`, then `enable` through the
+recipe, asserts the confirmation line plus both timers' state after each
+step, and restores the snapshot explicitly (with an `EXIT` trap as backstop),
+then asserts the restore. Images built on a common layer older than the
+`uupd-resume.timer` change fail this scenario by design.
+
+Other safe non-interactive paths covered there: `ujust --summary` strict
+parse plus the shared recipe inventory, `NO_COLOR=1 check-local-overrides`
+emitting no ESC bytes (a planted `/etc` probe file guarantees a line to
+colour), `bios-info` values (not labels), `toggle-testing` refusing an unknown
+channel via a temp `IMAGE_INFO_FILE`, and `report --confirm abc` printing usage
+(never pass a numeric issue without a TTY: that path posts).
 
 ## `toggle-devmode` has no non-interactive entry point (verified 2026-09)
 
