@@ -18,6 +18,9 @@ def get_image_slug(image_ref: str, fallback: str = "bluefin-testing") -> str:
     - If empty or None, returns fallback (default: 'bluefin-testing').
     - Strip registry host if present (domain containing '.' or ':', or 'localhost').
     - Strip organization / namespace if present (first path component after host, or first path component if no host).
+    - A 'name:tag@digest' ref keeps only 'name:tag': the digest pins one build
+      of the stream, and screenshots are published per stream. A bare
+      'name@digest' keeps the digest, since it is the only identifier.
     - Fold remaining '/', ':', and '@' separators into '-'.
     - Sanitize any remaining characters to the OCI tag charset ([a-zA-Z0-9_.-]).
     - Strip leading '.' and '-' characters to conform with OCI tag grammar.
@@ -38,6 +41,9 @@ def get_image_slug(image_ref: str, fallback: str = "bluefin-testing") -> str:
         parts.pop(0)
 
     remainder = "/".join(parts)
+    name, sep, _digest = remainder.partition("@")
+    if sep and ":" in name:
+        remainder = name
     # Fold remaining '/', ':', '@' into '-'
     slug = re.sub(r"[/:\@]", "-", remainder)
     # Sanitize characters outside OCI tag charset [a-zA-Z0-9_.-]
