@@ -743,6 +743,7 @@ jobs:
             -device   virtio-blk-pci,drive=disk,iothread=ioth0 \
             -netdev   user,id=net0,hostfwd=tcp::2222-:22,hostfwd=tcp:127.0.0.1:4723-:4723 \
             -device   virtio-net-pci,netdev=net0 \
+            -vga      none \
             -device   virtio-gpu-pci \
             -display  none \
             -monitor  unix:/tmp/qemu-monitor.sock,server,nowait \
@@ -1607,8 +1608,10 @@ jobs:
         run: |
           # If the in-VM screenshot path (grim/gdbus inside the container) produced
           # nothing, capture the QEMU virtual framebuffer directly from the runner.
-          # mutter renders the GNOME desktop to bochs-drm (card1 / primary VGA),
-          # which QEMU maintains internally even with -display none.  The monitor
+          # mutter renders the GNOME desktop to virtio-gpu, the VM's only display
+          # adapter (-vga none drops q35's default std VGA, which mutter used to
+          # light up as a second monitor and grim then captured side by side).
+          # QEMU maintains its framebuffer internally even with -display none.  The monitor
           # socket was opened at VM boot; screendump writes a PPM to the runner host.
           if find results/ -name "screenshot_*fastfetch*.png" 2>/dev/null | grep -q .; then
             echo "In-VM screenshot already present -- skipping QEMU screendump fallback."
