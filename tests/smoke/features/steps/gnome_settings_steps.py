@@ -80,21 +80,13 @@ def _settings_app(timeout: int = 15):
                         clean = name.strip("'\" ")
                         if clean in SETTINGS_APP_NAMES or "settings" in clean.lower() or "control-center" in clean.lower():
                             return app
-        except Exception:  # noqa: BLE001
-            pass
-        for name in SETTINGS_APP_NAMES:
-            try:
-                return tree.root.application(name)
-            except Exception as exc:  # noqa: BLE001
-                last_error = exc
-        if time.monotonic() >= deadline:
-            break
-        sleep(0.5)
-    for name in SETTINGS_APP_NAMES:
-        try:
-            return tree.root.application(name)
+            last_error = f"none of {SETTINGS_APP_NAMES} registered"
         except Exception as exc:  # noqa: BLE001
             last_error = exc
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        sleep(min(0.5, remaining))
     raise AssertionError(f"GNOME Settings application was not found via AT-SPI after {timeout}s: {last_error}")
 
 
