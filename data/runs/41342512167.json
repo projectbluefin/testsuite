@@ -1,12 +1,12 @@
 {
-  "id": "41292102335",
-  "timestamp": "2026-11-01T18:05:26Z",
+  "id": "41342512167",
+  "timestamp": "2026-11-01T20:04:47Z",
   "stream": "testing",
   "flavor": "dakota",
   "suite": "smoke",
   "version": "40.latest",
   "git_commit": {
-    "sha": "4ad53c7a88772940d8a941feb61ef05ff872a36b",
+    "sha": "7fa605b1110142ba1b120392f235d01cbb34540d",
     "message": "E2E test run compiled via projectbluefin/testsuite",
     "author": "KubeVirt Lab",
     "repo_url": "https://github.com/projectbluefin/testsuite"
@@ -28,7 +28,7 @@
     "passed_tests": 49,
     "failed_tests": 2,
     "skipped_tests": 77,
-    "total_duration_ms": 96822
+    "total_duration_ms": 97381
   },
   "tests": [
     {
@@ -62,56 +62,56 @@
     {
       "name": "Bluefin GNOME extension presence > AppIndicator support extension is enabled",
       "status": "passed",
-      "duration_ms": 867,
+      "duration_ms": 904,
       "error_message": null,
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * GNOME extension \"appindicatorsupport@rgcjonas.gmail.com\" is enabled"
     },
     {
       "name": "Bluefin GNOME extension presence > Bazaar Integration extension is enabled",
       "status": "passed",
-      "duration_ms": 839,
+      "duration_ms": 898,
       "error_message": null,
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * GNOME extension \"bazaar-integration@kolunmi.github.io\" is enabled"
     },
     {
       "name": "Bluefin GNOME extension presence > Blur My Shell extension is enabled",
       "status": "passed",
-      "duration_ms": 854,
+      "duration_ms": 887,
       "error_message": null,
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * GNOME extension \"blur-my-shell@aunetx\" is enabled"
     },
     {
       "name": "Bluefin GNOME extension presence > Caffeine extension is enabled",
       "status": "passed",
-      "duration_ms": 859,
+      "duration_ms": 908,
       "error_message": null,
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * GNOME extension \"caffeine@patapon.info\" is enabled"
     },
     {
       "name": "Bluefin GNOME extension presence > Dash to Dock extension is enabled",
       "status": "passed",
-      "duration_ms": 882,
+      "duration_ms": 887,
       "error_message": null,
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * GNOME extension \"dash-to-dock@micxgx.gmail.com\" is enabled"
     },
     {
       "name": "Bluefin GNOME extension presence > Gradia Integration extension is enabled",
       "status": "passed",
-      "duration_ms": 859,
+      "duration_ms": 891,
       "error_message": null,
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * GNOME extension \"gradia-integration@alexandervanhee.github.io\" is enabled"
     },
     {
       "name": "Bluefin GNOME extension presence > GSConnect extension is enabled",
       "status": "passed",
-      "duration_ms": 886,
+      "duration_ms": 893,
       "error_message": null,
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * GNOME extension \"gsconnect@andyholmes.github.io\" is enabled"
     },
     {
       "name": "Bluefin GNOME extension presence > Custom Command List extension is enabled",
       "status": "passed",
-      "duration_ms": 868,
+      "duration_ms": 890,
       "error_message": null,
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * GNOME extension \"custom-command-list@storageb.github.com\" is enabled"
     },
@@ -209,161 +209,161 @@
     {
       "name": "Dakota desktop identity > ghostty is available as Dakota's terminal",
       "status": "passed",
-      "duration_ms": 199,
+      "duration_ms": 217,
       "error_message": null,
       "logs": "[PASSED] * Run command on VM: \"ghostty --version\"\n[PASSED] * VM command return code is \"0\""
     },
     {
       "name": "Dakota desktop identity > sudo-rs provides the sudo command",
       "status": "passed",
-      "duration_ms": 167,
+      "duration_ms": 156,
       "error_message": null,
       "logs": "[PASSED] * Run command on VM: \"sudo --version\"\n[PASSED] * VM command return code is \"0\"\n[PASSED] * VM command output contains \"sudo-rs\""
     },
     {
       "name": "Dakota desktop identity > Homebrew ships with its first-boot setup service",
       "status": "passed",
-      "duration_ms": 161,
+      "duration_ms": 154,
       "error_message": null,
       "logs": "[PASSED] * Run command on VM: \"test -f /usr/share/homebrew.tar.zst && test -f /usr/lib/systemd/system/brew-setup.service\"\n[PASSED] * VM command return code is \"0\""
     },
     {
       "name": "Dakota desktop identity > distrobox is available",
       "status": "passed",
-      "duration_ms": 164,
+      "duration_ms": 169,
       "error_message": null,
       "logs": "[PASSED] * Run command on VM: \"distrobox --version\"\n[PASSED] * VM command return code is \"0\""
     },
     {
       "name": "Dakota desktop identity > Bazaar Integration extension is enabled",
       "status": "passed",
-      "duration_ms": 908,
+      "duration_ms": 878,
       "error_message": null,
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * GNOME extension \"bazaar-integration@kolunmi.github.io\" is enabled"
     },
     {
       "name": "Dakota GNOME Shell extension presence and configuration > AppIndicator support extension is enabled on Dakota",
       "status": "passed",
-      "duration_ms": 851,
+      "duration_ms": 881,
       "error_message": null,
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * GNOME extension \"appindicatorsupport@rgcjonas.gmail.com\" is enabled"
     },
     {
       "name": "Dakota GNOME Shell extension presence and configuration > Bazaar Integration extension is enabled on Dakota",
       "status": "passed",
-      "duration_ms": 887,
+      "duration_ms": 904,
       "error_message": null,
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * GNOME extension \"bazaar-integration@kolunmi.github.io\" is enabled"
     },
     {
       "name": "Dakota GNOME Shell extension presence and configuration > Blur My Shell extension is enabled on Dakota",
       "status": "passed",
-      "duration_ms": 893,
+      "duration_ms": 875,
       "error_message": null,
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * GNOME extension \"blur-my-shell@aunetx\" is enabled"
     },
     {
       "name": "Dakota GNOME Shell extension presence and configuration > BudsLink Companion extension is enabled on Dakota",
       "status": "passed",
-      "duration_ms": 1065,
+      "duration_ms": 1077,
       "error_message": null,
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * GNOME extension \"BudsLink-Companion@maniacx.github.com\" is enabled\n[PASSED] * Dconf path \"/org/gnome/shell/extensions/BudsLink-Companion/level-indicator-color\" has value \"0\""
     },
     {
       "name": "Dakota GNOME Shell extension presence and configuration > Caffeine extension is enabled on Dakota",
       "status": "passed",
-      "duration_ms": 851,
+      "duration_ms": 883,
       "error_message": null,
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * GNOME extension \"caffeine@patapon.info\" is enabled"
     },
     {
       "name": "Dakota GNOME Shell extension presence and configuration > Custom Command Menu extension is enabled on Dakota",
       "status": "passed",
-      "duration_ms": 1180,
+      "duration_ms": 1223,
       "error_message": null,
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * GNOME extension \"custom-command-list@storageb.github.com\" is enabled\n[PASSED] * Dconf path \"/org/gnome/shell/extensions/custom-command-list/menuoptions-setting\" has value \"2\"\n[PASSED] * Dconf path \"/org/gnome/shell/extensions/custom-command-list/menuicon-setting\" has value \"'ublue-logo-symbolic'\""
     },
     {
       "name": "Dakota GNOME Shell extension presence and configuration > Dash to Dock extension is enabled on Dakota",
       "status": "passed",
-      "duration_ms": 860,
+      "duration_ms": 892,
       "error_message": null,
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * GNOME extension \"dash-to-dock@micxgx.gmail.com\" is enabled"
     },
     {
       "name": "Dakota GNOME Shell extension presence and configuration > Fuzzy Application Search extension is enabled on Dakota",
       "status": "passed",
-      "duration_ms": 873,
+      "duration_ms": 886,
       "error_message": null,
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * GNOME extension \"fuzzy-application-search@mkhl.codeberg.page\" is enabled"
     },
     {
       "name": "Dakota GNOME Shell extension presence and configuration > Gradia Capture Integration extension is enabled on Dakota",
       "status": "passed",
-      "duration_ms": 857,
+      "duration_ms": 885,
       "error_message": null,
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * GNOME extension \"gradia-integration@alexandervanhee.github.io\" is enabled"
     },
     {
       "name": "Dakota GNOME Shell extension presence and configuration > GSConnect extension is enabled on Dakota",
       "status": "passed",
-      "duration_ms": 856,
+      "duration_ms": 891,
       "error_message": null,
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * GNOME extension \"gsconnect@andyholmes.github.io\" is enabled"
     },
     {
       "name": "Dakota GNOME Shell extension presence and configuration > Tiling Shell extension is enabled on Dakota",
       "status": "passed",
-      "duration_ms": 1009,
+      "duration_ms": 1046,
       "error_message": null,
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * GNOME extension \"tilingshell@ferrarodomenico.com\" is enabled\n[PASSED] * Dconf path \"/org/gnome/shell/extensions/tilingshell/show-indicator\" has value \"false\""
     },
     {
       "name": "Dakota GNOME Shell extension presence and configuration > Power status color extension is installed on Dakota",
       "status": "failed",
-      "duration_ms": 701,
+      "duration_ms": 717,
       "error_message": "ASSERT FAILED: Extension 'power-status-color@projectbluefin.io' is not installed in the system",
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[FAILED] * GNOME extension \"power-status-color@projectbluefin.io\" is installed\n\u001b[1;31m[ERROR] ASSERT FAILED: Extension 'power-status-color@projectbluefin.io' is not installed in the system\u001b[0m"
     },
     {
       "name": "Dakota GNOME Shell extension presence and configuration > Quick Settings audio device hider is installed on Dakota",
       "status": "passed",
-      "duration_ms": 377,
+      "duration_ms": 359,
       "error_message": null,
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * GNOME extension \"quicksettings-audio-devices-hider@marcinjahn.com\" is installed"
     },
     {
       "name": "Dakota GNOME Shell extension presence and configuration > Quick Settings audio device renamer is installed on Dakota",
       "status": "passed",
-      "duration_ms": 376,
+      "duration_ms": 367,
       "error_message": null,
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * GNOME extension \"quicksettings-audio-devices-renamer@marcinjahn.com\" is installed"
     },
     {
       "name": "Dakota GNOME Shell extension presence and configuration > Syncthing Toggle extension is installed and configured on Dakota",
       "status": "passed",
-      "duration_ms": 523,
+      "duration_ms": 534,
       "error_message": null,
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * GNOME extension \"syncthing-toggle@projectbluefin.io\" is installed\n[PASSED] * Dconf path \"/org/gnome/shell/extensions/syncthing-toggle/start-stop-only\" has value \"true\""
     },
     {
       "name": "Dakota GNOME Shell extension presence and configuration > Tailscale Quick Settings extension is installed on Dakota",
       "status": "passed",
-      "duration_ms": 346,
+      "duration_ms": 360,
       "error_message": null,
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * GNOME extension \"tailscale-gnome-qs@tailscale-qs.github.io\" is installed"
     },
     {
       "name": "Display fractional scaling smoke tests > Fractional scale 1.5 applies via Mutter DisplayConfig",
       "status": "passed",
-      "duration_ms": 1778,
+      "duration_ms": 1838,
       "error_message": null,
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * Fractional scaling experimental feature is enabled if required\n[PASSED] * Set display scale to the nearest supported value of \"1.5\" via Mutter DisplayConfig\n[PASSED] * Current display scale matches the applied scale\n[PASSED] * GNOME Shell process is running\n[PASSED] * GNOME Shell is accessible via AT-SPI"
     },
     {
       "name": "Display fractional scaling smoke tests > Integer scale 2.0 applies via Mutter DisplayConfig",
       "status": "passed",
-      "duration_ms": 1742,
+      "duration_ms": 1825,
       "error_message": null,
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * Fractional scaling experimental feature is enabled if required\n[PASSED] * Set display scale to the nearest supported value of \"2.0\" via Mutter DisplayConfig\n[PASSED] * Current display scale matches the applied scale\n[PASSED] * GNOME Shell process is running\n[PASSED] * GNOME Shell is accessible via AT-SPI"
     },
@@ -643,14 +643,14 @@
     {
       "name": "GNOME accessibility > Accessibility settings panel is reachable",
       "status": "passed",
-      "duration_ms": 7260,
+      "duration_ms": 7080,
       "error_message": null,
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * Launch Settings via command\n[PASSED] * Settings window is accessible\n[PASSED] * Navigate to Settings panel \"Accessibility\"\n[PASSED] * Settings panel \"Accessibility\" is visible\n[PASSED] * Key combo: \"<Ctrl><Q>\" with uinput\n[PASSED] * Settings is no longer running"
     },
     {
       "name": "GNOME accessibility > High contrast mode can be toggled via gsettings",
       "status": "passed",
-      "duration_ms": 14,
+      "duration_ms": 13,
       "error_message": null,
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * Run and save command output: \"gsettings set org.gnome.desktop.a11y.interface high-contrast true\"\n[PASSED] * Return code of last command output \"is\" \"0\"\n[PASSED] * Run and save command output: \"gsettings get org.gnome.desktop.a11y.interface high-contrast\"\n[PASSED] * Last command output \"contains\" \"true\"\n[PASSED] * Run and save command output: \"gsettings set org.gnome.desktop.a11y.interface high-contrast false\"\n[PASSED] * Return code of last command output \"is\" \"0\""
     },
@@ -664,7 +664,7 @@
     {
       "name": "GNOME accessibility > AT-SPI accessibility bus is reachable from the GNOME session",
       "status": "passed",
-      "duration_ms": 161,
+      "duration_ms": 167,
       "error_message": null,
       "logs": "[PASSED] * GNOME Shell is accessible via AT-SPI\n[PASSED] * AT-SPI accessibility bus is reachable from the GNOME session"
     },
@@ -685,7 +685,7 @@
     {
       "name": "GNOME app launch smoke tests > Files file manager launches successfully",
       "status": "failed",
-      "duration_ms": 16166,
+      "duration_ms": 16168,
       "error_message": "ASSERT FAILED: Visible Files window not found. Visible frames: []",
       "logs": "[FAILED] * the Files file manager launches successfully\n\u001b[1;31m[ERROR] ASSERT FAILED: Visible Files window not found. Visible frames: []\u001b[0m"
     },
@@ -818,14 +818,14 @@
     {
       "name": "GNOME Extensions smoke tests > At least one GNOME extension is installed",
       "status": "passed",
-      "duration_ms": 354,
+      "duration_ms": 369,
       "error_message": null,
       "logs": "[PASSED] * At least one GNOME extension is installed"
     },
     {
       "name": "GNOME Extensions smoke tests > At least one GNOME extension is enabled",
       "status": "passed",
-      "duration_ms": 346,
+      "duration_ms": 368,
       "error_message": null,
       "logs": "[PASSED] * At least one GNOME extension is enabled"
     },
@@ -839,56 +839,56 @@
     {
       "name": "GNOME Extensions smoke tests > No gnome-shell crash on extension load",
       "status": "passed",
-      "duration_ms": 168,
+      "duration_ms": 173,
       "error_message": null,
       "logs": "[PASSED] * No gnome-shell extension load journal errors exist"
     },
     {
       "name": "GNOME Files smoke tests > Files launches and window is accessible",
       "status": "passed",
-      "duration_ms": 3096,
+      "duration_ms": 2819,
       "error_message": null,
       "logs": "[PASSED] * Launch Files via command\n[PASSED] * Files window is accessible\n[PASSED] * Files window is accessible"
     },
     {
       "name": "GNOME Files smoke tests > Home folder is in the sidebar",
       "status": "passed",
-      "duration_ms": 2750,
+      "duration_ms": 2755,
       "error_message": null,
       "logs": "[PASSED] * Launch Files via command\n[PASSED] * Files window is accessible\n[PASSED] * Home folder is in the sidebar"
     },
     {
       "name": "GNOME Files smoke tests > Navigating to home folder shows contents",
       "status": "passed",
-      "duration_ms": 4856,
+      "duration_ms": 4967,
       "error_message": null,
       "logs": "[PASSED] * Launch Files via command\n[PASSED] * Files window is accessible\n[PASSED] * Navigate to \"Home\" in Files sidebar\n[PASSED] * Navigating to home folder shows file listing"
     },
     {
       "name": "GNOME Files smoke tests > Back button returns to previous location after navigating to Downloads",
       "status": "passed",
-      "duration_ms": 3979,
+      "duration_ms": 4059,
       "error_message": null,
       "logs": "[PASSED] * Launch Files via command\n[PASSED] * Files window is accessible\n[PASSED] * Navigate to \"Downloads\" in Files sidebar\n[PASSED] * Nautilus location shows \"Downloads\"\n[PASSED] * Key combo: \"<Alt>Left\" with uinput\n[PASSED] * Nautilus location shows \"Home\""
     },
     {
       "name": "GNOME Files smoke tests > New folder dialog opens via keyboard shortcut Ctrl+Shift+N",
       "status": "passed",
-      "duration_ms": 3197,
+      "duration_ms": 3219,
       "error_message": null,
       "logs": "[PASSED] * Launch Files via command\n[PASSED] * Files window is accessible\n[PASSED] * Key combo: \"<Control><Shift>n\" with uinput\n[PASSED] * New folder dialog is open"
     },
     {
       "name": "GNOME Files smoke tests > Search bar opens via Ctrl+F",
       "status": "passed",
-      "duration_ms": 2786,
+      "duration_ms": 2799,
       "error_message": null,
       "logs": "[PASSED] * Launch Files via command\n[PASSED] * Files window is accessible\n[PASSED] * Key combo: \"<Control>f\" with uinput\n[PASSED] * File search bar is open in Files"
     },
     {
       "name": "GNOME Files smoke tests > Files closes cleanly via Ctrl+W",
       "status": "passed",
-      "duration_ms": 2964,
+      "duration_ms": 3022,
       "error_message": null,
       "logs": "[PASSED] * Launch Files via command\n[PASSED] * Files window is accessible\n[PASSED] * Key combo: \"<Ctrl><W>\" with uinput\n[PASSED] * Files is no longer running"
     },
@@ -902,28 +902,28 @@
     {
       "name": "GNOME notification smoke tests > Desktop notification can be sent and acknowledged",
       "status": "passed",
-      "duration_ms": 361,
+      "duration_ms": 354,
       "error_message": null,
       "logs": "[PASSED] * A test desktop notification is sent via gdbus\n[PASSED] * Notification request returns a positive notification ID"
     },
     {
       "name": "GNOME notification smoke tests > Notification history is accessible from Quick Settings",
       "status": "passed",
-      "duration_ms": 1625,
+      "duration_ms": 1690,
       "error_message": null,
       "logs": "[PASSED] * A test desktop notification is sent via gdbus\n[PASSED] * Open date menu via Shell.Eval\n[PASSED] * Date menu panel is open via Shell.Eval\n[PASSED] * Close date menu via Shell.Eval"
     },
     {
       "name": "GNOME notification smoke tests > Toast notification banner can be dismissed",
       "status": "passed",
-      "duration_ms": 21704,
+      "duration_ms": 21682,
       "error_message": null,
       "logs": "[PASSED] * A test desktop notification is sent via gdbus\n[PASSED] * Notification request returns a positive notification ID\n[PASSED] * Dismiss the notification via gdbus CloseNotification\n[PASSED] * Notification banner is no longer showing via Shell.Eval"
     },
     {
       "name": "GNOME notification smoke tests > No gnome-shell journal errors after notification",
       "status": "passed",
-      "duration_ms": 489,
+      "duration_ms": 494,
       "error_message": null,
       "logs": "[PASSED] * A test desktop notification is sent via gdbus\n[PASSED] * No gnome-shell notification journal errors are present"
     }
