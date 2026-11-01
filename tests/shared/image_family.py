@@ -10,7 +10,12 @@ def image_name(image: str) -> str:
 
 
 def image_under_test(userdata=None) -> str:
-    """Return the input image, not a composed run-scoped testsuite image."""
+    """Return the input image, not a composed run-scoped testsuite image.
+
+    Precedence is BASE_IMAGE, then IMAGE, then ``-D image=`` (userdata), as
+    the common suite has always resolved it. This differs from the software
+    suite, which checks ``-D image=`` before IMAGE.
+    """
     return (
         os.environ.get("BASE_IMAGE")
         or os.environ.get("IMAGE")

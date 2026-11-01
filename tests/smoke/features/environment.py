@@ -318,9 +318,10 @@ def _detect_image_family(context) -> None:
     """Set is_bluefin_image / is_dakota_image for variant-tagged scenarios.
 
     Composed runs replace IMAGE with ghcr.io/<owner>/testsuite-e2e:run-<id>,
-    which carries no family, so BASE_IMAGE and then ``-D image=`` (via
-    image_under_test) identify the image under test. Only the image name is
-    matched, so the "projectbluefin" org cannot false-positive.
+    which carries no family, so image_under_test() checks BASE_IMAGE first,
+    then IMAGE, then ``-D image=``. The GUI runner container always sets
+    IMAGE, so ``-D image=`` only applies to local runs without it. Only the
+    image name is matched, so the "projectbluefin" org cannot false-positive.
     """
     userdata = getattr(getattr(context, "config", None), "userdata", None)
     image_ref = image_under_test(userdata if isinstance(userdata, dict) else None)
