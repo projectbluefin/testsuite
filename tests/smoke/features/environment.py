@@ -17,6 +17,7 @@ import re as _re
 import subprocess as _subprocess
 
 from tests.shared.failed_setup import record_failed_setup, write_failed_setup_marker
+from tests.shared.image_family import image_under_test, is_bluefin_image, is_dakota_image
 from tests.shared.results_dir import resolve_results_dir
 
 try:
@@ -313,6 +314,25 @@ OPTIONAL_SCENARIO_TARGETS = {
 }
 
 
+def _detect_image_family(context) -> None:
+    """Set is_bluefin_image / is_dakota_image for variant-tagged scenarios.
+
+    Composed runs replace IMAGE with ghcr.io/<owner>/testsuite-e2e:run-<id>,
+    which carries no family, so image_under_test() checks BASE_IMAGE first,
+    then IMAGE, then ``-D image=``. The GUI runner container always sets
+    IMAGE, so ``-D image=`` only applies to local runs without it. Only the
+    image name is matched, so the "projectbluefin" org cannot false-positive.
+    """
+    userdata = getattr(getattr(context, "config", None), "userdata", None)
+    image_ref = image_under_test(userdata if isinstance(userdata, dict) else None)
+    if image_ref:
+        context.is_bluefin_image = is_bluefin_image(image_ref)
+        context.is_dakota_image = is_dakota_image(image_ref)
+    else:
+        context.is_bluefin_image = True  # default to Bluefin when no image is known
+        context.is_dakota_image = False
+
+
 def before_all(context) -> None:
     import time
     import subprocess
@@ -506,18 +526,7 @@ def before_all(context) -> None:
     else:
         print("WARNING: clock/system toggles not found after 15s — proceeding anyway", flush=True)
 
-    # Detect image family so variant-tagged scenarios can be skipped on the
-    # wrong image. Match only the image name component (last path segment before
-    # ':' or '@') — the org "projectbluefin" must not be treated as an image name.
-    image_ref = os.environ.get("IMAGE", "")
-    if image_ref:
-        _lower = image_ref.lower()
-        _name = _lower.split("/")[-1].split(":")[0].split("@")[0]
-        context.is_bluefin_image = "bluefin" in _name or "bazzite" in _name
-        context.is_dakota_image = "dakota" in _name
-    else:
-        context.is_bluefin_image = True  # default to Bluefin when IMAGE is unset
-        context.is_dakota_image = False
+    _detect_image_family(context)
 
     try:
         context.optional_scenario_availability = {

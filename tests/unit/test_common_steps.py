@@ -249,6 +249,26 @@ class TestCommonEnvironmentDakotaOnly:
         assert scenario.skip_message is None
 
 
+class TestCommonEnvironmentSkipUtah:
+    def test_skips_skip_utah_on_utah_image(self):
+        m = _import_common_environment()
+        context = _ctx(is_bluefin_image=True, is_utah_image=True, has_brew=True)
+        scenario = _Scenario(["bluefin", "skip_utah"])
+
+        m.before_scenario(context, scenario)
+
+        assert "Skipping @skip_utah scenario" in scenario.skip_message
+
+    def test_allows_skip_utah_on_bluefin_image(self):
+        m = _import_common_environment()
+        context = _ctx(is_bluefin_image=True, is_utah_image=False, has_brew=True)
+        scenario = _Scenario(["bluefin", "skip_utah"])
+
+        m.before_scenario(context, scenario)
+
+        assert scenario.skip_message is None
+
+
 class TestCommonEnvironmentRequiresToggleAction:
     def test_skips_when_recipe_lacks_action_value(self):
         m = _import_common_environment(run_ssh_returncode=1)
@@ -499,6 +519,20 @@ class TestBeforeAllPrefersBaseImage:
         context = self._run(monkeypatch, image=self.COMPOSED)
 
         assert context.is_bluefin_image is False
+        assert context.is_dakota_image is False
+
+    @pytest.mark.parametrize(
+        "base_image",
+        [
+            "ghcr.io/projectbluefin/utah@sha256:abc123",
+            "ghcr.io/projectbluefin/common:e2e-pr-42-abc",
+        ],
+    )
+    def test_common_layer_consumers_run_bluefin_scenarios(self, monkeypatch, base_image):
+        """Utah and common PR e2e ship common's bluefin tree; skipping them was a false green (#1073)."""
+        context = self._run(monkeypatch, base_image=base_image, image=self.COMPOSED)
+
+        assert context.is_bluefin_image is True
         assert context.is_dakota_image is False
 
 
