@@ -1,0 +1,42 @@
+{
+  "id": "41254567923",
+  "timestamp": "2026-11-01T00:15:20Z",
+  "stream": "testing",
+  "flavor": "dakota",
+  "suite": "smoke",
+  "version": "40.latest",
+  "git_commit": {
+    "sha": "0a6cc8a531d7f68c3964f064387a969c46218339",
+    "message": "E2E test run compiled via projectbluefin/testsuite",
+    "author": "KubeVirt Lab",
+    "repo_url": "https://github.com/projectbluefin/testsuite"
+  },
+  "environment": {
+    "runner_id": "homelab-kubevirt-worker",
+    "kubevirt_version": "v1.2.0",
+    "k3s_version": "v1.29.3",
+    "hardware_profile": {
+      "cpu_cores": 8,
+      "memory_gb": 32,
+      "gpu": "None",
+      "disk_type": "NVMe"
+    }
+  },
+  "summary": {
+    "status": "success",
+    "total_tests": 1,
+    "passed_tests": 0,
+    "failed_tests": 0,
+    "skipped_tests": 1,
+    "total_duration_ms": 0
+  },
+  "tests": [
+    {
+      "name": "Firefox smoke tests > Firefox launches without crashing",
+      "status": "skipped",
+      "duration_ms": 0,
+      "error_message": null,
+      "logs": "[SKIPPED] * Launch Firefox via command\n[SKIPPED] * Firefox main window is accessible\n[SKIPPED] * No coredump entries exist on the host for \"firefox\""
+    }
+  ]
+}
