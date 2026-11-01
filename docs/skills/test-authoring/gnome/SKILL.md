@@ -244,10 +244,10 @@ The smoke suite's UUID-specific extension checks use the same
 `_run_host(...)` helper so they work both inside the VM and from the Fedora
 runner container over SSH.
 
-Bluefin's 9 bundled extensions each get a named scenario in
-`tests/smoke/features/bluefin_extensions.feature`. Tag the
-`search-light@icedman.github.com` scenario `@bluefin` and guard it with
-`... is installed, otherwise skip on GNOME 51+` (missing on older shells fails).
+Bluefin's bundled extensions each get a named scenario in
+`tests/smoke/features/bluefin_extensions.feature`; guard ones newer GNOME stops
+shipping with `@bluefin` and `... is installed, otherwise skip on GNOME 51+`.
+Super+Space is Compass (`org.tunaos.compass` Flatpak): `compass_launcher.feature`.
 
 Use the distinct step phrase `GNOME extension "{uuid}" is enabled` (not
 bazzite's `Extension "{uuid}" is enabled`) to avoid cross-suite step collisions.

@@ -45,10 +45,3 @@ Feature: Bluefin GNOME extension presence
   Scenario: Custom Command List extension is enabled
     * GNOME Shell is accessible via AT-SPI
     * GNOME extension "custom-command-list@storageb.github.com" is enabled
-
-  @bluefin @extensions
-  Scenario: Search Light extension is enabled
-    # Broken on GNOME 51: GNOME 51 images do not ship it, so skip there only.
-    * GNOME extension "search-light@icedman.github.com" is installed, otherwise skip on GNOME 51+
-    * GNOME Shell is accessible via AT-SPI
-    * GNOME extension "search-light@icedman.github.com" is enabled
