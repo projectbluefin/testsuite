@@ -51,7 +51,8 @@ def _calculator_app():
     except Exception as exc:  # noqa: BLE001
         last_error = exc
     raise AssertionError(
-        f"GNOME Calculator application was not found via AT-SPI: {last_error}"
+        f"GNOME Calculator application was not found via AT-SPI: "
+        f"{last_error or f'none of {CALCULATOR_APP_NAMES} registered'}"
     )
 
 

@@ -262,7 +262,7 @@ class TestCalculatorApp:
 
     def test_missing_app_fails_without_retrying_lookup(self, monkeypatch):
         m, clock, root = self._run(monkeypatch, [])
-        with pytest.raises(AssertionError, match="GNOME Calculator application was not found"):
+        with pytest.raises(AssertionError, match="GNOME Calculator application was not found via AT-SPI: none of .* registered"):
             m._calculator_app()
         assert clock.now == 0.0
         assert root.application_calls == []

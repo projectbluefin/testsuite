@@ -145,7 +145,7 @@ class TestTextEditorApp:
         tree_mock = MagicMock()
         tree_mock.root.applications.return_value = []
         with patch.object(self.m, "tree", tree_mock):
-            with pytest.raises(AssertionError, match="GNOME Text Editor application was not found"):
+            with pytest.raises(AssertionError, match="GNOME Text Editor application was not found via AT-SPI: none of .* registered"):
                 self.m._text_editor_app()
         tree_mock.root.application.assert_not_called()
 

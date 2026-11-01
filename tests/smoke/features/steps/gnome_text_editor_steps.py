@@ -44,7 +44,8 @@ def _text_editor_app():
     except Exception as exc:  # noqa: BLE001
         last_error = exc
     raise AssertionError(
-        f"GNOME Text Editor application was not found via AT-SPI: {last_error}"
+        f"GNOME Text Editor application was not found via AT-SPI: "
+        f"{last_error or f'none of {TEXT_EDITOR_APP_NAMES} registered'}"
     )
 
 
