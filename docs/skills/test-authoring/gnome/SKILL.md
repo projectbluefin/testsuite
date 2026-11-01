@@ -350,6 +350,16 @@ merged into `os.environ` for local `Popen`, and forwarded across the Flatpak
 sandbox boundary with `--env=`. Environment set outside a Flatpak sandbox is
 **not** visible inside it — always use the `env=` parameter, never a shell prefix.
 
+SSH-mode launches go through `detached_launch_command()` in
+`tests/shared/app_support.py`. It starts the app in a transient
+`systemd-run --user` unit, not as a `nohup ... & disown` child of the SSH
+session. Dakota's logind uses `KillUserProcesses=yes`, systemd's upstream
+default, so it SIGTERMs everything left in the SSH session scope when the
+connection closes. A `nohup` child dies before it maps a window. The VM serial
+log then shows `session-cN.scope: Killing process ... (nohup)`, and the test
+reports that Files or Settings was "not found via AT-SPI". Never hand-roll
+`nohup ... & disown` over SSH for a GUI app.
+
 An **exported Flatpak desktop entry is a trap**: an app ID under
 `/var/lib/flatpak/exports/share/applications/` looks like an ordinary desktop
 target, but `gio launch` / `gtk-launch` starts it inside the sandbox and silently
