@@ -662,3 +662,26 @@ runs:
           echo "::error::qecore/Behave did not exit successfully (${GNOME_E2E_BEHAVE_RC:-missing exit code})"
           exit 1
         fi
+
+    # ── Mandatory-coverage gate (every other suite) ───────────────────────────
+    # The run step records behave's exit code without failing, and the
+    # summarise step only renders a headline, so without this gate a lane that
+    # executed nothing (missing/empty/truncated results.json, setup failure,
+    # zero passing scenarios) finished green. scripts/assert_passed.py is the
+    # same verdict contract e2e.yml uses for its desktop suites.
+    - name: Gate suite has passing scenarios
+      if: always() && inputs.suite != 'extensions' && inputs.suite != 'gnomeos-canary'
+      shell: bash
+      env:
+        GNOME_E2E_BEHAVE_RC: ${{ steps.run.outputs.behave_rc }}
+      run: |
+        GATE="_testsuite/scripts/assert_passed.py"
+        if [[ ! -f "${GATE}" ]]; then
+          echo "::error::Mandatory-coverage gate script missing: ${GATE} not in the testsuite checkout. Failing closed."
+          exit 1
+        fi
+        python3 "${GATE}" results/results.json
+        if [[ "${GNOME_E2E_BEHAVE_RC}" != "0" ]]; then
+          echo "::error::qecore/Behave did not exit successfully (${GNOME_E2E_BEHAVE_RC:-missing exit code})"
+          exit 1
+        fi

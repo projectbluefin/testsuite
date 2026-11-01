@@ -390,3 +390,25 @@ def test_extension_validation_gate_step_is_present_and_scoped():
     assert "if: always() && (inputs.suite == 'extensions' || inputs.suite == 'gnomeos-canary')" in step
     assert "_testsuite/scripts/extension_validation.py" in step
     assert "results/results.json" in step
+
+
+def test_other_suites_are_gated_on_passing_scenarios():
+    """Suites outside the extension gate must not finish green with nothing passed.
+
+    The gate runs even when behave failed (``always()``), uses the shared
+    scripts/assert_passed.py verdict, and also fails on a non-zero behave exit.
+    """
+    action = _action_text()
+    step = action.partition("- name: Gate suite has passing scenarios")[2]
+    assert step, "Gate suite has passing scenarios step not found in the gnome-e2e action"
+    step = step.partition("\n    - name:")[0]
+
+    assert (
+        "if: always() && inputs.suite != 'extensions' && inputs.suite != 'gnomeos-canary'"
+        in step
+    )
+    assert "_testsuite/scripts/assert_passed.py" in step
+    assert "results/results.json" in step
+    assert "GNOME_E2E_BEHAVE_RC" in step
+    assert 'exit 1' in step
+
