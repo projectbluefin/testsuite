@@ -261,9 +261,30 @@ does not prove that the candidate ever booted.
 These checks establish distinct observed deployments, not fixture provenance.
 Mandatory release qualification still needs independently pinned source/candidate
 refs, verification against the intended candidate rather than just the observed
-staged image, rejection of stale pre-staging, and a verdict that rejects skipped
-required scenarios. The existing workflow's `bootc switch` pre-staging and the
+staged image, and rejection of stale pre-staging. The existing workflow's
+`bootc switch` pre-staging and the
 external `projectbluefin/actions` upgrade caller do not establish those guarantees
 (remaining work in #1023, coordinated with the second-image prerequisite in #706).
 Do not cite a unit test or a Behave dry-run as evidence of a hosted upgrade and
 rollback; retain the real VM's status, digest and reboot evidence separately.
+
+### Targeted runs reject skipped required scenarios
+
+When the existing `TARGET_IMAGE` environment variable is non-empty, the lifecycle
+`after_all` hook checks every loaded scenario containing the mandatory
+`bootc upgrade output indicates image was staged` assertion. Each required
+scenario and each of its steps must have passed. Optional capability probes may
+still skip; an empty required set cannot qualify. The hook reads the runner's
+complete parsed feature model because tag-filtered scenarios/features do not
+receive scenario/feature hooks. Filtering a required scenario therefore cannot
+turn missing coverage into success. A hook assertion makes Behave exit nonzero,
+which the existing workflow already propagates as its verdict.
+
+Untargeted exploratory/manual runs (no `TARGET_IMAGE`) keep their existing skip
+behaviour and do not establish targeted upgrade qualification. A manual run that
+supplies a target gets the same strict guard as CI. This guard checks the loaded
+features, not an inventory of every feature file: callers must still select the
+full required lifecycle coverage. It does not establish pinned fixture provenance
+or replace the outstanding hosted positive/negative runs. Regression tests beside
+the digest-evidence tests exercise both the model checks and real Behave exit
+codes for runtime skips, tag-filtered skips, and untargeted exploratory skips.
