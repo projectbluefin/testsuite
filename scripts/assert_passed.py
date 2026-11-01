@@ -7,8 +7,9 @@ every scenario was skipped/undefined/untested, so a smoke lane whose
 is a false green: nothing was executed, yet qualification passed.
 
 This gate is the verdict contract for the desktop suites in ``e2e.yml`` (KDE
-and the smoke/developer/dx/software/vanilla-gnome/bazzite lanes); the ``gnome-e2e``
-action does not call it yet (a follow-up). It fails the job when
+and the smoke/developer/dx/software/vanilla-gnome/bazzite lanes) and for every
+``gnome-e2e`` action suite except ``extensions``/``gnomeos-canary`` (those use
+``extension_validation.py``). It fails the job when
 the run cannot authorize qualification:
 
 - the results file is missing after the run,
