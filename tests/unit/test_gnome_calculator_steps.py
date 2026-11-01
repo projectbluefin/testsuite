@@ -244,3 +244,25 @@ class TestCalculatorIsNoLongerRunning:
             m.calculator_is_no_longer_running(MagicMock())
         assert clock.now == 10.0  # 20 polls x 0.5s, nothing multiplied
         assert root.application_calls == []
+
+
+class TestCalculatorApp:
+    def _run(self, monkeypatch, apps):
+        m = _import_calculator_steps()
+        clock = types.SimpleNamespace(now=0.0)
+        root = _RetryingRoot(clock, apps)
+        monkeypatch.setattr(m, "tree", types.SimpleNamespace(root=root))
+        return m, clock, root
+
+    def test_returns_app_matching_any_alias(self, monkeypatch):
+        app = _App("Calculator")
+        m, clock, root = self._run(monkeypatch, [_App("gnome-shell"), app])
+        assert m._calculator_app() is app
+        assert root.application_calls == []
+
+    def test_missing_app_fails_without_retrying_lookup(self, monkeypatch):
+        m, clock, root = self._run(monkeypatch, [])
+        with pytest.raises(AssertionError, match="GNOME Calculator application was not found"):
+            m._calculator_app()
+        assert clock.now == 0.0
+        assert root.application_calls == []

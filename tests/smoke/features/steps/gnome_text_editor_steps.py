@@ -35,12 +35,14 @@ BUTTON_ROLES = {"push button", "button"}
 
 
 def _text_editor_app():
+    """Take one ``applications()`` snapshot; dogtail's per-name lookup retries internally."""
     last_error = None
-    for name in TEXT_EDITOR_APP_NAMES:
-        try:
-            return tree.root.application(name)
-        except Exception as exc:  # noqa: BLE001
-            last_error = exc
+    try:
+        for app in tree.root.applications():
+            if (getattr(app, "name", "") or "").strip("'\" ") in TEXT_EDITOR_APP_NAMES:
+                return app
+    except Exception as exc:  # noqa: BLE001
+        last_error = exc
     raise AssertionError(
         f"GNOME Text Editor application was not found via AT-SPI: {last_error}"
     )

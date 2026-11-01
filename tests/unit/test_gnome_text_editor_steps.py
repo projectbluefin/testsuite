@@ -122,35 +122,40 @@ class TestTextEditorApp:
 
     def test_returns_first_matching_app(self):
         mock_app = MagicMock()
+        mock_app.name = "gnome-text-editor"
         tree_mock = MagicMock()
-        tree_mock.root.application.return_value = mock_app
+        tree_mock.root.applications.return_value = [mock_app]
         with patch.object(self.m, "tree", tree_mock):
             result = self.m._text_editor_app()
         assert result is mock_app
 
-    def test_tries_next_name_when_first_raises(self):
-        mock_app = MagicMock()
-        call_count = {"n": 0}
-
-        def side_effect(name):
-            call_count["n"] += 1
-            if call_count["n"] == 1:
-                raise RuntimeError("not found")
-            return mock_app
-
+    def test_matches_any_alias_in_snapshot(self):
+        other = MagicMock()
+        other.name = "gnome-shell"
+        editor = MagicMock()
+        editor.name = "Text Editor"
         tree_mock = MagicMock()
-        tree_mock.root.application.side_effect = side_effect
+        tree_mock.root.applications.return_value = [other, editor]
         with patch.object(self.m, "tree", tree_mock):
             result = self.m._text_editor_app()
-        assert result is mock_app
-        assert call_count["n"] == 2
+        assert result is editor
+        tree_mock.root.application.assert_not_called()
 
-    def test_raises_assertion_error_when_all_names_fail(self):
+    def test_raises_without_per_alias_lookup_when_app_missing(self):
         tree_mock = MagicMock()
-        tree_mock.root.application.side_effect = RuntimeError("not found")
+        tree_mock.root.applications.return_value = []
         with patch.object(self.m, "tree", tree_mock):
             with pytest.raises(AssertionError, match="GNOME Text Editor application was not found"):
                 self.m._text_editor_app()
+        tree_mock.root.application.assert_not_called()
+
+    def test_reports_snapshot_error(self):
+        tree_mock = MagicMock()
+        tree_mock.root.applications.side_effect = RuntimeError("bus gone")
+        with patch.object(self.m, "tree", tree_mock):
+            with pytest.raises(AssertionError, match="bus gone"):
+                self.m._text_editor_app()
+        tree_mock.root.application.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -540,7 +545,8 @@ class TestTextEditorSaveDialogIsOpen:
         context = MagicMock()
         app, dialog = self._make_app_with_save_dialog()
         tree_mock = MagicMock()
-        tree_mock.root.application.return_value = app
+        app.name = "gnome-text-editor"
+        tree_mock.root.applications.return_value = [app]
         with patch.object(self.m, "tree", tree_mock), \
              patch("time.sleep"):
             self.m.text_editor_save_dialog_is_open(context)
@@ -550,7 +556,8 @@ class TestTextEditorSaveDialogIsOpen:
         app = MagicMock()
         app.findChildren.return_value = []
         tree_mock = MagicMock()
-        tree_mock.root.application.return_value = app
+        app.name = "gnome-text-editor"
+        tree_mock.root.applications.return_value = [app]
         with patch.object(self.m, "tree", tree_mock), \
              patch("time.sleep"):
             with pytest.raises(AssertionError, match="save dialog was not found"):
@@ -579,7 +586,8 @@ class TestTextEditorSaveDialogIsOpen:
 
         app.findChildren.side_effect = app_find
         tree_mock = MagicMock()
-        tree_mock.root.application.return_value = app
+        app.name = "gnome-text-editor"
+        tree_mock.root.applications.return_value = [app]
         with patch.object(self.m, "tree", tree_mock), \
              patch("time.sleep"):
             self.m.text_editor_save_dialog_is_open(context)
@@ -621,7 +629,8 @@ class TestTextEditorDiscardDialogIsOpen:
         context = MagicMock()
         app, dialog = self._make_app_with_discard_dialog()
         tree_mock = MagicMock()
-        tree_mock.root.application.return_value = app
+        app.name = "gnome-text-editor"
+        tree_mock.root.applications.return_value = [app]
         with patch.object(self.m, "tree", tree_mock), \
              patch("time.sleep"):
             self.m.text_editor_discard_dialog_is_open(context)
@@ -650,7 +659,8 @@ class TestTextEditorDiscardDialogIsOpen:
 
         app.findChildren.side_effect = app_find
         tree_mock = MagicMock()
-        tree_mock.root.application.return_value = app
+        app.name = "gnome-text-editor"
+        tree_mock.root.applications.return_value = [app]
         with patch.object(self.m, "tree", tree_mock), \
              patch("time.sleep"):
             with pytest.raises(AssertionError, match="discard dialog"):
@@ -660,7 +670,8 @@ class TestTextEditorDiscardDialogIsOpen:
         app = MagicMock()
         app.findChildren.return_value = []
         tree_mock = MagicMock()
-        tree_mock.root.application.return_value = app
+        app.name = "gnome-text-editor"
+        tree_mock.root.applications.return_value = [app]
         with patch.object(self.m, "tree", tree_mock), \
              patch("time.sleep"):
             with pytest.raises(AssertionError, match="discard dialog"):
@@ -689,7 +700,8 @@ class TestTextEditorDiscardDialogIsOpen:
 
         app.findChildren.side_effect = app_find
         tree_mock = MagicMock()
-        tree_mock.root.application.return_value = app
+        app.name = "gnome-text-editor"
+        tree_mock.root.applications.return_value = [app]
         with patch.object(self.m, "tree", tree_mock), \
              patch("time.sleep"):
             self.m.text_editor_discard_dialog_is_open(context)

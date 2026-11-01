@@ -42,12 +42,14 @@ BUTTON_ALIASES = {
 
 
 def _calculator_app():
+    """Take one ``applications()`` snapshot; dogtail's per-name lookup retries internally."""
     last_error = None
-    for name in CALCULATOR_APP_NAMES:
-        try:
-            return tree.root.application(name)
-        except Exception as exc:  # noqa: BLE001
-            last_error = exc
+    try:
+        for app in tree.root.applications():
+            if (getattr(app, "name", "") or "").strip("'\" ") in CALCULATOR_APP_NAMES:
+                return app
+    except Exception as exc:  # noqa: BLE001
+        last_error = exc
     raise AssertionError(
         f"GNOME Calculator application was not found via AT-SPI: {last_error}"
     )
