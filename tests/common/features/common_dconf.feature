@@ -84,6 +84,8 @@ Feature: Bluefin common dconf and GSettings defaults
     * SSH command return code is "0"
     * SSH command output stripped "is" "'xdg-terminal-exec'"
 
+  # Bluefin's pinned common still ships Searchlight; Utah's newer pin does not (#1076).
+  @skip_utah
   Scenario: Searchlight extension is configured
     * Run SSH command: "dconf read /org/gnome/shell/extensions/search-light/shortcut-search"
     * SSH command return code is "0"

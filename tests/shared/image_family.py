@@ -31,3 +31,7 @@ def is_bluefin_image(image: str) -> bool:
 
 def is_dakota_image(image: str) -> bool:
     return "dakota" in image_name(image)
+
+
+def is_utah_image(image: str) -> bool:
+    return "utah" in image_name(image)

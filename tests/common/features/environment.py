@@ -11,6 +11,7 @@ from tests.shared.image_family import (
     image_under_test,
     is_bluefin_image as _is_bluefin_image,
     is_dakota_image as _is_dakota_image,
+    is_utah_image as _is_utah_image,
 )
 from tests.shared.ssh_config import _first_value
 from tests.shared.ssh_steps import *  # noqa: F401,F403
@@ -126,6 +127,7 @@ def before_all(context):
     context.is_bluefin_image = _is_bluefin_image(image_ref) if image_ref else True
     context.is_dakota_image = _is_dakota_image(image_ref) if image_ref else False
     context.is_projectbluefin_image = _is_projectbluefin_image(image_ref)
+    context.is_utah_image = _is_utah_image(image_ref) if image_ref else False
     context.vm_ip = _first_value(
         userdata.get("vm_ip", ""),
         userdata.get("host", ""),
@@ -210,6 +212,10 @@ def before_scenario(context, scenario):
             f"Skipping @dakota_only scenario on non-Dakota image "
             f"(IMAGE={os.environ.get('IMAGE', 'unknown')})"
         )
+        return
+    # Temporary: drop @skip_utah once #1076 replaces the scenarios it gates.
+    if "skip_utah" in scenario_tags and getattr(context, "is_utah_image", False):
+        scenario.skip("Skipping @skip_utah scenario: Utah's common pin no longer ships it")
         return
     if "requires_brew" in scenario_tags and not _has_brew(context):
         scenario.skip("Homebrew not present on this image")

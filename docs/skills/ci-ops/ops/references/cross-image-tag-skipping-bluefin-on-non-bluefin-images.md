@@ -22,7 +22,10 @@ URL-wide check would select Bluefin scenarios on Dakota.
 Bluefin-family names are `bluefin`, `bazzite`, `utah`, and `common`. Common's PR
 e2e image is named `common`, but it overlays common's `shared` and `bluefin`
 trees onto its base image. Utah is Bluefin built on Fedora Hummingbird. Dakota
-remains separate and selects `@dakota_only` scenarios.
+remains separate and selects `@dakota_only` scenarios. In the common suite,
+`@skip_utah` excludes a `@bluefin` scenario on Utah only: it marks content that
+Bluefin's common pin still ships but Utah's newer pin does not (the Searchlight
+dconf scenario, until #1076 replaces it).
 
 The smoke suite runs inside the GUI runner container, so it only sees
 `BASE_IMAGE` if `e2e.yml` passes it into that container (`-e BASE_IMAGE` and

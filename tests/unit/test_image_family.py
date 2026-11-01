@@ -9,6 +9,7 @@ from tests.shared.image_family import (
     image_under_test,
     is_bluefin_image,
     is_dakota_image,
+    is_utah_image,
 )
 
 
@@ -102,3 +103,17 @@ def test_smoke_defaults_to_bluefin_when_no_image_is_known():
 
     assert context.is_bluefin_image is True
     assert context.is_dakota_image is False
+
+
+@pytest.mark.parametrize(
+    ("image", "expected"),
+    [
+        ("ghcr.io/projectbluefin/utah@sha256:abc", True),
+        ("ghcr.io/projectbluefin/utah:testing", True),
+        ("ghcr.io/projectbluefin/bluefin:testing", False),
+        ("ghcr.io/utah/bluefin:testing", False),
+        ("", False),
+    ],
+)
+def test_is_utah_image_matches_image_name_only(image, expected):
+    assert is_utah_image(image) is expected
