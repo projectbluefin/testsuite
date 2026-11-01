@@ -501,6 +501,20 @@ class TestBeforeAllPrefersBaseImage:
         assert context.is_bluefin_image is False
         assert context.is_dakota_image is False
 
+    @pytest.mark.parametrize(
+        "base_image",
+        [
+            "ghcr.io/projectbluefin/utah@sha256:abc123",
+            "ghcr.io/projectbluefin/common:e2e-pr-42-abc",
+        ],
+    )
+    def test_common_layer_consumers_run_bluefin_scenarios(self, monkeypatch, base_image):
+        """Utah and common PR e2e ship common's bluefin tree; skipping them was a false green (#1073)."""
+        context = self._run(monkeypatch, base_image=base_image, image=self.COMPOSED)
+
+        assert context.is_bluefin_image is True
+        assert context.is_dakota_image is False
+
 
 class TestCommonEnvironmentBootcUnifiedStorage:
     def test_restarts_service_when_result_is_not_success(self):
