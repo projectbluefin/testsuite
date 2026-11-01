@@ -177,7 +177,7 @@ assert actual in DOCUMENT_VIEWERS
 
 This validates the MIME database end-to-end (xdg-mime, .desktop file registration, mimeapps.list) without window management flake.
 
-For lightweight smoke-suite CLI assertions (for example `gsettings`, `pgrep`, or `journalctl` checks), prefer qecore's built-in command capture steps in the `.feature` file instead of adding wrappers:
+For lightweight smoke-suite CLI assertions (for example `gsettings`, `pgrep`, or `journalctl` checks), prefer qecore's built-in command capture steps in the `.feature` file instead of adding wrappers. In CI the smoke suite runs inside the GUI runner container, and qecore's `Run and save command output` executes **there**, not in the VM. Anything that must observe the image (a binary on `PATH`, `sudo --version`, a shipped file) must use `Run command on VM:` with `VM command return code is` / `VM command output contains` from `tests/smoke/features/steps/orca_steps.py`. A runner-side check fails with exit `127` or empty output on Dakota, and can pass falsely on an image where the runner happens to ship the same tool:
 
 For MIME-handler coverage, prefer direct `subprocess.run(["xdg-mime", "query", "default", mime])` helpers in `tests/smoke/features/steps/steps.py` and assert the resolved `.desktop` file (or an allowed viewer set) instead of launching the app with `xdg-open`. This keeps smoke checks local to the VM and avoids window-management flake while still validating Bluefin's handler registration end to end.
 

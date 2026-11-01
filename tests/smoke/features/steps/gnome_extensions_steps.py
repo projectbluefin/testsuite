@@ -7,6 +7,7 @@ import time
 from time import sleep
 
 from behave import step
+from tests.shared.app_support import detached_launch_command
 from tests.shared.ssh_config import ssh_argv
 try:
     from dogtail import tree
@@ -319,10 +320,7 @@ def launch_extensions_preferences_via_command(context) -> None:
     if _IN_CONTAINER:
         # Inside the runner container the desktop file is absent from the container
         # filesystem — launch via SSH on the VM where the session is running.
-        cmd = (
-            "source /tmp/session.env 2>/dev/null; "
-            f"nohup gio launch {EXTENSIONS_DESKTOP_FILE} </dev/null &>/dev/null & disown"
-        )
+        cmd = detached_launch_command(f"gio launch {EXTENSIONS_DESKTOP_FILE}")
         result = subprocess.run(
             ssh_argv() + [cmd],
             capture_output=True, text=True, timeout=15,

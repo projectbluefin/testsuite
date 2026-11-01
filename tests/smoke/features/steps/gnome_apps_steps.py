@@ -3,6 +3,7 @@ import os
 import subprocess
 from time import monotonic, sleep
 
+from tests.shared.app_support import detached_launch_command
 from tests.shared.ssh_config import ssh_argv
 
 from behave import step
@@ -157,10 +158,7 @@ def _launch_app(app_id: str) -> None:
     """
     if _IN_CONTAINER:
         desktop = f"/usr/share/applications/{app_id}.desktop"
-        cmd = (
-            f"source /tmp/session.env 2>/dev/null; "
-            f"nohup gio launch {desktop} </dev/null &>/dev/null & disown"
-        )
+        cmd = detached_launch_command(f"gio launch {desktop}")
         result = subprocess.run(
             _ssh_args() + [cmd],
             capture_output=True, text=True, timeout=15,

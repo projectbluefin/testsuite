@@ -70,22 +70,14 @@ Feature: Dakota GNOME Shell extension presence and configuration
 
   # ---------------------------------------------------------------------------
   # Shipped personal & hardware integration extensions (installed in system)
+  # Dakota dropped Copyous (projectbluefin/dakota#1579) and Quick Settings
+  # Audio Panel (projectbluefin/dakota#1833).
   # ---------------------------------------------------------------------------
-
-  @dakota_only @extensions
-  Scenario: Copyous clipboard manager is installed on Dakota
-    * GNOME Shell is accessible via AT-SPI
-    * GNOME extension "copyous@boerdereinar.dev" is installed
 
   @dakota_only @extensions
   Scenario: Power status color extension is installed on Dakota
     * GNOME Shell is accessible via AT-SPI
     * GNOME extension "power-status-color@projectbluefin.io" is installed
-
-  @dakota_only @extensions
-  Scenario: Quick Settings Audio Panel extension is installed on Dakota
-    * GNOME Shell is accessible via AT-SPI
-    * GNOME extension "quick-settings-audio-panel@rayzeq.github.io" is installed
 
   @dakota_only @extensions
   Scenario: Quick Settings audio device hider is installed on Dakota
@@ -100,7 +92,7 @@ Feature: Dakota GNOME Shell extension presence and configuration
   @dakota_only @extensions
   Scenario: Syncthing Toggle extension is installed and configured on Dakota
     * GNOME Shell is accessible via AT-SPI
-    * GNOME extension "syncthing-toggle@rehhouari.github.com" is installed
+    * GNOME extension "syncthing-toggle@projectbluefin.io" is installed
     * Dconf path "/org/gnome/shell/extensions/syncthing-toggle/start-stop-only" has value "true"
 
   @dakota_only @extensions

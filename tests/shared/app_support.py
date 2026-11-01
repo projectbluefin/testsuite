@@ -87,15 +87,34 @@ def _flatpak_desktop_app_id(desktop_path: str, desktop_id: str) -> str | None:
     return desktop_id
 
 
+def detached_launch_command(cmd: str, env: dict[str, str] | None = None) -> str:
+    """Return a remote shell command that starts ``cmd`` so it outlives the SSH connection.
+
+    ``nohup ... & disown`` is not enough: images whose logind uses
+    ``KillUserProcesses=yes`` (systemd's upstream default, shipped by Dakota)
+    SIGTERM every process left in the SSH session scope when the connection
+    closes, before the app maps a window or registers on AT-SPI. A transient
+    ``systemd-run --user`` unit runs under the user manager instead, outside
+    the session scope. ``KillMode=process`` keeps children that a launcher such
+    as ``gio launch`` leaves behind after it exits. ``nohup`` remains the
+    fallback when ``systemd-run --user`` is unavailable.
+    """
+    exports = _env_exports(env)
+    inner = f"source /tmp/session.env 2>/dev/null; {exports}exec {cmd}"
+    return (
+        "source /tmp/session.env 2>/dev/null; "
+        "systemd-run --user --quiet --collect -p KillMode=process "
+        f"-- /bin/bash -c {shlex.quote(inner)} </dev/null &>/dev/null "
+        f"|| {{ {exports}nohup {cmd} </dev/null &>/dev/null & disown; }}"
+    )
+
+
 def _ssh_launch(cmd: str, env: dict[str, str] | None = None) -> None:
     """Launch an app on the VM via SSH; returns immediately (fire-and-forget)."""
-    # Source session.env to get DBUS_SESSION_BUS_ADDRESS + WAYLAND_DISPLAY,
-    # then run the launch command detached so SSH disconnect doesn't kill it.
-    full = (
-        "source /tmp/session.env 2>/dev/null; "
-        f"{_env_exports(env)}nohup {cmd} </dev/null &>/dev/null & disown"
+    subprocess.run(
+        _ssh_args() + [detached_launch_command(cmd, env)],
+        capture_output=True, text=True, timeout=15,
     )
-    subprocess.run(_ssh_args() + [full], capture_output=True, text=True, timeout=15)
 
 
 def _launch_flatpak(
