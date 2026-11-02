@@ -267,7 +267,7 @@ The serial log is always uploaded (even on failure) — it's the primary debug t
 
 - `bootupd` may fail (not in bootc images by default), but a non-zero `bootc install to-disk` exit is only acceptable if the ostree deployment directory is populated. The workflow now logs the full install output, records the exit code, and hard-fails if the deployment directory is empty.
 - No display output: `virtio-gpu` with `-display none`. Tests must use AT-SPI (dogtail/qecore), not pixel-based assertions.
-- No GPU acceleration for GL/Vulkan in GHA runners. Hardware-specific tests require SSH-mode suites not yet in the GHA action (epics #43/#44).
+- No GPU acceleration for GL/Vulkan in GHA runners. Hardware-oriented suites (`hardware`, `nvidia`, `security`) are selectable `suites` values in `e2e.yml`; when a selected suite's every scenario is `@hardware_blocked` (no matching VM hardware), the run is reported as **blocked** with the #706 reason and the job fails instead of showing a green pass with zero tests run.
 - Partition layout assumes `p3` is the root partition. Tested against standard Anaconda/bootc partition tables. Non-standard layouts may break the disk-configure step.
 
 ## Common Rationalizations
@@ -458,7 +458,36 @@ mapping and gating rules.
 **Important:** `testsuite-kde-runner` is published by
 `.github/workflows/build-kde-runner.yml` (added in #640, merged).
 
----
+## Hardware-only suite blocked backstop
+
+`hardware`, `nvidia` and `security` are selectable `suites` values in `e2e.yml`
+(hardware-oriented groups that need real device hardware, not a GNOME desktop).
+`nvidia` is the current all-blocked case: every scenario in
+`tests/nvidia/features/gpu.feature` is `@hardware_blocked`, so on a GPU-less VM
+behave runs zero scenarios and still exits 0 -- a misleading green pass.
+
+The guard is **structural**, not per-suite: it scans the suite's feature files
+for `@hardware_blocked` (see `scripts/suite_blocked.py`), so it covers nvidia now
+and any future all-blocked group.
+
+- **Run step:** after the KDE skip block, `python3 scripts/suite_blocked.py
+  "tests/${SUITE_DIR}"` prints `BLOCKED` when every scenario is blocked and `RUNNABLE`
+  otherwise. On `BLOCKED` it writes `suite_blocked=true` to `$GITHUB_OUTPUT`,
+  emits an `::error::` annotation, writes a synthetic behave result (a single
+  `skipped` scenario carrying the #706 reason) and `exit 0`. The script stays in
+  the `Checkout testsuite` sparse-checkout block or it is absent at runtime.
+- **Fail blocked hardware-only suite backstop:** `if:
+  steps.run.outputs.suite_blocked == 'true'` runs `exit 1` with a loud
+  `::error::`. This makes the block fail the job rather than stay green -- the
+  exact mirror of the KDE `passed > 0` backstop above (which fails an all-skipped
+  KDE run). A hardware gap is a real gap, not a test failure, but it must never
+  be a silent green.
+- **Never re-derive blockedness from behave's exit code:** behave exits 0 for a
+  zero-scenario run, so the run step must call `suite_blocked.py` directly.
+  Behaviour is locked in by `tests/unit/test_suite_blocked.py`.
+
+See [`references/kde-suites.md`](references/kde-suites.md) for the full workflow
+mapping and gating rules.
 
 ## Dashboard seeding — initial population
 

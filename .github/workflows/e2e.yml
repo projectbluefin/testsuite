@@ -26,7 +26,12 @@ on:
         default: ""
         required: false
       suites:
-        description: "Comma-separated suites: smoke,developer,dx,software,vanilla-gnome,bazzite,common,lifecycle,installer,kde-smoke"
+        description: >-
+          Comma-separated suites: smoke,developer,dx,software,vanilla-gnome,bazzite,common,lifecycle,installer,kde-smoke,hardware,nvidia,security.
+          hardware, nvidia and security are hardware-oriented groups; when a
+          selected suite's every scenario is @hardware_blocked (no matching VM
+          hardware), the run is reported as blocked with the #706 reason and
+          the job fails instead of showing a green pass with zero tests run.
         type: string
         default: "smoke"
       compose_image:
@@ -239,6 +244,8 @@ jobs:
             tests
             scripts/all_skipped.py
             scripts/assert_passed.py
+            scripts/assert_kde_passed.py
+            scripts/suite_blocked.py
             scripts/check_quarantine_age.py
             scripts/install-kde-webdriver.sh
             scripts/e2e_summary.py
@@ -1385,6 +1392,20 @@ jobs:
             exit 0
           fi
 
+          # If the selected suite is entirely @hardware_blocked (e.g. nvidia on a
+          # GPU-less VM), behave would run zero scenarios and still exit 0 -- a
+          # misleading green pass. Emit an explicit blocked result with the #706
+          # reason, then fail the job so it is never a silent green. Mirrors the
+          # KDE "suite skipped" pattern above. This is structural: it covers every
+          # folded hardware-only suite (nvidia, and any future group), not one name.
+          SUITE_BLOCKED=$(python3 scripts/suite_blocked.py "tests/${SUITE_DIR}" 2>/dev/null) || SUITE_BLOCKED="RUNNABLE"
+          if [[ "${SUITE_BLOCKED}" == "BLOCKED" ]]; then
+            echo "suite_blocked=true" >> "$GITHUB_OUTPUT"
+            echo "::error::Suite '${SUITE_DIR}' is blocked: every scenario requires hardware the CI VM lacks (see https://github.com/projectbluefin/testsuite/issues/706)."
+            echo "behave_rc=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           if [[ "${SUITE_DIR}" == "common" || "${SUITE_DIR}" == "lifecycle" || "${SUITE_DIR}" == "installer" ]]; then
             python3 -m pip install -q --user behave
             if [[ -n "${FEATURE_ARGS}" ]]; then
@@ -1952,6 +1973,15 @@ jobs:
           fi
           python3 scripts/assert_passed.py results/results.json \
             --skip-reason "${SKIP_REASON}" "${ALLOW[@]}"
+
+      # Backstop: an all-blocked hardware-only suite (e.g. nvidia on a GPU-less
+      # VM) must NOT be reported as green. The run step already wrote a synthetic
+      # blocked result; fail the job here so the block is loud, never silent.
+      - name: Fail blocked hardware-only suite
+        if: steps.run.outputs.suite_blocked == 'true'
+        run: |
+          echo "::error::Suite '${{ inputs.suites }}' is blocked: every scenario requires hardware the CI VM lacks (see https://github.com/projectbluefin/testsuite/issues/706). This is a hardware gap, not a test failure."
+          exit 1
 
       - name: Write e2e metadata
         if: always()
