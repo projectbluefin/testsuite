@@ -5,3 +5,4 @@ patch = subprocess
 
 [report]
 show_missing = True
+include_namespace_packages = True
