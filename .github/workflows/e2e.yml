@@ -338,7 +338,7 @@ jobs:
             flathub "${APPS[@]}"
 
       - name: Free disk space
-        uses: projectbluefin/actions/bootc-build/setup-runner@cbf1ce09363db6a09bfaae16fde95c7b8c2874bf # v1
+        uses: projectbluefin/actions/bootc-build/setup-runner@a092e7813cddbf989374bed1b46ce40302c7c4da # v1
         with:
           update-podman: "false"
 
@@ -1947,7 +1947,7 @@ jobs:
       # scenario. behave exits 0 when a setup failure (failed_setup.txt) or a
       # self-disabled suite skips every scenario, so reading behave_rc alone is a
       # false green. assert_passed.py is the verdict contract for these suites (the
-      # gnome-e2e action does not call it yet); it fails on the failed_setup marker, an
+      # gnome-e2e action runs it too); it fails on the failed_setup marker, an
       # empty/truncated results.json, or 0 passing scenarios. Optional documented
       # skips (quarantine/pending/future) never fail it on their own. A
       # deliberately inapplicable shard (KDE webdriver stack could not be

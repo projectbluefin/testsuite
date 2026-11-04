@@ -49,7 +49,7 @@ jobs:
           ls -la /dev/kvm
 
       - name: Free disk space
-        uses: projectbluefin/actions/bootc-build/setup-runner@cbf1ce09363db6a09bfaae16fde95c7b8c2874bf # v1
+        uses: projectbluefin/actions/bootc-build/setup-runner@a092e7813cddbf989374bed1b46ce40302c7c4da # v1
         with:
           update-podman: "false"
 
