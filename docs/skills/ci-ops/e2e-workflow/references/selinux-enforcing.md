@@ -8,9 +8,14 @@ metadata:
 ---
 # SELinux enforcing in the e2e guest
 
-`e2e.yml` boots the candidate with its own SELinux mode. There is no
-`selinux=0`, `enforcing=0` or `enforcing=1` on the kernel command line: the
-first two hide policy regressions, the last hides a candidate that ships
+The lane is opt-in: callers pass `selinux_enforcing: true` (`manual.yml`
+exposes the same input). With the default `false` the guest keeps
+`selinux=0` and every step below is skipped, until a hosted run qualifies the
+lane and the rollout plan in #1021 flips the default.
+
+When enabled, `e2e.yml` boots the candidate with its own SELinux mode. There
+is no `selinux=0`, `enforcing=0` or `enforcing=1` on the kernel command line:
+the first two hide policy regressions, the last hides a candidate that ships
 permissive. Helpers live in `scripts/selinux_qualify.py` and
 `scripts/selinux_collect_avc.sh` (both in the sparse checkout). Evidence is
 written to `results/selinux/` and uploaded with the results artifact.

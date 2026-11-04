@@ -333,12 +333,36 @@ def _steps() -> dict[str, dict]:
 
 
 def test_guest_kernel_args_do_not_disable_selinux():
-    text = (ROOT / ".github" / "workflows" / "e2e.yml").read_text()
     install = _steps()["Install OCI image and configure disk"]["run"]
-    kernel_args = next(line for line in install.splitlines() if "KERNEL_ARGS=\"" in line)
+    kernel_args = next(line for line in install.splitlines() if 'KERNEL_ARGS="root=' in line)
     for arg in ("selinux=0", "enforcing=0", "security=none"):
         assert arg not in kernel_args
-    assert "selinux=0" not in text
+    # selinux=0 is only appended when enforcing mode was not opted into.
+    assert install.count("selinux=0") == 1
+    guard = install.index('if [[ "${SELINUX_ENFORCING}" != "true" ]]; then')
+    assert guard < install.index('KERNEL_ARGS="${KERNEL_ARGS} selinux=0"') < install.index(
+        'echo "KERNEL_ARGS=${KERNEL_ARGS}" >> "$GITHUB_ENV"'
+    )
+
+
+def test_enforcing_mode_is_opt_in_and_defaults_off():
+    selinux_input = _e2e()[True]["workflow_call"]["inputs"]["selinux_enforcing"]
+    assert selinux_input["type"] == "boolean"
+    assert selinux_input["default"] is False
+    install_step = _steps()["Install OCI image and configure disk"]
+    assert "inputs.selinux_enforcing" in install_step["env"]["SELINUX_ENFORCING"]
+    install = install_step["run"]
+    opt_in = install.index('if [[ "${SELINUX_ENFORCING}" == "true" ]]; then')
+    assert opt_in < install.index("selinux_qualify.py expected-mode") < install.index('SELINUX_INFO="off none"')
+    assert _steps()["Verify SELinux enforcing"]["if"] == "env.SELINUX_EXPECTED != 'off'"
+    assert "env.SELINUX_EXPECTED == 'enforcing'" in _steps()["SELinux denial gate"]["if"]
+
+
+def test_manual_dispatch_can_opt_into_enforcing():
+    manual = yaml.safe_load((ROOT / ".github" / "workflows" / "manual.yml").read_text())
+    assert manual[True]["workflow_dispatch"]["inputs"]["selinux_enforcing"]["default"] == "false"
+    passed = manual["jobs"]["test"]["with"]["selinux_enforcing"]
+    assert passed == "${{ github.event.inputs.selinux_enforcing == 'true' }}"
 
 
 def test_sparse_checkout_ships_selinux_helpers():
