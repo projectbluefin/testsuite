@@ -176,16 +176,11 @@ sparse-checkout: |
 sparse-checkout-cone-mode: false
 ```
 
-Note that `scripts/` as a whole is **not** checked out — only the two named files are.
-
 **Rule: any script a job step invokes must be added to that job's `sparse-checkout`
 list in the same change** — extracting an inline heredoc, adding a guard step, or
 reusing a repo script elsewhere. Verify by reading the job's `sparse-checkout` block
 and confirming the exact path is listed; never assume `scripts/` is present because
 another script runs. Why this fails silently: [troubleshooting.md](references/troubleshooting.md#a-script-missing-from-the-sparse-checkout-fails-silently).
-
-The same rule applies to every other non-cone checkout in this repo, including the
-`projectbluefin/iso` harness checkout in `.github/workflows/iso-validation.yml`.
 
 ## Pipeline stages
 
@@ -267,7 +262,7 @@ The serial log is always uploaded (even on failure) — it's the primary debug t
 
 - `bootupd` may fail (not in bootc images by default), but a non-zero `bootc install to-disk` exit is only acceptable if the ostree deployment directory is populated. The workflow now logs the full install output, records the exit code, and hard-fails if the deployment directory is empty.
 - No display output: `virtio-gpu` with `-display none`. Tests must use AT-SPI (dogtail/qecore), not pixel-based assertions.
-- No GPU acceleration for GL/Vulkan in GHA runners. Hardware-specific tests require SSH-mode suites not yet in the GHA action (epics #43/#44).
+- No GPU acceleration for GL/Vulkan in GHA runners. Hardware-oriented suites (`hardware`, `nvidia`, `security`) are selectable `suites` values; an all-blocked selection runs zero scenarios yet exits 0, so `scripts/suite_blocked.py` + the "Fail blocked hardware-only suite" backstop fail the job loud (see [`hardware-suite-blocked.md`](references/hardware-suite-blocked.md)).
 - Partition layout assumes `p3` is the root partition. Tested against standard Anaconda/bootc partition tables. Non-standard layouts may break the disk-configure step.
 
 ## Common Rationalizations
@@ -458,10 +453,14 @@ mapping and gating rules.
 **Important:** `testsuite-kde-runner` is published by
 `.github/workflows/build-kde-runner.yml` (added in #640, merged).
 
----
+## Hardware-only suite blocked backstop
+
+`hardware`/`nvidia`/`security` are selectable `suites`; `nvidia` is all-blocked so
+behave runs zero scenarios yet exits 0. The `suite_blocked.py` guard + the "Fail
+blocked hardware-only suite" backstop make this loud — see
+[`references/hardware-suite-blocked.md`](references/hardware-suite-blocked.md).
 
 ## Dashboard seeding — initial population
-
 
 If the `https://projectbluefin.github.io/testsuite/` dashboard shows "No JSONL results found" or no screenshots, the GHCR slug tags don't exist yet. Trigger manual e2e runs to populate them:
 
@@ -492,6 +491,7 @@ Load these when you hit the specific topic:
 - [Troubleshooting e2e workflow failures and flake signatures.](references/troubleshooting.md)
 - [Permission and runtime constraints when calling the reusable action.](references/permissions.md)
 - [KDE suite wiring, gating, and runner-image split.](references/kde-suites.md)
+- [Hardware-oriented suite groups, the all-blocked backstop, and why it fails loud.](references/hardware-suite-blocked.md)
 - [Installer suite assertions, and why an env-var gate made one unreachable.](references/installer-suite.md)
 - [Migration inputs `migration-target` / `extra-tags` and the startup_failure they cause when missing.](references/migration-inputs.md)
 - [GNOME OS guest lane for the developer extension-validation service and its mandatory gate.](references/gnome-extensions-validation.md)
