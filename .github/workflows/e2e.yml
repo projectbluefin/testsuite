@@ -1926,7 +1926,7 @@ jobs:
       # scenario. behave exits 0 when a setup failure (failed_setup.txt) or a
       # self-disabled suite skips every scenario, so reading behave_rc alone is a
       # false green. assert_passed.py is the verdict contract for these suites (the
-      # gnome-e2e action does not call it yet); it fails on the failed_setup marker, an
+      # gnome-e2e action runs it too); it fails on the failed_setup marker, an
       # empty/truncated results.json, or 0 passing scenarios. Optional documented
       # skips (quarantine/pending/future) never fail it on their own. A
       # deliberately inapplicable shard (KDE webdriver stack could not be

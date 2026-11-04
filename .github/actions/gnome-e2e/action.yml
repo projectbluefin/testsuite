@@ -59,8 +59,11 @@ inputs:
 outputs:
   behave-rc:
     description: >
-      Exit code from behave (0 = all passed). For suite: extensions the
-      action additionally fails the job via the extension-validation gate.
+      Exit code from behave (0 = all passed). Informational: the action
+      already fails the job for every suite when behave exits non-zero or no
+      scenario passed (extension-validation gate for extensions and
+      gnomeos-canary, mandatory-coverage gate via scripts/assert_passed.py
+      for all other suites).
     value: ${{ steps.run.outputs.behave_rc }}
   results-path:
     description: 'Workspace-relative path to the results directory'
@@ -658,6 +661,29 @@ runs:
         python3 "${GATE}" results/results.json
         # A wrapper/after_all failure can leave passing scenario records. Both
         # the complete result gate and the actual process must succeed.
+        if [[ "${GNOME_E2E_BEHAVE_RC}" != "0" ]]; then
+          echo "::error::qecore/Behave did not exit successfully (${GNOME_E2E_BEHAVE_RC:-missing exit code})"
+          exit 1
+        fi
+
+    # ── Mandatory-coverage gate (every other suite) ───────────────────────────
+    # The run step records behave's exit code without failing, and the
+    # summarise step only renders a headline, so without this gate a lane that
+    # executed nothing (missing/empty/truncated results.json, setup failure,
+    # zero passing scenarios) finished green. scripts/assert_passed.py is the
+    # same verdict contract e2e.yml uses for its desktop suites.
+    - name: Gate suite has passing scenarios
+      if: always() && inputs.suite != 'extensions' && inputs.suite != 'gnomeos-canary'
+      shell: bash
+      env:
+        GNOME_E2E_BEHAVE_RC: ${{ steps.run.outputs.behave_rc }}
+      run: |
+        GATE="_testsuite/scripts/assert_passed.py"
+        if [[ ! -f "${GATE}" ]]; then
+          echo "::error::Mandatory-coverage gate script missing: ${GATE} not in the testsuite checkout. Failing closed."
+          exit 1
+        fi
+        python3 "${GATE}" results/results.json
         if [[ "${GNOME_E2E_BEHAVE_RC}" != "0" ]]; then
           echo "::error::qecore/Behave did not exit successfully (${GNOME_E2E_BEHAVE_RC:-missing exit code})"
           exit 1
