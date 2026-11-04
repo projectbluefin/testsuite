@@ -12,6 +12,8 @@ except Exception:  # noqa: BLE001
     pass
 
 
+# Failed-unit exemptions are separate from startup masks; see
+# docs/skills/ci-ops/ops/SKILL.md and the startup-service inventory linked there.
 IGNORED_FAILED_UNITS_IN_VM = {
     "mcelog.service",
     "avahi-daemon.service",

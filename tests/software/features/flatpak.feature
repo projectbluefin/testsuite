@@ -1,20 +1,19 @@
 @software_suite
-Feature: Bazaar (GNOME Software) smoke tests
-  Validates Bazaar (`io.github.kolunmi.Bazaar`) launches and core UI elements are accessible.
-  Regression coverage for bluefin#4062 and #4471.
+Feature: Upstream GNOME Software smoke tests (planned, #847)
+  Planned coverage for images that ship GNOME Software (`org.gnome.Software`).
+  Bluefin, Dakota and Utah ship Bazaar instead; their coverage lives in
+  bazaar_ui.feature and bazaar_navigation.feature. Regression coverage for
+  bluefin#4062 and #4471.
+
+  Every scenario is @future: nothing registers a qecore "software"
+  application, and environment.py gates @software scenarios on Bazaar, not
+  GNOME Software. Before un-futuring, register the app in before_all and gate
+  these scenarios on GNOME Software being installed.
 
   Background:
     * Start application "software" via "command"
     * Wait until "Software" "frame" appears in "software"
 
-  @software @launch
-  Scenario: Bazaar launches and main window is visible
-    * Application "software" is running
-    * Item "Software" "frame" is "showing" in "software"
-
-  # Future: these target GNOME Software's Explore/Installed widgets, not
-  # Bazaar's real AdwViewStack layout. Replaced by bazaar_ui.feature for
-  # Bluefin images; retained as planned vanilla-gnome coverage (#847).
   @future @software @navigation
   Scenario: Explore tab is present and accessible
     * Item "Explore" "toggle button" is "showing" in "software"
@@ -28,15 +27,6 @@ Feature: Bazaar (GNOME Software) smoke tests
     * Left click "Installed" "toggle button" in "software"
     * Wait until "Installed" "page tab" appears in "software"
 
-  @software @search
-  Scenario: Search bar accepts input and returns results
-    * Left click "Search" "toggle button" in "software"
-    * Type text: "Firefox" with uinput
-    * Wait until "Firefox" "label" appears in "software"
-
-  # These crash/close checks also target the old GNOME Software widget model.
-  # Replaced by bazaar_ui.feature for Bluefin images; retained as planned
-  # upstream GNOME Software coverage on vanilla-gnome images (#847).
   @future @software @regression @bluefin_4062
   Scenario: Flatpak updates section is reachable without crash (bluefin#4062)
     * Left click "Installed" "toggle button" in "software"
@@ -49,11 +39,9 @@ Feature: Bazaar (GNOME Software) smoke tests
     * No coredump entries exist for "gnome-software"
 
   @future @software @close
-  Scenario: Bazaar closes cleanly via shortcut
+  Scenario: GNOME Software closes cleanly via shortcut
     * Close application "software" via "shortcut"
     * Application "software" is no longer running
 
-  # ── Flatpak CLI checks moved to flatpak_cli.feature ─────────────────────
-  # flatpak_permissions and flatpak_cli scenarios are now in flatpak_cli.feature
-  # which has no Background dependency, so they run cleanly on all images.
-
+  # Flatpak CLI checks live in flatpak_cli.feature, which has no Background
+  # dependency, so they run cleanly on all images.

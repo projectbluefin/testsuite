@@ -16,7 +16,7 @@ not delete a scenario on an unvalidated guess.
   `tests/vanilla-gnome/features/gnome_core.feature`.
 - Bluefin ships **Bazaar** (`io.github.kolunmi.Bazaar`), not upstream
   `org.gnome.Software`. Bazaar's tab strip is `Curated`, `Explore`, `Library`,
-  `Search` (`tests/software/features/steps/steps.py:27`) — there is **no
+  `Search` (`BAZAAR_TAB_NAMES` in `tests/software/features/steps/steps.py`) — there is **no
   `Installed` tab**.
 - `software` is the only suite that starts a software centre. `vanilla-gnome`
   sandboxes `gnome-shell`, not an application
@@ -34,7 +34,9 @@ upstream-GNOME-Software rows, for two independent reasons:
    before any step executes.
 2. With `@future` dropped, `before_scenario` still skips every scenario tagged
    `@software` without `@flatpak_cli` on an image that has no Bazaar
-   (`tests/software/features/environment.py:112`). gnomeos ships no Bazaar.
+   (`tests/software/features/environment.py`, `before_scenario`). gnomeos ships no Bazaar.
+   Nothing registers a qecore `software` application either, so the
+   `Start application "software"` Background has no target until one is added.
 
 Bluefin is the only image carrying Bazaar, and there the scenarios would execute
 but fail — they assert the upstream GNOME Software widget model
@@ -50,20 +52,20 @@ strength of a skipped run.
 
 ## Inventory
 
-7 scenarios carry `@future` (6 in `flatpak.feature`, 1 in `flatpak_cli.feature`);
-the eighth item in the issue's inventory is a comment in `bazaar.feature`, not a
-scenario.
+7 scenarios carry `@future` (6 in `flatpak.feature`, 1 in `flatpak_cli.feature`).
+The two active `flatpak.feature` scenarios that drove GNOME Software on Bazaar
+images were removed: the launch check duplicated `bazaar_ui.feature`, and the
+search check became `bazaar_navigation.feature`'s typed Bazaar search.
 
 | # | Scenario | Where | Blocked today by |
 |---|---|---|---|
-| 1 | Explore tab is present and accessible | `tests/software/features/flatpak.feature:19` | `@future`; upstream widget tree — un-runnable on every image (see trap) |
-| 2 | Installed tab is present and accessible | `flatpak.feature:23` | Same, and `Installed` is not a Bazaar tab |
-| 3 | Clicking Installed tab shows installed apps list | `flatpak.feature:27` | Same; also asserts an `Installed` `page tab` |
-| 4 | Flatpak updates section is reachable without crash (bluefin#4062) | `flatpak.feature:41` | Same; crash guard written against `gnome-software` |
-| 5 | No gnome-software coredump on Explore page load (bluefin#4471) | `flatpak.feature:46` | Same; asserts a `gnome-software` coredump Bazaar never produces |
-| 6 | Bazaar closes cleanly via shortcut | `flatpak.feature:52` | `@future`; Bazaar close coverage already active in `bazaar_ui.feature` |
+| 1 | Explore tab is present and accessible | `tests/software/features/flatpak.feature:18` | `@future`; upstream widget tree — un-runnable on every image (see trap) |
+| 2 | Installed tab is present and accessible | `flatpak.feature:22` | Same, and `Installed` is not a Bazaar tab |
+| 3 | Clicking Installed tab shows installed apps list | `flatpak.feature:26` | Same; also asserts an `Installed` `page tab` |
+| 4 | Flatpak updates section is reachable without crash (bluefin#4062) | `flatpak.feature:31` | Same; crash guard written against `gnome-software` |
+| 5 | No gnome-software coredump on Explore page load (bluefin#4471) | `flatpak.feature:36` | Same; asserts a `gnome-software` coredump Bazaar never produces |
+| 6 | GNOME Software closes cleanly via shortcut | `flatpak.feature:42` | `@future`; Bazaar close coverage already active in `bazaar_ui.feature` |
 | 7 | flatpak install and uninstall round-trip succeeds | `flatpak_cli.feature:25` | `@future`; image-agnostic CLI, deferred for network cost — needs dedicated CI execution, not a GUI run |
-| 8 | *(comment)* AT-SPI re-validation note | `bazaar.feature:9` | Pointer to this issue; no scenario |
 
 ## Validation procedure (corrected)
 

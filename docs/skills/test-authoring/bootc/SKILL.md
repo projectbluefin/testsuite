@@ -50,7 +50,7 @@ Bare `payload.get("status", {})` silently accepts malformed JSON — don't use i
 
 ## Lifecycle capture pattern
 
-Capture digests at the right moments or verification steps silently skip:
+Capture digests at the right moments or the verification steps fail with a missing-evidence assertion:
 
 ```python
 # 1. Before upgrade — save current digest
@@ -66,7 +66,7 @@ expected_upgrade_digest = get_staged_digest(context)
 # 5. After reboot — assert booted == expected_upgrade_digest
 ```
 
-Without step 3, the post-reboot assertion has nothing to compare against and silently passes or skips.
+Omitting step 1 or step 3 leaves the post-reboot assertion with no expected digest, so the verification steps fail rather than skip.
 
 ## Upgrade-staged is a mandatory qualification gate
 
@@ -243,3 +243,48 @@ boot device. That lives in the VM spec, owned by `projectbluefin/lab`, not this 
 Without it a reboot silently returns to the live rootdisk and the scenario passes while
 testing nothing — which is why that scenario stays `@future` rather than being written
 optimistically.
+
+## Digest evidence must fail closed
+
+`Capture staged image digest as upgrade target` requires a previously captured
+original digest and a valid SHA-256 staged digest different from that original.
+Capture the original in the same scenario before upgrading, including when the
+scenario also tracks `VERSION_ID`. Both capture steps check the status command's
+exit code before trusting its JSON.
+
+The active-target and active-original assertions fail when their expected digest
+is missing; they must never turn missing evidence into a skipped scenario. In a
+rollback scenario, verify the running candidate **before** requesting rollback,
+then verify the original after the second reboot. Returning to the original alone
+does not prove that the candidate ever booted.
+
+These checks establish distinct observed deployments, not fixture provenance.
+Mandatory release qualification still needs independently pinned source/candidate
+refs, verification against the intended candidate rather than just the observed
+staged image, and rejection of stale pre-staging. The existing workflow's
+`bootc switch` pre-staging and the
+external `projectbluefin/actions` upgrade caller do not establish those guarantees
+(remaining work in #1023, coordinated with the second-image prerequisite in #706).
+Do not cite a unit test or a Behave dry-run as evidence of a hosted upgrade and
+rollback; retain the real VM's status, digest and reboot evidence separately.
+
+### Targeted runs reject skipped required scenarios
+
+When the existing `TARGET_IMAGE` environment variable is non-empty, the lifecycle
+`after_all` hook checks every loaded scenario containing the mandatory
+`bootc upgrade output indicates image was staged` assertion. Each required
+scenario and each of its steps must have passed. Optional capability probes may
+still skip; an empty required set cannot qualify. The hook reads the runner's
+complete parsed feature model because tag-filtered scenarios/features do not
+receive scenario/feature hooks. Filtering a required scenario therefore cannot
+turn missing coverage into success. A hook assertion makes Behave exit nonzero,
+which the existing workflow already propagates as its verdict.
+
+Untargeted exploratory/manual runs (no `TARGET_IMAGE`) keep their existing skip
+behaviour and do not establish targeted upgrade qualification. A manual run that
+supplies a target gets the same strict guard as CI. This guard checks the loaded
+features, not an inventory of every feature file: callers must still select the
+full required lifecycle coverage. It does not establish pinned fixture provenance
+or replace the outstanding hosted positive/negative runs. Regression tests beside
+the digest-evidence tests exercise both the model checks and real Behave exit
+codes for runtime skips, tag-filtered skips, and untargeted exploratory skips.

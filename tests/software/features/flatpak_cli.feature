@@ -15,7 +15,7 @@ Feature: Flatpak CLI smoke tests
   Scenario: flatpak user override round-trip succeeds
     # Calculator is always present; override doesn't require the app to be installed.
     * Set flatpak user override "--filesystem=home" for "org.gnome.Calculator"
-    * Flatpak user override "filesystem=home" is active for "org.gnome.Calculator"
+    * Flatpak user override for "org.gnome.Calculator" grants "filesystems" value "home"
     * Reset flatpak user overrides for "org.gnome.Calculator"
     * No flatpak user overrides exist for "org.gnome.Calculator"
 

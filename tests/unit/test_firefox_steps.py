@@ -120,22 +120,34 @@ class TestFirefoxApp:
 
         assert m._firefox_app(context) is live
 
-    def test_fallback_when_live_application_list_is_empty(self):
+    def test_falls_back_to_context_instance_when_live_list_is_empty(self):
         m = _import_firefox_steps()
-        context = MagicMock(spec=[])
-        found_app = MagicMock()
+        instance = MagicMock()
+        context = MagicMock()
+        context.firefox.instance = instance
         m.tree.root.applications = MagicMock(return_value=[])
-        m.tree.root.application = MagicMock(return_value=found_app)
-        result = m._firefox_app(context)
-        assert result is found_app
+        assert m._firefox_app(context) is instance
+        m.tree.root.application.assert_not_called()
 
-    def test_fallback_when_firefox_attr_missing(self):
+    def test_missing_firefox_fails_within_timeout_without_retrying_lookup(self):
+        # tree.root.application(name) retries internally; calling it per alias
+        # on every poll multiplied the 3s timeout (#1044).
         m = _import_firefox_steps()
-        context = MagicMock(spec=[])  # no attributes
-        found_app = MagicMock()
-        m.tree.root.application = MagicMock(return_value=found_app)
-        result = m._firefox_app(context)
-        assert result is found_app
+        clock = types.SimpleNamespace(now=0.0)
+
+        def retrying_application(name):
+            clock.now += 10  # dogtail's default per-name retry loop
+            raise LookupError(name)
+
+        m.tree.root.applications = MagicMock(return_value=[])
+        m.tree.root.application = MagicMock(side_effect=retrying_application)
+        m.monotonic = lambda: clock.now
+        m.sleep = lambda s: setattr(clock, "now", clock.now + s)
+        import pytest  # noqa: PLC0415
+        with pytest.raises(AssertionError, match="not in the desktop application list"):
+            m._firefox_app(MagicMock(spec=[]), timeout=3.0)
+        assert clock.now < 3.5
+        m.tree.root.application.assert_not_called()
 
     def test_prefers_capitalized_firefox_app_name(self):
         m = _import_firefox_steps()
@@ -148,24 +160,19 @@ class TestFirefoxApp:
         context.firefox.instance = None
         context.firefox_app = None
         found_app = MagicMock()
-        calls = [0]
-
-        def fake_app(name):
-            calls[0] += 1
-            if calls[0] < 2:
-                raise RuntimeError("transient bus disconnect")
-            return found_app
-
-        m.tree.root.application = MagicMock(side_effect=fake_app)
+        found_app.name = "Firefox"
+        m.tree.root.applications = MagicMock(
+            side_effect=[RuntimeError("transient bus disconnect"), [found_app]]
+        )
         assert m._firefox_app(context, timeout=1.0) is found_app
         assert context.firefox_app is found_app
 
-    def test_raises_assertion_when_all_names_fail(self):
+    def test_raises_assertion_when_registry_keeps_failing(self):
         m = _import_firefox_steps()
         context = MagicMock(spec=[])
-        m.tree.root.application = MagicMock(side_effect=RuntimeError("not found"))
+        m.tree.root.applications = MagicMock(side_effect=RuntimeError("bus down"))
         import pytest  # noqa: PLC0415
-        with pytest.raises(AssertionError, match="not found via AT-SPI"):
+        with pytest.raises(AssertionError, match="not found via AT-SPI.*bus down"):
             m._firefox_app(context, timeout=0.1)
 
 
@@ -590,12 +597,40 @@ class TestFirefoxNavigationAndClose:
 
         m.navigate_firefox_to(context, "about:blank")
 
+    def test_firefox_like_name_without_exact_alias_does_not_retry_lookup(self):
+        # The snapshot's substring match flags "running", but no exact alias is
+        # registered: the per-name check must not pay dogtail's retry per alias.
+        m = _import_firefox_steps()
+        clock = types.SimpleNamespace(now=0.0)
+
+        class _Root:
+            application_calls = []
+
+            def applications(self):
+                return [_FakeNode("application", name="Firefox Crash Reporter")]
+
+            def application(self, name):
+                self.application_calls.append(name)
+                clock.now += 10  # dogtail's default per-name retry loop
+                raise LookupError(name)
+
+        root = _Root()
+        m.tree = types.SimpleNamespace(root=root)
+        m.sleep = lambda s: setattr(clock, "now", clock.now + s)
+
+        m.firefox_is_no_longer_running(MagicMock())
+
+        assert clock.now == 0.0
+        assert root.application_calls == []
+
     def test_firefox_is_no_longer_running_fallback(self):
         m = _import_firefox_steps()
-        app = _FakeNode("application")
+        app = _FakeNode("application", name="Firefox")
         frame = _FakeNode("frame", showing=True)
         app.children = [frame]
-        m.tree.root.application = MagicMock(return_value=app)
+        # A MagicMock registry snapshot skips the early return and exercises
+        # the per-name frame check.
+        m.tree.root.applications = MagicMock(return_value=[app])
         context = MagicMock()
 
         # Simulate frame disappearing after fallback killall

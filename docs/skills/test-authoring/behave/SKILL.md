@@ -177,7 +177,7 @@ assert actual in DOCUMENT_VIEWERS
 
 This validates the MIME database end-to-end (xdg-mime, .desktop file registration, mimeapps.list) without window management flake.
 
-For lightweight smoke-suite CLI assertions (for example `gsettings`, `pgrep`, or `journalctl` checks), prefer qecore's built-in command capture steps in the `.feature` file instead of adding wrappers:
+For lightweight smoke-suite CLI assertions (for example `gsettings`, `pgrep`, or `journalctl` checks), prefer qecore's built-in command capture steps in the `.feature` file instead of adding wrappers. In CI the smoke suite runs inside the GUI runner container, and qecore's `Run and save command output` executes **there**, not in the VM. Anything that must observe the image (a binary on `PATH`, `sudo --version`, a shipped file) must use `Run command on VM:` with `VM command return code is` / `VM command output contains` from `tests/smoke/features/steps/orca_steps.py`. A runner-side check fails with exit `127` or empty output on Dakota, and can pass falsely on an image where the runner happens to ship the same tool:
 
 For MIME-handler coverage, prefer direct `subprocess.run(["xdg-mime", "query", "default", mime])` helpers in `tests/smoke/features/steps/steps.py` and assert the resolved `.desktop` file (or an allowed viewer set) instead of launching the app with `xdg-open`. This keeps smoke checks local to the VM and avoids window-management flake while still validating Bluefin's handler registration end to end.
 
@@ -228,7 +228,7 @@ Two properties make these scenarios survivable in CI, where
    scenario with `Reset flatpak user overrides for ...`.
 2. **A sweep that passes on an empty install set is not coverage.** That is why
    `Every installed flatpak app exposes a parsable permission set` is `@pending` on
-   #706. More traps: [references/flatpak-permissions.md](references/flatpak-permissions.md).
+   #706. More traps, incl. SSH install round-trips: [references/flatpak-permissions.md](references/flatpak-permissions.md).
 
 `flatpak override --show` emits a keyfile, not flag syntax:
 
@@ -242,17 +242,17 @@ Parse it (`parse_flatpak_context` in
 `=` and compare the key — matching bare key names against `filesystems=home;`
 never matches and passes falsely.
 
-## Software suite SSH context
+## Software suite gates (`@flatpak_cli`, `@bazaar_ui`, `@skip_bluefin`)
 
-`tests/software/features/environment.py` calls `populate_ssh_context(context)` in
-`before_all` (#718), so the shared `tests/shared/ssh_steps.py` steps work there.
-
-## `@flatpak_cli` marks image-agnostic software scenarios
-
-`tests/software/features/environment.py` skips any `@software` scenario when Bazaar
-(`io.github.kolunmi.Bazaar`) is absent — unless the scenario also carries
-`@flatpak_cli`. Tag CLI-only, image-agnostic software scenarios with `@flatpak_cli`
-so they still run on gnomeos and other non-Bluefin images.
+`tests/software/features/environment.py` calls `populate_ssh_context` in `before_all`
+(#718) and skips `@software` scenarios when Bazaar is absent unless they carry
+`@flatpak_cli` (image-agnostic, so they run on gnomeos too). The Bazaar probe fails
+closed: an SSH or `flatpak list` error is a HOOK-ERROR, never "absent". Only
+`@bazaar_ui` scenarios get the qecore sandbox hooks and the `flatpak kill` cleanup.
+`@skip_bluefin` is an image-name applicability tag (`$BASE_IMAGE`, `-D image=`, then `$IMAGE`), not a
+live probe. It is on the FlatPark scenarios only, because Bluefin's pinned common
+predates common#1549. Drop it when the pin catches up. Never write `\"` in a step
+argument ([why](references/shared-ssh.md#quoting)).
 
 ## `@requires_cached_image` gates scenarios on a pre-pulled OCI image
 

@@ -111,6 +111,22 @@ can be terminated cleanly. Browser-internal UI belongs in upstream Firefox tests
 
 
 
+## Failed-unit exemptions and startup masks
+
+The GNOME and KDE smoke health checks each keep an `IGNORED_FAILED_UNITS_IN_VM`
+set in their step files. In a detected VM, a listed failed unit is omitted from
+the health-check failure; this does not mask or disable it. Outside a VM the
+same failure is reported. The lists differ: for example, TuneD is exempt only
+in GNOME. Consult each set for the exact units rather than assuming parity.
+
+The [startup-service inventory](../e2e-workflow/references/startup-service-inventory.md)
+tracks units masked by the fast lane, not these failed-unit exemptions. Both
+lists include `cups.browsed.service`, a name the inventory identifies as bogus;
+Fedora's real unit is `cups-browsed.service`, so that entry does not exempt
+failures of the real unit. When changing either mechanism, review both the
+inventory and the suite-specific sets; a green health check does not establish
+that an exempt unit started successfully.
+
 ## TuneD first-boot timeout in QEMU
 
 On bootc images, `tuned.service` can invoke `bootc`/`rpm-ostree` while
@@ -201,3 +217,4 @@ Load these when you hit the specific topic:
 - [Workflows without a pull_request trigger break main silently](references/workflows-without-a-pull-request-trigger-break-main-silently.md)
 - [qecore-headless restarts GDM — the session bus socket is replaced](references/qecore-headless-restarts-gdm-bus-socket-churn.md)
 - [Coverage snapshot is generated — never hand-edit scenario counts](references/coverage-snapshot-generated.md)
+- [Which candidate-VM suites a testsuite PR must boot before `v1` distributes it](references/candidate-vm-validation.md)

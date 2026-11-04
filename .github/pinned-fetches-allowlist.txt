@@ -1,0 +1,41 @@
+# Pinned-fetches allowlist for projectbluefin/actions reusable-pinned-fetches
+# (projectbluefin/utah#902, Option A).
+#
+# One entry per line. A bare rule id disables that rule; any other line
+# suppresses one finding whose printed text contains it. Lines starting with
+# '#' are comments. Every entry below is a reviewed non-fetch or a reference
+# the suite is handed by its caller, not a tool this repository downloads.
+
+# The image under test is an input: the caller (an image repository's gate or
+# a manual dispatch) chooses the ref, usually a digest, and the suite boots or
+# `bootc switch`es the VM to exactly that. The suite verifies the image; it
+# does not fetch a tool from it.
+inputs.target-image
+Full OCI ref to upgrade TO
+Pre-stage target image via bootc switch
+OCI image to test (e.g.
+Full OCI image reference (e.g.
+default: "ghcr.io/projectbluefin/bluefin:latest"
+Target OCI image to bootc switch to
+Run bootc switch to target image
+sudo bootc switch '${TARGET_IMAGE}'
+bootc switch completed
+after bootc switch + reboot
+
+# Justfile local recipes name the stream a developer wants to run the suite
+# against on their own machine; nothing from CI consumes these lines.
+"ghcr.io/ublue-os/bluefin:latest"
+"ghcr.io/ublue-os/bluefin-dx:latest"
+"ghcr.io/ublue-os/bluefin-nvidia:latest"
+
+# Harness image built in the same job and never pulled from a registry.
+localhost/gnomeos-harness:canary
+
+# String normalisation of a user-supplied ref before a registry query, not a
+# download (update-v1-tag.yml).
+NAME="${NAME}:latest"
+
+# Shallow clone immediately followed by `git fetch`/`git checkout` of the
+# committed SELENIUM_AT_SPI_SHA and a `git rev-parse HEAD` comparison that
+# aborts on mismatch (scripts/install-kde-webdriver.sh).
+git clone --quiet --depth 1 "${SELENIUM_AT_SPI_URL}"

@@ -161,10 +161,8 @@ def bootc_status_not_pinned(context):
 @step("Capture booted image digest for rollback verification")
 def capture_original_digest(context):
     """Store the currently booted image digest so rollback can be verified later."""
-    run_ssh(context, "sudo bootc status --format=json")
-    status = _parse_bootc_status(context)
-    digest = status.get("booted", {}).get("image", {}).get("imageDigest", "")
-    assert digest, f"Could not read booted imageDigest from bootc status: {status}"
+    status = _read_bootc_status(context)
+    digest = _required_deployment_digest(status.get("booted"), "booted")
     context.original_digest = digest
     print(f"Captured original digest: {digest}", flush=True)
 
@@ -172,14 +170,15 @@ def capture_original_digest(context):
 @step("Capture staged image digest as upgrade target")
 def capture_staged_digest(context):
     """Store the staged image digest so the post-reboot deployment can be verified."""
-    run_ssh(context, "sudo bootc status --format=json")
-    status = _parse_bootc_status(context)
+    status = _read_bootc_status(context)
     staged = status.get("staged")
     assert staged is not None, (
         f"No staged deployment found — did 'bootc upgrade' succeed? status={status}"
     )
-    digest = staged.get("image", {}).get("imageDigest", "")
-    assert digest, f"Could not read staged imageDigest from bootc status: {staged}"
+    digest = _required_deployment_digest(staged, "staged")
+    original = getattr(context, "original_digest", None)
+    assert original, "original_digest is not set — capture the booted digest before upgrading"
+    assert digest != original, f"Staged digest {digest!r} is unchanged from original digest"
     context.expected_upgrade_digest = digest
     print(f"Captured upgrade target digest: {digest}", flush=True)
 
@@ -197,9 +196,9 @@ def staged_deployment_present(context):
 def active_matches_target(context):
     """Validate the running deployment's digest matches the captured staged digest."""
     expected_digest = getattr(context, "expected_upgrade_digest", None)
-    if not expected_digest:
-        _skip_current_scenario(context, "expected_upgrade_digest is not set — add 'Capture staged image digest as upgrade target' before reboot")
-        return
+    assert expected_digest, (
+        "expected_upgrade_digest is not set — add 'Capture staged image digest as upgrade target' before reboot"
+    )
     active_digest = _parse_bootc_status(context).get("booted", {}).get("image", {}).get("imageDigest")
     assert active_digest == expected_digest, (
         f"Active digest {active_digest!r} != expected {expected_digest!r}"
@@ -210,9 +209,9 @@ def active_matches_target(context):
 def active_matches_original(context):
     """After rollback, verify we're back on the deployment captured before upgrade."""
     original_digest = getattr(context, "original_digest", None)
-    if not original_digest:
-        _skip_current_scenario(context, "original_digest is not set — add 'Capture booted image digest for rollback verification' before upgrade")
-        return
+    assert original_digest, (
+        "original_digest is not set — add 'Capture booted image digest for rollback verification' before upgrade"
+    )
     active_digest = _parse_bootc_status(context).get("booted", {}).get("image", {}).get("imageDigest")
     assert active_digest == original_digest, (
         f"Active digest {active_digest!r} != original {original_digest!r}"
@@ -261,6 +260,14 @@ def upgrade_output_staged(context):
 
 def _deployment_digest(deployment):
     return ((deployment or {}).get("image") or {}).get("imageDigest", "")
+
+
+def _required_deployment_digest(deployment, name):
+    digest = _deployment_digest(deployment)
+    assert isinstance(digest, str) and re.fullmatch(r"sha256:[a-f0-9]{64}", digest), (
+        f"Expected {name} imageDigest to be sha256:<64 hex>, got {digest!r}"
+    )
+    return digest
 
 
 def _read_bootc_status(context):

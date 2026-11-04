@@ -45,6 +45,45 @@ def _import_files_steps(tree_available: bool = True):
     return m
 
 
+def _files_tree(app=None):
+    """Tree mock whose single-shot ``applications()`` snapshot lists Files."""
+    tree_mock = MagicMock()
+    apps = []
+    if app is not None:
+        app.name = "org.gnome.Nautilus"
+        apps.append(app)
+    tree_mock.root.applications.return_value = apps
+    return tree_mock
+
+
+class _Dogtail203Root:
+    """Fake ``tree.root`` with dogtail 2.0.3's real signatures (no ``**kwargs``).
+
+    ``application(name)`` models dogtail's internal retry: every miss burns ten
+    seconds of the fake clock before raising.
+    """
+
+    def __init__(self, clock, apps=()):
+        self.clock = clock
+        self.apps = list(apps)
+        self.application_calls = []
+
+    def applications(self):
+        return list(self.apps)
+
+    def application(self, name):
+        self.application_calls.append(name)
+        self.clock.advance(10)
+        raise LookupError(name)
+
+    def findChild(self, predicate, retry=True):  # noqa: N802
+        self.clock.advance(10 if retry else 0)
+        raise LookupError("findChild")
+
+    def findChildren(self, predicate):  # noqa: N802
+        return []
+
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -126,28 +165,21 @@ class TestNautilusApp:
 
     def test_returns_first_matching_app(self):
         mock_app = MagicMock()
-        tree_mock = MagicMock()
-        tree_mock.root.application.return_value = mock_app
-        with patch.object(self.m, "tree", tree_mock):
+        with patch.object(self.m, "tree", _files_tree(mock_app)):
             result = self.m._nautilus_app()
         assert result is mock_app
 
-    def test_tries_next_name_when_first_raises(self):
-        mock_app = MagicMock()
-        call_count = {"n": 0}
-
-        def side_effect(name):
-            call_count["n"] += 1
-            if call_count["n"] == 1:
-                raise RuntimeError("not found")
-            return mock_app
-
+    def test_matches_any_alias_in_snapshot(self):
+        other = MagicMock()
+        other.name = "gnome-shell"
+        files = MagicMock()
+        files.name = "Files"
         tree_mock = MagicMock()
-        tree_mock.root.application.side_effect = side_effect
+        tree_mock.root.applications.return_value = [other, files]
         with patch.object(self.m, "tree", tree_mock):
             result = self.m._nautilus_app()
-        assert result is mock_app
-        assert call_count["n"] == 2
+        assert result is files
+        tree_mock.root.application.assert_not_called()
 
     def test_finds_nautilus_via_applications_list(self):
         mock_app = MagicMock()
@@ -159,12 +191,67 @@ class TestNautilusApp:
         assert result is mock_app
 
     def test_raises_assertion_error_when_all_names_fail(self):
-        tree_mock = MagicMock()
-        tree_mock.root.applications.return_value = []
-        tree_mock.root.application.side_effect = RuntimeError("not found")
-        with patch.object(self.m, "tree", tree_mock):
+        with patch.object(self.m, "tree", _files_tree()):
             with pytest.raises(AssertionError, match="GNOME Files application was not found"):
                 self.m._nautilus_app(timeout=0)
+
+    def test_reports_snapshot_error(self):
+        tree_mock = MagicMock()
+        tree_mock.root.applications.side_effect = RuntimeError("bus gone")
+        with patch.object(self.m, "tree", tree_mock):
+            with pytest.raises(AssertionError, match="bus gone"):
+                self.m._nautilus_app(timeout=0)
+
+
+# ---------------------------------------------------------------------------
+# Missing apps must respect the caller's wait budget (#1019)
+# ---------------------------------------------------------------------------
+
+class TestMissingFilesWaitBudget:
+    @pytest.fixture
+    def clock(self, monkeypatch):
+        m = _import_files_steps()
+        clock = types.SimpleNamespace(now=100.0)
+
+        def advance(seconds):
+            clock.now += seconds
+
+        clock.advance = advance
+        monkeypatch.setattr(m.time, "monotonic", lambda: clock.now)
+        monkeypatch.setattr(m, "sleep", advance)
+        return m, clock
+
+    def test_missing_files_app_fails_within_timeout(self, clock):
+        m, clock = clock
+        root = _Dogtail203Root(clock)
+        with patch.object(m, "tree", types.SimpleNamespace(root=root)), \
+             pytest.raises(AssertionError, match="not found via AT-SPI after 2s"):
+            m._nautilus_app(timeout=2)
+        assert clock.now - 100.0 == pytest.approx(2)
+        assert root.application_calls == []
+
+    def test_close_wait_returns_at_once_when_files_is_absent(self, clock):
+        m, clock = clock
+        root = _Dogtail203Root(clock)
+        with patch.object(m, "tree", types.SimpleNamespace(root=root)), \
+             patch("subprocess.run"), patch.object(m.shutil, "which", return_value=None):
+            m.files_is_no_longer_running(MagicMock())
+        assert clock.now - 100.0 == pytest.approx(0.5)  # only the post-quit settle
+        assert root.application_calls == []
+
+    def test_close_wait_still_fails_when_files_stays_open(self, clock):
+        m, clock = clock
+        frame = types.SimpleNamespace(roleName="frame", showing=True, name="Home")
+        files = MagicMock()
+        files.name = "org.gnome.Nautilus"
+        files.findChildren.side_effect = lambda pred: [frame] if pred(frame) else []
+        root = _Dogtail203Root(clock, apps=[files])
+        with patch.object(m, "tree", types.SimpleNamespace(root=root)), \
+             patch("subprocess.run"), patch.object(m.shutil, "which", return_value=None), \
+             pytest.raises(AssertionError, match="GNOME Files is still visible"):
+            m.files_is_no_longer_running(MagicMock())
+        assert clock.now - 100.0 == pytest.approx(0.5 + 20 * 0.5)
+        assert root.application_calls == []
 
 
 # ---------------------------------------------------------------------------
@@ -186,8 +273,7 @@ class TestNautilusWindow:
         frame = self._make_frame()
         app_mock = MagicMock()
         app_mock.findChildren.return_value = [frame]
-        tree_mock = MagicMock()
-        tree_mock.root.application.return_value = app_mock
+        tree_mock = _files_tree(app_mock)
         with patch.object(self.m, "tree", tree_mock), \
              patch("time.sleep"):
             result = self.m._nautilus_window(timeout=1)
@@ -197,8 +283,7 @@ class TestNautilusWindow:
         app_mock = MagicMock()
         app_mock.findChildren.return_value = []
         app_mock.children = []
-        tree_mock = MagicMock()
-        tree_mock.root.application.return_value = app_mock
+        tree_mock = _files_tree(app_mock)
         with patch.object(self.m, "tree", tree_mock), \
              patch("time.sleep"):
             with pytest.raises(AssertionError, match="Visible Files window not found"):
@@ -298,8 +383,7 @@ class TestNautilusLocationShows:
         node.name = "Home"
         app_mock = MagicMock()
         app_mock.findChildren.return_value = [node]
-        tree_mock = MagicMock()
-        tree_mock.root.application.return_value = app_mock
+        tree_mock = _files_tree(app_mock)
         with patch.object(self.m, "tree", tree_mock), \
              patch("time.sleep"):
             self.m.nautilus_location_shows(MagicMock(), "Home")
@@ -307,8 +391,7 @@ class TestNautilusLocationShows:
     def test_raises_when_location_not_visible(self):
         app_mock = MagicMock()
         app_mock.findChildren.return_value = []
-        tree_mock = MagicMock()
-        tree_mock.root.application.return_value = app_mock
+        tree_mock = _files_tree(app_mock)
         with patch.object(self.m, "tree", tree_mock), \
              patch("time.sleep"):
             with pytest.raises(AssertionError, match="does not show"):
@@ -324,8 +407,7 @@ class TestNautilusLocationShows:
             return [node] if pred(node) else []
 
         app_mock.findChildren.side_effect = find_children
-        tree_mock = MagicMock()
-        tree_mock.root.application.return_value = app_mock
+        tree_mock = _files_tree(app_mock)
         with patch.object(self.m, "tree", tree_mock), \
              patch("time.sleep"):
             self.m.nautilus_location_shows(MagicMock(), "home")
@@ -385,8 +467,7 @@ class TestNewFolderDialogIsOpen:
             return [entry] if pred(entry) else []
 
         app_mock.findChildren.side_effect = find
-        tree_mock = MagicMock()
-        tree_mock.root.application.return_value = app_mock
+        tree_mock = _files_tree(app_mock)
         with patch.object(self.m, "tree", tree_mock), \
              patch("time.sleep"):
             self.m.new_folder_dialog_is_open(MagicMock())
@@ -394,8 +475,7 @@ class TestNewFolderDialogIsOpen:
     def test_soft_passes_when_no_entry_found(self, capsys):
         app_mock = MagicMock()
         app_mock.findChildren.return_value = []
-        tree_mock = MagicMock()
-        tree_mock.root.application.return_value = app_mock
+        tree_mock = _files_tree(app_mock)
         with patch.object(self.m, "tree", tree_mock), \
              patch("time.sleep"):
             self.m.new_folder_dialog_is_open(MagicMock())
@@ -422,8 +502,7 @@ class TestFileSearchBarIsOpenInFiles:
             return [entry] if pred(entry) else []
 
         app_mock.findChildren.side_effect = find
-        tree_mock = MagicMock()
-        tree_mock.root.application.return_value = app_mock
+        tree_mock = _files_tree(app_mock)
         with patch.object(self.m, "tree", tree_mock), \
              patch("time.sleep"):
             self.m.file_search_bar_is_open_in_files(context)
@@ -432,8 +511,7 @@ class TestFileSearchBarIsOpenInFiles:
     def test_soft_passes_when_no_search_bar_found(self, capsys):
         app_mock = MagicMock()
         app_mock.findChildren.return_value = []
-        tree_mock = MagicMock()
-        tree_mock.root.application.return_value = app_mock
+        tree_mock = _files_tree(app_mock)
         with patch.object(self.m, "tree", tree_mock), \
              patch("time.sleep"):
             self.m.file_search_bar_is_open_in_files(MagicMock())
@@ -450,17 +528,14 @@ class TestFilesIsNoLongerRunning:
         self.m = _import_files_steps()
 
     def test_passes_immediately_when_app_not_found(self):
-        tree_mock = MagicMock()
-        tree_mock.root.application.side_effect = RuntimeError("not found")
-        with patch.object(self.m, "tree", tree_mock), \
+        with patch.object(self.m, "tree", _files_tree()), \
              patch("time.sleep"):
             self.m.files_is_no_longer_running(MagicMock())
 
     def test_passes_when_app_exists_but_has_no_visible_frames(self):
         app_mock = MagicMock()
         app_mock.findChildren.return_value = []
-        tree_mock = MagicMock()
-        tree_mock.root.application.return_value = app_mock
+        tree_mock = _files_tree(app_mock)
         with patch.object(self.m, "tree", tree_mock), \
              patch("time.sleep"):
             self.m.files_is_no_longer_running(MagicMock())
@@ -475,8 +550,7 @@ class TestFilesIsNoLongerRunning:
             return [frame] if pred(frame) else []
 
         app_mock.findChildren.side_effect = find
-        tree_mock = MagicMock()
-        tree_mock.root.application.return_value = app_mock
+        tree_mock = _files_tree(app_mock)
         with patch.object(self.m, "tree", tree_mock), \
              patch("time.sleep"), \
              patch("subprocess.run"):

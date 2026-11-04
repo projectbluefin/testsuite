@@ -80,21 +80,13 @@ def _settings_app(timeout: int = 15):
                         clean = name.strip("'\" ")
                         if clean in SETTINGS_APP_NAMES or "settings" in clean.lower() or "control-center" in clean.lower():
                             return app
-        except Exception:  # noqa: BLE001
-            pass
-        for name in SETTINGS_APP_NAMES:
-            try:
-                return tree.root.application(name)
-            except Exception as exc:  # noqa: BLE001
-                last_error = exc
-        if time.monotonic() >= deadline:
-            break
-        sleep(0.5)
-    for name in SETTINGS_APP_NAMES:
-        try:
-            return tree.root.application(name)
+            last_error = f"none of {SETTINGS_APP_NAMES} registered"
         except Exception as exc:  # noqa: BLE001
             last_error = exc
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        sleep(min(0.5, remaining))
     raise AssertionError(f"GNOME Settings application was not found via AT-SPI after {timeout}s: {last_error}")
 
 
@@ -145,6 +137,22 @@ def settings_window_is_accessible(context) -> None:
     context.settings_window = _settings_window()
 
 
+def _app_no_retry(name: str):
+    """Look up one top-level application by exact name without dogtail's retries.
+
+    ``tree.root.application(name)`` retries internally, so calling it per alias
+    inside a poll loop multiplies the caller's timeout when the app is absent.
+    Scan the single-shot ``applications()`` snapshot instead.
+    """
+    try:
+        for app in tree.root.applications():
+            if (getattr(app, "name", "") or "").strip("'\" ") == name:
+                return app
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
 @step("Settings is no longer running")
 def settings_is_no_longer_running(context) -> None:
     try:
@@ -174,7 +182,9 @@ def settings_is_no_longer_running(context) -> None:
 
         for name in SETTINGS_APP_NAMES:
             try:
-                app = tree.root.application(name)
+                app = _app_no_retry(name)
+                if app is None:
+                    continue
                 frames = app.findChildren(lambda n: (getattr(n, "roleName", None) or getattr(n, "get_role_name", lambda: "")()) in {"frame", "filler"} and getattr(n, "showing", True))
                 if frames:
                     running = True

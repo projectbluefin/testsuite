@@ -3,6 +3,7 @@ import os
 import subprocess
 from time import monotonic, sleep
 
+from tests.shared.app_support import detached_launch_command
 from tests.shared.ssh_config import ssh_argv
 
 from behave import step
@@ -157,10 +158,7 @@ def _launch_app(app_id: str) -> None:
     """
     if _IN_CONTAINER:
         desktop = f"/usr/share/applications/{app_id}.desktop"
-        cmd = (
-            f"source /tmp/session.env 2>/dev/null; "
-            f"nohup gio launch {desktop} </dev/null &>/dev/null & disown"
-        )
+        cmd = detached_launch_command(f"gio launch {desktop}")
         result = subprocess.run(
             _ssh_args() + [cmd],
             capture_output=True, text=True, timeout=15,
@@ -197,14 +195,23 @@ def _launch_app(app_id: str) -> None:
     )
 
 
-def _app(app_names: tuple[str, ...], label: str):
-    """Take one application snapshot; the window waiter owns all retries."""
+def _matching_apps(app_names: tuple[str, ...]) -> list:
+    """Take one ``applications()`` snapshot; dogtail's per-name lookup retries internally."""
+    matches = []
     for app in tree.root.applications():
         name = getattr(app, "name", None) or (app.get_name() if hasattr(app, "get_name") else None)
         if isinstance(name, str):
             clean = name.strip("'\" ")
             if clean in app_names or any(a.lower() in clean.lower() for a in app_names):
-                return app
+                matches.append(app)
+    return matches
+
+
+def _app(app_names: tuple[str, ...], label: str):
+    """Take one application snapshot; the window waiter owns all retries."""
+    matches = _matching_apps(app_names)
+    if matches:
+        return matches[0]
     raise AssertionError(f"{label} application was not found via AT-SPI")
 
 
@@ -278,39 +285,25 @@ def _wait_for_window_or_title(
 
 
 def _wait_for_app_to_close(app_names: tuple[str, ...], label: str) -> None:
-    for _ in range(20):
-        running = False
-        try:
-            if callable(getattr(tree.root, "applications", None)):
-                for app in tree.root.applications():
-                    name = getattr(app, "name", None) or (app.get_name() if hasattr(app, "get_name") else None)
-                    if isinstance(name, str):
-                        clean = name.strip("'\" ")
-                        if clean in app_names or any(a.lower() in clean.lower() for a in app_names):
-                            running = True
-                            break
-        except Exception:  # noqa: BLE001
-            pass
-        if not running and hasattr(tree.root, "applications") and not type(tree.root.applications).__name__.startswith("MagicMock"):
-            return
+    """Wait until no matching app shows a visible frame, polling snapshots only."""
+    def _is_visible_frame(n):
+        role = getattr(n, "roleName", None) or (n.get_role_name() if hasattr(n, "get_role_name") else "")
+        return role in FRAME_ROLES and getattr(n, "showing", True)
 
-        for name in app_names:
+    for _ in range(20):
+        try:
+            apps = _matching_apps(app_names)
+        except Exception:  # noqa: BLE001
+            apps = []
+        running = False
+        for app in apps:
             try:
-                found = getattr(tree.root, "findChild", lambda *a, **kw: None)(
-                    lambda n: (getattr(n, "name", "") or "").strip("'\" ") == name,
-                    recursive=False,
-                    retry=False,
-                )
-                app = found if found is not None else tree.root.application(name)
-                frames = app.findChildren(
-                    lambda n: (getattr(n, "roleName", None) or getattr(n, "get_role_name", lambda: "")()) in FRAME_ROLES and getattr(n, "showing", True)
-                )
-                if frames:
+                if app.findChildren(_is_visible_frame):
                     running = True
                     break
             except Exception:  # noqa: BLE001
                 continue
-        else:
+        if not running:
             return
         sleep(0.5)
     raise AssertionError(f"{label} is still visible in the AT-SPI tree")

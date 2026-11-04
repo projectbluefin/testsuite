@@ -1,6 +1,7 @@
 # software test suite
 
-GNOME Software and Bazaar (Bluefin software center) coverage.
+Bazaar (Bluefin software center) and Flatpak coverage. Upstream GNOME Software
+scenarios in `flatpak.feature` are `@future` (#847).
 
 ## Run via GitHub Action
 

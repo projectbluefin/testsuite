@@ -17,13 +17,13 @@ must stay in sync.
 
 | Suite | Sharded | Runner mode | DUT session |
 |---|---|---|---|
-| `kde-smoke` | `-a` / `-b` | Host-side KDE runner container | KDE Plasma (SDDM autologin) |
+| `kde-smoke` | no | Host-side KDE runner container | KDE Plasma (SDDM autologin) |
 | `kde-apps` | no | Host-side KDE runner container | KDE Plasma (future) |
 | `kde-settings` | no | Host-side KDE runner container | KDE Plasma (future) |
 | `kde-session` | no | Host-side KDE runner container | KDE Plasma (future) |
 
-`kde-smoke` is auto-sharded into `kde-smoke-a` and `kde-smoke-b` by the matrix
-resolver, mirroring `smoke` and `common`.
+`kde-smoke` runs as one job. It has a single feature file, so splitting it
+left `kde-smoke-b` with nothing to run and failed every KDE run (#989).
 
 
 ## KDE setup is gated to KDE suites only
@@ -103,6 +103,15 @@ Current skip conditions:
 The skip is surfaced in the job log, the GitHub Step Summary, and the behave JSON
 output.
 
+A deliberately skipped shard is **not** a product failure. The workflow records
+the skip reason (`KDE_WEBDRIVER_SKIP`) and passes it to the mandatory-coverage
+gate (`scripts/assert_passed.py`) via `--skip-reason`, which treats it as a
+passing terminal state — the job stays green. This is distinct from a suite that
+self-disabled after the webdriver installed: with no skip reason, that run has
+`0 passing scenarios` and the gate fails the job (the false-green route). See
+`docs/skills/test-authoring/kde/references/webdriver-and-locators.md` §"CI
+passed > 0 backstop".
+
 
 ## Supply-chain exception: per-DUT inputsynth
 
@@ -120,9 +129,11 @@ The exception is bounded by three requirements. Do not weaken any of them:
 
 ## Shard resolution
 
-`kde-smoke` auto-shards into `kde-smoke-a` / `kde-smoke-b`. Both the **expansion** set and
-the **resolver** set must list `kde-smoke`. If only the expansion lists it, the shards resolve
-to `tests/kde-smoke-a/features/`, a directory that does not exist, and every KDE job fails.
+Only `smoke` and `common` are sharded. A suite must appear in both the **expansion** set and
+the **resolver** set or in neither. If only the expansion lists it, the shards resolve to
+`tests/<suite>-a/features/`, a directory that does not exist, and every job of that suite
+fails. Shard a suite only when it has at least two feature files, or the second shard is
+empty and fails (#989).
 `tests/unit/test_e2e_suite_shards.py` runs both sets from `e2e.yml` and fails on any such
 drift, for every suite.
 

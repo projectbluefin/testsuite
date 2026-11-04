@@ -72,6 +72,7 @@ Feature: Migration from ublue-os/bluefin to projectbluefin/bluefin
   Scenario: System identity and health are correct after migration
     * Run SSH command: "sudo bootc status --format=json"
     * Booted image is from the "ublue-os" registry
+    * Capture booted image digest for rollback verification
     * Switch to migration target
     * SSH command return code is "0"
     * Run SSH command: "sudo bootc status --format=json"

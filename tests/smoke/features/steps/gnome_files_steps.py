@@ -45,29 +45,33 @@ FILES_SIDEBAR_URIS = {
 }
 
 
+def _files_apps() -> list:
+    """Take one ``applications()`` snapshot; dogtail's per-name lookup retries internally."""
+    matches = []
+    for app in tree.root.applications():
+        name = getattr(app, "name", None) or (app.get_name() if hasattr(app, "get_name") else None)
+        if isinstance(name, str):
+            clean = name.strip("'\" ")
+            if clean in FILES_APP_NAMES or "nautilus" in clean.lower():
+                matches.append(app)
+    return matches
+
+
 def _nautilus_app(timeout: int = 15):
     """Find the Files app in the AT-SPI tree, retrying for up to ``timeout`` seconds."""
     deadline = time.monotonic() + timeout
     last_error = None
     while True:
         try:
-            if callable(getattr(tree.root, "applications", None)):
-                for app in tree.root.applications():
-                    name = getattr(app, "name", None) or (app.get_name() if hasattr(app, "get_name") else None)
-                    if isinstance(name, str):
-                        clean = name.strip("'\" ")
-                        if clean in FILES_APP_NAMES or "nautilus" in clean.lower():
-                            return app
-        except Exception:  # noqa: BLE001
-            pass
-        for name in FILES_APP_NAMES:
-            try:
-                return tree.root.application(name)
-            except Exception as exc:  # noqa: BLE001
-                last_error = exc
-        if time.monotonic() >= deadline:
+            for app in _files_apps():
+                return app
+            last_error = f"none of {FILES_APP_NAMES} registered"
+        except Exception as exc:  # noqa: BLE001
+            last_error = exc
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
             break
-        sleep(0.5)
+        sleep(min(0.5, remaining))
     raise AssertionError(f"GNOME Files application was not found via AT-SPI after {timeout}s: {last_error}")
 
 
@@ -124,32 +128,24 @@ def files_is_no_longer_running(context) -> None:
         pass
     sleep(0.5)
 
-    for _ in range(20):
-        running = False
-        try:
-            if callable(getattr(tree.root, "applications", None)):
-                for app in tree.root.applications():
-                    name = getattr(app, "name", None) or (app.get_name() if hasattr(app, "get_name") else None)
-                    if isinstance(name, str):
-                        clean = name.strip("'\" ")
-                        if clean in FILES_APP_NAMES or "nautilus" in clean.lower():
-                            running = True
-                            break
-        except Exception:  # noqa: BLE001
-            pass
-        if not running and hasattr(tree.root, "applications") and not type(tree.root.applications).__name__.startswith("MagicMock"):
-            return
+    def _is_visible_frame(n):
+        role = getattr(n, "roleName", None) or getattr(n, "get_role_name", lambda: "")()
+        return role in {"frame", "filler"} and getattr(n, "showing", True)
 
-        for name in FILES_APP_NAMES:
+    for _ in range(20):
+        try:
+            apps = _files_apps()
+        except Exception:  # noqa: BLE001
+            apps = []
+        running = False
+        for app in apps:
             try:
-                app = tree.root.application(name)
-                frames = app.findChildren(lambda n: (getattr(n, "roleName", None) or getattr(n, "get_role_name", lambda: "")()) in {"frame", "filler"} and getattr(n, "showing", True))
-                if frames:
+                if app.findChildren(_is_visible_frame):
                     running = True
                     break
             except Exception:  # noqa: BLE001
                 continue
-        else:
+        if not running:
             return
         sleep(0.5)
     raise AssertionError("GNOME Files is still visible in the AT-SPI tree")

@@ -66,6 +66,8 @@ Feature: bootc upgrade and rollback lifecycle
     * Run SSH command: "sudo bootc status --format=json"
     * Capture staged image digest as upgrade target
     * Reboot VM and wait for SSH
+    * Run SSH command: "sudo bootc status --format=json"
+    * Active deployment matches upgrade target digest
     * Run SSH command: "sudo bootc rollback"
     * SSH command return code is "0"
     * Reboot VM and wait for SSH
@@ -116,6 +118,7 @@ Feature: bootc upgrade and rollback lifecycle
   @lifecycle @upgrade @version
   Scenario: os-release version changes are tracked after upgrade
     * VM is restored to the pre-upgrade baseline deployment
+    * Capture booted image digest for rollback verification
     * Capture current os-release VERSION_ID via SSH
     * Run long SSH command: "sudo bootc upgrade"
     * SSH command return code is "0"

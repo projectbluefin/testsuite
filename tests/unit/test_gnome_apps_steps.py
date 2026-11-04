@@ -380,3 +380,87 @@ class TestWindowDeadline:
         wait = m._wait_for_window_or_title if fallback else m._wait_for_window
 
         assert wait(m.FILES_APP_NAMES, {"Home"}, "Files", timeout=0.25) is frame
+
+
+class _Dogtail203Root:
+    """Fake ``tree.root`` with dogtail 2.0.3's real signatures (no ``**kwargs``).
+
+    ``application(name)`` models dogtail's internal retry: every miss burns ten
+    seconds of the fake clock before raising.
+    """
+
+    def __init__(self, clock, apps=()):
+        self.clock = clock
+        self.apps = list(apps)
+        self.application_calls = []
+
+    def applications(self):
+        return list(self.apps)
+
+    def application(self, name):
+        self.application_calls.append(name)
+        self.clock.advance(10)
+        raise LookupError(name)
+
+    def findChild(self, predicate, retry=True):  # noqa: N802
+        self.clock.advance(10 if retry else 0)
+        raise LookupError("findChild")
+
+
+class TestCloseWaitBudget:
+    """Missing apps must not stretch the close wait past its budget (#1019)."""
+
+    @pytest.fixture
+    def clock(self, monkeypatch):
+        m = _import_gnome_apps()
+        clock = types.SimpleNamespace(now=100.0)
+
+        def advance(seconds):
+            clock.now += seconds
+
+        clock.advance = advance
+        monkeypatch.setattr(m, "sleep", advance)
+        return m, clock
+
+    def test_absent_app_returns_without_waiting(self, clock):
+        m, clock = clock
+        root = _Dogtail203Root(clock)
+        with patch.object(m, "tree", types.SimpleNamespace(root=root)):
+            m._wait_for_app_to_close(m.FILES_APP_NAMES, "Files")
+        assert clock.now == 100.0
+        assert root.application_calls == []
+
+    def test_registered_app_without_window_counts_as_closed(self, clock):
+        m, clock = clock
+        app = MagicMock()
+        app.name = "org.gnome.Nautilus"
+        app.findChildren.return_value = []
+        root = _Dogtail203Root(clock, apps=[app])
+        with patch.object(m, "tree", types.SimpleNamespace(root=root)):
+            m._wait_for_app_to_close(m.FILES_APP_NAMES, "Files")
+        assert clock.now == 100.0
+        assert root.application_calls == []
+
+    def test_open_window_still_fails_within_budget(self, clock):
+        m, clock = clock
+        frame = types.SimpleNamespace(roleName="frame", showing=True, name="Home")
+        app = MagicMock()
+        app.name = "org.gnome.Nautilus"
+        app.findChildren.side_effect = lambda pred: [frame] if pred(frame) else []
+        root = _Dogtail203Root(clock, apps=[app])
+        with patch.object(m, "tree", types.SimpleNamespace(root=root)), \
+             pytest.raises(AssertionError, match="Files is still visible"):
+            m._wait_for_app_to_close(m.FILES_APP_NAMES, "Files")
+        assert clock.now - 100.0 == pytest.approx(20 * 0.5)
+        assert root.application_calls == []
+
+    def test_hidden_window_is_not_counted_as_open(self, clock):
+        m, clock = clock
+        frame = types.SimpleNamespace(roleName="frame", showing=False, name="Home")
+        app = MagicMock()
+        app.name = "Files"
+        app.findChildren.side_effect = lambda pred: [frame] if pred(frame) else []
+        root = _Dogtail203Root(clock, apps=[app])
+        with patch.object(m, "tree", types.SimpleNamespace(root=root)):
+            m._wait_for_app_to_close(m.FILES_APP_NAMES, "Files")
+        assert clock.now == 100.0

@@ -1,6 +1,7 @@
 """Custom step definitions for software suite."""
 
 import os
+import shlex
 import subprocess
 import time
 from time import sleep
@@ -16,22 +17,20 @@ from tests.shared.ssh_steps import *  # noqa: F401,F403
 from tests.shared.app_support import atspi_click, launch_background
 
 _IN_CONTAINER = os.path.lexists("/proc/1/ns/mnt") and not os.path.isfile("/usr/bin/bootc")
+BAZAAR_APP_ID = "io.github.kolunmi.Bazaar"
+# GTK4 publishes g_get_prgname() as the AT-SPI application name, and
+# g_application_run() sets it to basename(argv[0]); bazaar-daemon execs
+# /app/bin/bazaar. The app ID is accepted in case a build sets prgname to it.
+BAZAAR_A11Y_NAMES = {"bazaar", BAZAAR_APP_ID.casefold()}
 FRAME_ROLES = {"frame", "filler"}
-BAZAAR_APP_NAMES = (
-    "gnome-software",
-    "org.gnome.Software",
-    "io.github.kolunmi.Bazaar",
-    "Bazaar",
-)
 BAZAAR_WINDOW_NAMES = {"Bazaar"}
 BAZAAR_TAB_NAMES = {"Curated", "Explore", "Library", "Search"}
 BAZAAR_TAB_ROLES = {"page tab", "toggle button"}
-BAZAAR_LAUNCH_TARGETS = (
-    ("flatpak", "io.github.kolunmi.Bazaar"),
-    ("desktop", "io.github.kolunmi.Bazaar.desktop"),
-    ("desktop", "org.gnome.Software.desktop"),
-    ("command", "gnome-software"),
-)
+# libadwaita exposes each AdwViewStackPage as a `panel` named after its title.
+BAZAAR_VIEW_ROLE = "panel"
+# GTK4 maps the search bar's search_box role to AT-SPI `entry`.
+BAZAAR_SEARCH_FIELD_ROLE = "entry"
+POLL_INTERVAL = 0.25
 
 
 def _skip_if_no_atspi(context) -> bool:
@@ -80,58 +79,57 @@ def _run_in_session(context, cmd: str, timeout: int = 15) -> subprocess.Complete
     )
 
 
-def _bazaar_app(context=None):
-    instance = getattr(getattr(context, "software", None), "instance", None)
-    if instance is not None:
-        return instance
-    last_error = None
-    for name in BAZAAR_APP_NAMES:
+def _poll(what: str, timeout: float, probe):
+    """Return ``probe()``'s first truthy result within ``timeout`` seconds.
+
+    Probes must make single AT-SPI queries (never dogtail's retrying
+    ``root.application()``, which blocks ~10s per miss) so the deadline holds.
+    Exceptions count as "not yet": AT-SPI cache drops raise mid-query.
+    """
+    deadline = time.monotonic() + timeout
+    while True:
         try:
-            return tree.root.application(name)
+            result = probe()
+            if result:
+                return result
+            last = "probe returned nothing"
         except Exception as exc:  # noqa: BLE001
-            last_error = exc
-    raise AssertionError(f"Bazaar application was not found via AT-SPI: {last_error}")
+            last = f"{type(exc).__name__}: {exc}"
+        if time.monotonic() >= deadline:
+            raise AssertionError(f"{what} not reached within {timeout}s: {last}")
+        sleep(POLL_INTERVAL)
 
 
-def _bazaar_window(context=None, timeout: int = 15):
-    last_frames = []
-    for _ in range(timeout * 5):
-        try:
-            app = _bazaar_app(context)
-        except Exception:  # noqa: BLE001
-            sleep(0.2)
-            continue
-        frames = app.findChildren(
-            lambda n: n.roleName in FRAME_ROLES
-            and n.showing
-            and (n.name or "").strip() in BAZAAR_WINDOW_NAMES
-        )
-        if frames:
-            return frames[0]
-        last_frames = [
-            ((frame.name or "").strip(), frame.roleName)
-            for frame in app.findChildren(lambda n: n.roleName in FRAME_ROLES and n.showing)
-        ]
-        sleep(0.2)
-    raise AssertionError(f"Visible Bazaar window not found. Visible frames: {last_frames}")
+def _name(node) -> str:
+    return (node.name or "").strip()
 
 
-def _bazaar_tabs(window) -> list:
-    return window.findChildren(
-        lambda n: n.showing
-        and n.roleName in BAZAAR_TAB_ROLES
-        and (n.name or "").strip() in BAZAAR_TAB_NAMES
-    )
+def _bazaar_app():
+    apps = list(tree.root.applications())
+    for app in apps:
+        if _name(app).casefold() in BAZAAR_A11Y_NAMES:
+            return app
+    raise LookupError(f"Bazaar is not an AT-SPI application; found {sorted(_name(a) for a in apps)}")
 
 
-def _find_bazaar_tab(context, name: str):
-    window = _bazaar_window(context)
-    matches = [
-        node for node in _bazaar_tabs(window)
-        if (node.name or "").strip().casefold() == name.casefold()
-    ]
-    assert matches, f"Bazaar tab {name!r} not found"
-    return matches[0]
+def _visible_bazaar_window():
+    frames = [n for n in _bazaar_app().children if n.roleName in FRAME_ROLES and n.showing]
+    for frame in frames:
+        if _name(frame) in BAZAAR_WINDOW_NAMES:
+            return frame
+    raise LookupError(f"no visible Bazaar window; visible frames: {[(_name(f), f.roleName) for f in frames]}")
+
+
+def _bazaar_window(timeout: float = 30):
+    return _poll("Visible Bazaar window", timeout, _visible_bazaar_window)
+
+
+def _bazaar_tab(window, name: str):
+    for tab in window.findChildren(
+        lambda n: n.roleName in BAZAAR_TAB_ROLES and n.showing and _name(n).casefold() == name.casefold()
+    ):
+        return tab
+    raise LookupError(f"Bazaar tab {name!r} is not showing")
 
 
 def _bazaar_tab_is_selected(tab) -> bool:
@@ -144,155 +142,228 @@ def _bazaar_tab_is_selected(tab) -> bool:
     return False
 
 
-def _bazaar_has_visible_content(window) -> bool:
-    descendants = window.findChildren(
-        lambda n: n.showing
-        and n.roleName not in FRAME_ROLES
-        and (
-            (n.roleName not in BAZAAR_TAB_ROLES)
-            or (n.name or "").strip() not in BAZAAR_TAB_NAMES
-        )
-    )
-    return bool(descendants)
+def _shown_bazaar_view(window):
+    """Return ``(name, panel)`` for the Bazaar view that is showing content.
+
+    Only the visible AdwViewStack page has showing widgets, and while Bazaar
+    is Refreshing no page does, so header-bar chrome cannot satisfy this.
+    """
+    for panel in window.findChildren(
+        lambda n: n.roleName == BAZAAR_VIEW_ROLE and _name(n) in BAZAAR_TAB_NAMES
+    ):
+        if panel.findChildren(lambda n: n.showing):
+            return _name(panel), panel
+    raise LookupError("no Bazaar view is showing content (still Refreshing?)")
 
 
-def wait_for_bazaar_main_content(context, timeout: int = 30) -> bool:
-    """Wait until Bazaar's Refreshing spinner clears and tabs are available."""
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        try:
-            window = _bazaar_window(context, timeout=1)
-            tabs = _bazaar_tabs(window)
-            if tabs and _bazaar_has_visible_content(window):
-                context.bazaar_window = window
-                context.bazaar_tabs = tabs
-                return True
-        except Exception:  # noqa: BLE001
-            pass
-        sleep(0.2)
-    return False
+def _bazaar_view(name: str):
+    window = _visible_bazaar_window()
+    shown, panel = _shown_bazaar_view(window)
+    if shown.casefold() != name.casefold():
+        raise LookupError(f"Bazaar shows view {shown!r}, not {name!r}")
+    if not _bazaar_tab_is_selected(_bazaar_tab(window, name)):
+        raise LookupError(f"Bazaar tab {name!r} is not selected")
+    return panel
 
 
 def _bazaar_flatpak_is_running(context) -> bool:
     result = _flatpak(context, ["ps", "--columns=application"], timeout=15)
-    if result.returncode != 0:
-        return False
+    assert result.returncode == 0, (
+        f"flatpak ps failed (rc={result.returncode}): {result.stderr.strip()}"
+    )
     apps = {
         line.strip()
         for line in result.stdout.splitlines()
         if line.strip() and line.strip().lower() != "application"
     }
-    return "io.github.kolunmi.Bazaar" in apps
+    return BAZAAR_APP_ID in apps
 
 
-def _wait_for_bazaar_to_close(context, timeout: int = 15) -> None:
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        window_visible = True
-        try:
-            _bazaar_window(context, timeout=1)
-        except Exception:  # noqa: BLE001
-            window_visible = False
-        if not window_visible and not _bazaar_flatpak_is_running(context):
-            return
-        sleep(0.2)
-    raise AssertionError("Bazaar is still visible or running after close shortcut")
+def _bazaar_gone(context) -> bool:
+    try:
+        _visible_bazaar_window()
+    except LookupError:
+        return not _bazaar_flatpak_is_running(context)
+    return False
 
 
-@step("Launch Bazaar via fallback targets")
-def launch_bazaar_via_fallback_targets(context) -> None:
+def _wait_for_bazaar_to_close(context, timeout: float = 15) -> None:
+    _poll("Bazaar window closed and Bazaar Flatpak exited", timeout, lambda: _bazaar_gone(context))
+
+
+def _welcome_skip_buttons() -> list:
+    for app in tree.root.applications():
+        if _name(app) == "gnome-shell":
+            return app.findChildren(
+                lambda n: n.showing and n.roleName in {"push button", "button"}
+                and _name(n).casefold() == "skip"
+            )
+    return []
+
+
+def dismiss_bluefin_welcome_dialog(timeout: float = 5) -> None:
+    """Close Bluefin's first-run "Welcome to Bluefin" Shell modal if it is up.
+
+    The modal grabs the keyboard, so uinput keys never reach Bazaar behind it
+    (run 41196660163). Its St buttons expose no AT-SPI actions (run 41199678665),
+    but gnome-shell's WelcomeDialog binds Skip to Escape
+    (js/ui/welcomeDialog.js: ``key: Clutter.KEY_Escape``), and the modal holds the
+    keyboard grab, so one uinput Escape is the supported dismissal. The Skip
+    button is the presence probe and must be gone afterwards.
+    """
+    if not _welcome_skip_buttons():
+        return
+    from qecore.utility import keyboard_key_input
+
+    keyboard_key_input("ESC")
+    _poll("Bluefin welcome dialog dismissed", timeout, lambda: not _welcome_skip_buttons())
+
+
+def _bazaar_has_keyboard_focus():
+    window = _visible_bazaar_window()
+    if not window.active:
+        raise LookupError("the Bazaar window is not the active window")
+    return window
+
+
+@step("Bazaar window has keyboard focus")
+def bazaar_window_has_keyboard_focus(context) -> None:
+    """Gate uinput keys: they go to whichever window is active."""
     if _skip_if_no_atspi(context):
         return
-    context.bazaar_launch_target = launch_background(BAZAAR_LAUNCH_TARGETS)
+    _poll("Active Bazaar window", 5, _bazaar_has_keyboard_focus)
+
+
+# Main.activateWindow() is the Shell's own "bring this window forward" path
+# (dash, alt-tab): it activates the MetaWindow on its workspace and hides the
+# overview. A window mapped from an SSH-launched Flatpak carries no activation
+# token, so mutter may leave focus elsewhere (run 41210513366).
+_ACTIVATE_BAZAAR_JS = f"""(() => {{
+    const win = global.get_window_actors().map(actor => actor.get_meta_window()).find(w =>
+        w && w.get_title() === 'Bazaar' &&
+        [w.get_gtk_application_id(), w.get_wm_class()].includes({BAZAAR_APP_ID!r}));
+    if (!win)
+        return false;
+    Main.activateWindow(win);
+    return true;
+}})()"""
+
+
+def _shell_eval_bool(js: str) -> bool:
+    # Lazy: the shared module imports behave.runner and registers Shell steps,
+    # which the CLI-only step modules and their unit tests do not need.
+    from tests.shared.gnome_shell_steps import _eval_bool
+
+    return _eval_bool(js)
+
+
+@step("Focus the Bazaar window")
+def focus_the_bazaar_window(context) -> None:
+    """Activate Bazaar through GNOME Shell, then require AT-SPI to agree."""
+    if _skip_if_no_atspi(context):
+        return
+    _bazaar_window()
+    assert _shell_eval_bool(_ACTIVATE_BAZAAR_JS), "GNOME Shell has no Bazaar MetaWindow to activate"
+    bazaar_window_has_keyboard_focus(context)
+
+
+@step("Launch Bazaar")
+def launch_bazaar(context) -> None:
+    if _skip_if_no_atspi(context):
+        return
+    context.bazaar_launch_target = launch_background((("flatpak", BAZAAR_APP_ID),))
 
 
 @step("Bazaar main window is accessible")
 def bazaar_main_window_is_accessible(context) -> None:
     if _skip_if_no_atspi(context):
         return
-    context.bazaar_window = _bazaar_window(context)
-    try:
-        atspi_click(context.bazaar_window)
-    except Exception:  # noqa: BLE001
-        pass
+    context.bazaar_window = _bazaar_window()
 
 
 @step("Bazaar main content is loaded")
 def bazaar_main_content_is_loaded(context) -> None:
     if _skip_if_no_atspi(context):
         return
-    assert wait_for_bazaar_main_content(context), (
-        "Bazaar main content did not appear before timeout; loading spinner may still be active"
-    )
+    # First launch refreshes Flathub metadata behind the Refreshing page.
+    _poll("Bazaar view with content", 120, lambda: _shown_bazaar_view(_visible_bazaar_window()))
 
 
 @step('Bazaar tab "{name}" is accessible')
 def bazaar_tab_is_accessible(context, name: str) -> None:
     if _skip_if_no_atspi(context):
         return
-    deadline = time.time() + 10
-    while time.time() < deadline:
-        try:
-            tab = _find_bazaar_tab(context, name)
-            assert tab.showing, f"Bazaar tab {name!r} is not showing"
-            context.bazaar_tab = tab
-            return
-        except Exception:  # noqa: BLE001
-            sleep(0.2)
-    raise AssertionError(f"Bazaar tab {name!r} did not become accessible")
+    context.bazaar_tab = _poll(
+        f"Bazaar tab {name!r}", 15, lambda: _bazaar_tab(_visible_bazaar_window(), name)
+    )
 
 
 @step('Activate Bazaar tab "{name}"')
 def activate_bazaar_tab(context, name: str) -> None:
     if _skip_if_no_atspi(context):
         return
-    deadline = time.time() + 5
-    while time.time() < deadline:
-        try:
-            tab = _find_bazaar_tab(context, name)
-            atspi_click(tab)
-            context.bazaar_tab = tab
-            sleep(0.2)
-            return
-        except Exception:  # noqa: BLE001
-            sleep(0.2)
-    raise AssertionError(f"Bazaar tab {name!r} could not be activated")
+
+    def click():
+        tab = _bazaar_tab(_visible_bazaar_window(), name)
+        atspi_click(tab)
+        return tab
+
+    context.bazaar_tab = _poll(f"Activated Bazaar tab {name!r}", 15, click)
 
 
 @step('Bazaar view "{name}" is loaded')
 def bazaar_view_is_loaded(context, name: str) -> None:
     if _skip_if_no_atspi(context):
         return
-    deadline = time.time() + 10
-    while time.time() < deadline:
-        try:
-            window = _bazaar_window(context, timeout=1)
-            tab = _find_bazaar_tab(context, name)
-            if _bazaar_tab_is_selected(tab) and _bazaar_has_visible_content(window):
-                context.bazaar_window = window
-                context.bazaar_tab = tab
-                return
-        except Exception:  # noqa: BLE001
-            pass
-        sleep(0.2)
-    raise AssertionError(f"Bazaar view {name!r} did not load")
+    context.bazaar_view = _poll(f"Bazaar view {name!r} with content", 30, lambda: _bazaar_view(name))
+
+
+@step('Bazaar search field shows "{query}"')
+def bazaar_search_field_shows(context, query: str) -> None:
+    if _skip_if_no_atspi(context):
+        return
+
+    # BzSearchBar is a GtkEditable delegate with accessible-role search_box,
+    # which GTK4 exposes as an AT-SPI `entry` carrying the Text interface. Its
+    # inner GtkText has role NONE and is not in the tree. Run 41201865894 typed
+    # "flatseal" into the field, but the old `text`-role lookup matched nothing.
+    def field():
+        entries = _bazaar_view("Search").findChildren(
+            lambda n: n.roleName == BAZAAR_SEARCH_FIELD_ROLE and n.showing
+        )
+        for node in entries:
+            if node.text == query:
+                return node
+        raise LookupError(
+            f"no showing Search {BAZAAR_SEARCH_FIELD_ROLE} contains {query!r}; "
+            f"found {[node.text for node in entries]}"
+        )
+
+    _poll(f"Bazaar search field text {query!r}", 15, field)
+
+
+@step('Bazaar search results include "{title}"')
+def bazaar_search_results_include(context, title: str) -> None:
+    if _skip_if_no_atspi(context):
+        return
+
+    def result():
+        for node in _bazaar_view("Search").findChildren(lambda n: n.roleName == "label" and n.showing):
+            if _name(node) == title:
+                return node
+        raise LookupError(f"no showing Search result labelled {title!r}")
+
+    _poll(f"Bazaar search result {title!r}", 60, result)
 
 
 @step("Close Bazaar via shortcut")
 def close_bazaar_via_shortcut(context) -> None:
     if _skip_if_no_atspi(context):
         return
-    try:
-        atspi_click(_bazaar_window(context))
-    except Exception:  # noqa: BLE001
-        pass
-    for combo in ('"<Alt><F4>"', '"<Ctrl><Q>"'):
-        context.execute_steps(f"* Key combo: {combo} with uinput")
-        try:
-            _wait_for_bazaar_to_close(context, timeout=5)
-            return
-        except AssertionError:
-            continue
+    focus_the_bazaar_window(context)
+    # <primary>q is app.quit, which also tells bazaar-daemon to Quit. qecore
+    # builds KEY_<NAME> from each token, so modifiers need evdev names.
+    context.execute_steps('* Key combo: "<LEFTCTRL><Q>" with uinput')
     _wait_for_bazaar_to_close(context)
 
 
@@ -301,6 +372,41 @@ def bazaar_is_no_longer_running(context) -> None:
     if _skip_if_no_atspi(context):
         return
     _wait_for_bazaar_to_close(context)
+
+
+@step('No coredump entries exist on the VM for "{name}"')
+def no_vm_coredump_entries_exist(context, name: str) -> None:
+    result = _run_in_session(context, f"coredumpctl list --no-pager --no-legend {shlex.quote(name)}")
+    # coredumpctl exits 1 when nothing matches and 0 when it lists entries.
+    assert result.returncode in (0, 1), (
+        f"coredumpctl failed (rc={result.returncode}): {result.stderr.strip()}"
+    )
+    assert result.returncode == 1, f"Unexpected coredump entries for {name}:\n{result.stdout.strip()}"
+
+
+_BAZAAR_YAML_CHECK = """\
+import glob, sys, yaml
+files = sorted(glob.glob(sys.argv[1] + '/*.yaml'))
+if not files:
+    sys.exit('no *.yaml files in ' + sys.argv[1])
+for path in files:
+    with open(path) as handle:
+        data = yaml.safe_load(handle)
+    if not isinstance(data, dict) or not data:
+        sys.exit(path + ' is not a non-empty YAML mapping')
+    print(path)
+"""
+
+
+@step('Bazaar YAML configuration files in "{directory}" parse as non-empty mappings')
+def bazaar_yaml_files_parse(context, directory: str) -> None:
+    result = _run_in_session(
+        context, f"python3 -c {shlex.quote(_BAZAAR_YAML_CHECK)} {shlex.quote(directory)}"
+    )
+    assert result.returncode == 0, (
+        f"Bazaar YAML check failed (rc={result.returncode})\n"
+        f"stdout: {result.stdout.strip()}\nstderr: {result.stderr.strip()}"
+    )
 
 
 @step('Flatpak permissions table "{table}" is queryable')
@@ -364,18 +470,6 @@ def set_flatpak_user_override(context, override: str, app_id: str) -> None:
     assert result.returncode == 0, (
         f"flatpak override --user {override} {app_id} failed: "
         f"rc={result.returncode}\nstdout={result.stdout}\nstderr={result.stderr}"
-    )
-
-
-@step('Flatpak user override "{fragment}" is active for "{app_id}"')
-def flatpak_user_override_is_active(context, fragment: str, app_id: str) -> None:
-    result = _flatpak(context, ["override", "--user", "--show", app_id])
-    assert result.returncode == 0, (
-        f"flatpak override --show {app_id} failed: "
-        f"rc={result.returncode}\nstdout={result.stdout}\nstderr={result.stderr}"
-    )
-    assert fragment in result.stdout, (
-        f"Override fragment {fragment!r} not found in override output for {app_id}:\n{result.stdout}"
     )
 
 

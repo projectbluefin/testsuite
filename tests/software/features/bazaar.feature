@@ -5,9 +5,8 @@ Feature: Bazaar CLI validation for Bluefin
   only — gnomeos and images that do not ship Bazaar are skipped via the
   _has_bazaar() guard in environment.py.
 
-  Replaces the @pending placeholder from issue #419. AT-SPI-based Bazaar
-  navigation scenarios remain `@future` in flatpak.feature pending GNOME 51
-  AT-SPI re-validation (#847).
+  Replaces the @pending placeholder from issue #419. AT-SPI Bazaar GUI
+  coverage lives in bazaar_ui.feature and bazaar_navigation.feature.
 
   @software @bazaar
   Scenario: Bazaar is installed

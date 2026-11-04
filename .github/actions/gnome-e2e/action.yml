@@ -5,13 +5,15 @@
 # suite via qecore-headless.
 #
 # Scope: GUI suites that run inside the VM via qecore-headless (AT-SPI).
-#   Supported: smoke, developer, dx, software, vanilla-gnome, extensions
+#   Supported: smoke, developer, dx, software, vanilla-gnome, extensions, gnomeos-canary
 #   NOT supported: lifecycle, security, hardware (need plain-SSH mode — future work)
 #
 # Requirements:
 #   - Runner must have KVM enabled (ubuntu-latest on GHA has it)
 #   - OCI image must be a bootc/ostree image (uses bootc install to-disk)
 #   - gnome-ponytail-daemon must be baked into the OCI image
+#     (suite: extensions checks this and other prerequisites before boot via
+#     scripts/guest_preflight.py and records results/guest-provenance.json)
 #
 # Usage:
 #   - uses: projectbluefin/testsuite/.github/actions/gnome-e2e@main
@@ -29,14 +31,14 @@ name: 'GNOME E2E Tests'
 description: >
   Run a projectbluefin/testsuite behave suite inside a KVM QEMU VM booting
   a bootc/ostree GNOME image. Supports GUI suites (smoke, developer, dx,
-  software, vanilla-gnome, extensions).
+  software, vanilla-gnome, extensions, gnomeos-canary).
 
 inputs:
   image:
     description: 'OCI image to test (e.g. ghcr.io/projectbluefin/dakota:latest)'
     required: true
   suite:
-    description: 'Test suite: smoke | developer | dx | software | vanilla-gnome | extensions'
+    description: 'Test suite: smoke | developer | dx | software | vanilla-gnome | extensions | gnomeos-canary'
     default: 'smoke'
   testsuite-ref:
     description: >
@@ -51,14 +53,17 @@ inputs:
     description: 'VM CPU count'
     default: '4'
   free-disk-space:
-    description: 'Run ublue-os/remove-unwanted-software to free ~10 GB before provisioning'
+    description: 'Run projectbluefin/actions bootc-build/setup-runner to free disk space before provisioning'
     default: 'true'
 
 outputs:
   behave-rc:
     description: >
-      Exit code from behave (0 = all passed). For suite: extensions the
-      action additionally fails the job via the extension-validation gate.
+      Exit code from behave (0 = all passed). Informational: the action
+      already fails the job for every suite when behave exits non-zero or no
+      scenario passed (extension-validation gate for extensions and
+      gnomeos-canary, mandatory-coverage gate via scripts/assert_passed.py
+      for all other suites).
     value: ${{ steps.run.outputs.behave_rc }}
   results-path:
     description: 'Workspace-relative path to the results directory'
@@ -69,12 +74,11 @@ runs:
   steps:
 
     # ── Checkout test content ─────────────────────────────────────────────────
-    # Always check out from projectbluefin/testsuite at the same ref as the
-    # action itself so test content matches the action version.
+    # Match the action repository/ref, including local calls on fork branches.
     - name: Checkout testsuite
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       with:
-        repository: projectbluefin/testsuite
+        repository: ${{ github.action_repository || github.repository }}
         ref: ${{ inputs.testsuite-ref || github.action_ref }}
         path: _testsuite
         sparse-checkout: |
@@ -84,15 +88,11 @@ runs:
         sparse-checkout-cone-mode: true
 
     # ── Free disk space ───────────────────────────────────────────────────────
-    # ubuntu-latest ships with ~25 GB free; bootc BIB + QEMU disk needs ~12 GB.
     - name: Free disk space
       if: inputs.free-disk-space == 'true'
-      uses: ublue-os/remove-unwanted-software@cc0becac701cf642c8f0a6613bbdaf5dc36b259e # v9
+      uses: projectbluefin/actions/bootc-build/setup-runner@a092e7813cddbf989374bed1b46ce40302c7c4da # v1
       with:
-        remove-dotnet: 'true'
-        remove-android: 'true'
-        remove-haskell: 'true'
-        remove-codeql: 'true'
+        update-podman: "false"
 
     # ── KVM access ───────────────────────────────────────────────────────────
     - name: Enable KVM access
@@ -109,7 +109,13 @@ runs:
       env:
         GNOME_E2E_IMAGE: ${{ inputs.image }}
       run: |
-        sudo podman pull "${GNOME_E2E_IMAGE}" &
+        (
+          if [[ "${GNOME_E2E_IMAGE}" == localhost/* ]] && sudo podman image exists "${GNOME_E2E_IMAGE}"; then
+            echo "Using locally built image ${GNOME_E2E_IMAGE}"
+          else
+            sudo podman pull "${GNOME_E2E_IMAGE}"
+          fi
+        ) &
         PULL_PID=$!
         sudo apt-get update -q
         sudo apt-get install -y --no-install-recommends qemu-system-x86
@@ -131,6 +137,7 @@ runs:
       shell: bash
       env:
         GNOME_E2E_IMAGE: ${{ inputs.image }}
+        GNOME_E2E_SUITE: ${{ inputs.suite }}
       run: |
         fallocate -l 30G disk.raw
 
@@ -185,6 +192,20 @@ runs:
         echo "GNOME_E2E_ROOT_UUID=${ROOT_UUID}" >> "$GITHUB_ENV"
         echo "GNOME_E2E_KVER=${KVER}" >> "$GITHUB_ENV"
 
+        # Extension-validation lane (#908): record which guest is under test and
+        # fail closed before boot when the image lacks a lane prerequisite
+        # (stock GNOME OS ships no gnome-ponytail-daemon). Cleanup below still
+        # runs; the step fails after it.
+        PREFLIGHT_RC=0
+        if [[ "${GNOME_E2E_SUITE}" == "extensions" || "${GNOME_E2E_SUITE}" == "gnomeos-canary" ]]; then
+          IMAGE_DIGEST=$(sudo podman image inspect --format '{{.Digest}}' "${GNOME_E2E_IMAGE}" 2>/dev/null || true)
+          mkdir -p results
+          sudo python3 _testsuite/scripts/guest_preflight.py "${D}" \
+            --image-ref "${GNOME_E2E_IMAGE}" --image-digest "${IMAGE_DIGEST}" \
+            --output results/guest-provenance.json || PREFLIGHT_RC=$?
+          sudo chown -R "$(id -u):$(id -g)" results
+        fi
+
         EFI_PART="${LOOP}p2"
         sudo mkdir -p /mnt/efi
         sudo mount "${EFI_PART}" /mnt/efi
@@ -204,6 +225,10 @@ runs:
         sudo chown runner:runner ./vmlinuz ./initramfs.img
 
         sudo mkdir -p "${D}/etc/systemd/system/multi-user.target.wants/"
+        # CI VMs are not users: opt out of the daily countme ping
+        # (projectbluefin-countme.service honours this marker).
+        sudo mkdir -p "${D}/etc/projectbluefin/countme"
+        sudo touch "${D}/etc/projectbluefin/countme/disabled"
         sudo ln -sf /usr/lib/systemd/system/sshd.service \
           "${D}/etc/systemd/system/multi-user.target.wants/sshd.service"
         sudo ssh-keygen -A -f "${D}" 2>/dev/null || true
@@ -243,6 +268,10 @@ runs:
         sudo podman rmi "${GNOME_E2E_IMAGE}" 2>/dev/null || true
         ls -lh disk.raw vmlinuz initramfs.img
         df -h .
+        if [[ ${PREFLIGHT_RC} -ne 0 ]]; then
+          echo "::error::Guest preflight failed (rc=${PREFLIGHT_RC}); see results/guest-provenance.json"
+          exit 1
+        fi
 
     # ── Boot VM ───────────────────────────────────────────────────────────────
     - name: Boot VM with QEMU + KVM
@@ -318,17 +347,26 @@ runs:
     # qecore-headless manages the ponytail daemon lifecycle — do not pre-start it.
     - name: Install Python test stack
       shell: bash
+      env:
+        GNOME_E2E_SUITE: ${{ inputs.suite }}
       run: |
         SSH_OPTS="-i /tmp/gnome_e2e_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ControlMaster=auto -o ControlPersist=600 -o ControlPath=/tmp/gnome-e2e-ssh-%C -o ConnectTimeout=3"
         SSH="ssh ${SSH_OPTS} -p 2222 bluefin-test@127.0.0.1"
 
-        $SSH "python3 -m ensurepip --user 2>/dev/null || true"
-        # Pin to the same qecore the runner image (container/Containerfile.runner)
-        # ships — smoke/environment.py monkeypatches qecore.utility internals
-        # (_get_uinput_device, >= 4.19), so runner/VM drift kills keyboard input
-        # silently (testsuite#820-class failure).
-        $SSH "python3 -m pip install -q --user qecore==4.19.3 behave==1.3.3 dogtail==2.0.3 python-uinput==1.0.1"
-        $SSH "for f in \$HOME/.local/bin/qecore_*; do sudo ln -sf \"\$f\" /usr/local/bin/\$(basename \"\$f\") 2>/dev/null; done"
+        if [[ "${GNOME_E2E_SUITE}" == "gnomeos-canary" ]]; then
+          $SSH "test -x /opt/gnomeos-harness/bin/qecore-headless"
+          # Native GNOME OS overlay already built its C extensions against the
+          # matching devel image. Do not pip-build them again on the runtime OS.
+          $SSH 'mkdir -p "$HOME/.local/bin"; for f in /opt/gnomeos-harness/bin/*; do ln -sf "$f" "$HOME/.local/bin/$(basename "$f")"; done'
+        else
+          $SSH "python3 -m ensurepip --user 2>/dev/null || true"
+          # Pin to the same qecore the runner image (container/Containerfile.runner)
+          # ships — smoke/environment.py monkeypatches qecore.utility internals
+          # (_get_uinput_device, >= 4.19), so runner/VM drift kills keyboard input
+          # silently (testsuite#820-class failure).
+          $SSH "python3 -m pip install -q --user qecore==4.19.3 behave==1.3.3 dogtail==2.0.3 python-uinput==1.0.1"
+          $SSH "for f in \$HOME/.local/bin/qecore_*; do sudo ln -sf \"\$f\" /usr/local/bin/\$(basename \"\$f\") 2>/dev/null; done"
+        fi
         $SSH "sudo modprobe uinput 2>/dev/null || true"
         $SSH "sudo chmod 0666 /dev/uinput 2>/dev/null || true"
 
@@ -379,6 +417,10 @@ runs:
         [[ -d "_testsuite/tests/shared" ]] && \
           $SCP "_testsuite/tests/shared" "bluefin-test@127.0.0.1:/tmp/gnome_e2e/tests/" || true
 
+        HEADLESS_FLAGS=""
+        if [[ "${GNOME_E2E_SUITE}" == "gnomeos-canary" ]]; then
+          HEADLESS_FLAGS="--dont-kill"
+        fi
         BEHAVE_RC=0
         $SSH "
           set -e
@@ -386,7 +428,7 @@ runs:
           export PATH=\$HOME/.local/bin:\$PATH
           export PYTHONPATH=/tmp/gnome_e2e
           BEHAVE_BIN=\$(which behave)
-          \$HOME/.local/bin/qecore-headless \"\$BEHAVE_BIN /tmp/gnome_e2e/tests/${GNOME_E2E_SUITE}/features/ --format json.pretty --outfile /tmp/gnome_e2e/results/results.json --format pretty --outfile /tmp/gnome_e2e/results/results.txt --format progress --no-capture\"
+          \$HOME/.local/bin/qecore-headless ${HEADLESS_FLAGS} \"\$BEHAVE_BIN /tmp/gnome_e2e/tests/${GNOME_E2E_SUITE}/features/ --format json.pretty --outfile /tmp/gnome_e2e/results/results.json --format pretty --outfile /tmp/gnome_e2e/results/results.txt --format progress --no-capture\"
         " || BEHAVE_RC=$?
 
         $SCP "bluefin-test@127.0.0.1:/tmp/gnome_e2e/results/." ./results/ 2>/dev/null || true
@@ -603,11 +645,13 @@ runs:
     # / failed-boot / missing-result runs; this step makes it the lane verdict.
     # Runs even when behave failed (if: always()) so a crashed lane that left
     # no results.json still fails the gate instead of slipping through on the
-    # run step's exit code alone. Scoped to suite == 'extensions' only: every
-    # other suite keeps the e2e_summary headline.
+    # run step's exit code alone. The GNOME OS baseline also uses this strict
+    # gate; every other suite keeps the e2e_summary headline.
     - name: Gate extension-validation run
-      if: always() && inputs.suite == 'extensions'
+      if: always() && (inputs.suite == 'extensions' || inputs.suite == 'gnomeos-canary')
       shell: bash
+      env:
+        GNOME_E2E_BEHAVE_RC: ${{ steps.run.outputs.behave_rc }}
       run: |
         GATE="_testsuite/scripts/extension_validation.py"
         if [[ ! -f "${GATE}" ]]; then
@@ -615,3 +659,32 @@ runs:
           exit 1
         fi
         python3 "${GATE}" results/results.json
+        # A wrapper/after_all failure can leave passing scenario records. Both
+        # the complete result gate and the actual process must succeed.
+        if [[ "${GNOME_E2E_BEHAVE_RC}" != "0" ]]; then
+          echo "::error::qecore/Behave did not exit successfully (${GNOME_E2E_BEHAVE_RC:-missing exit code})"
+          exit 1
+        fi
+
+    # ── Mandatory-coverage gate (every other suite) ───────────────────────────
+    # The run step records behave's exit code without failing, and the
+    # summarise step only renders a headline, so without this gate a lane that
+    # executed nothing (missing/empty/truncated results.json, setup failure,
+    # zero passing scenarios) finished green. scripts/assert_passed.py is the
+    # same verdict contract e2e.yml uses for its desktop suites.
+    - name: Gate suite has passing scenarios
+      if: always() && inputs.suite != 'extensions' && inputs.suite != 'gnomeos-canary'
+      shell: bash
+      env:
+        GNOME_E2E_BEHAVE_RC: ${{ steps.run.outputs.behave_rc }}
+      run: |
+        GATE="_testsuite/scripts/assert_passed.py"
+        if [[ ! -f "${GATE}" ]]; then
+          echo "::error::Mandatory-coverage gate script missing: ${GATE} not in the testsuite checkout. Failing closed."
+          exit 1
+        fi
+        python3 "${GATE}" results/results.json
+        if [[ "${GNOME_E2E_BEHAVE_RC}" != "0" ]]; then
+          echo "::error::qecore/Behave did not exit successfully (${GNOME_E2E_BEHAVE_RC:-missing exit code})"
+          exit 1
+        fi

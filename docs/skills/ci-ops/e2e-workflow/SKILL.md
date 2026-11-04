@@ -103,8 +103,7 @@ protecting anything.
 
 ## Job-summary scenario counts come from `scripts/e2e_summary.py`
 
-Never derive `passed` by subtraction. `passed = total - failed - skipped` is wrong
-on two counts:
+Never derive `passed` by subtraction. `passed = total - failed - skipped` is wrong on two counts:
 
 - `results.json` `elements` include **`background`** entries alongside `scenario`
   ones, so `len(elements)` overstates the scenario total.
@@ -128,7 +127,7 @@ known statuses under their own key, and anything else — `error`, `hook_error`,
 missing `status` key, or any future behave status — under `other`. The invariant is
 `sum(counts.values()) == number of scenario elements`. Do not "fix" a new status by
 adding it to `SCENARIO_STATUSES` unless you also want it as its own summary column;
-the `other` bucket already guarantees nothing is lost. `scripts/assert_kde_passed.py`
+the `other` bucket already guarantees nothing is lost. `scripts/assert_passed.py`
 uses the same bucketing pattern — keep the two consistent.
 
 See [results-json-crash-tolerance.md](references/results-json-crash-tolerance.md) for how `load_report()` salvages a `results.json` truncated by a mid-run crash.
@@ -155,7 +154,7 @@ the checkout's namespace package whatever `sys.path` says, forcing the fail-clos
 path. That load catches bare `Exception` on purpose — `exec_module` runs the module's top level, so a corrupted
 copy raises `SyntaxError` or anything else, and this reporting-only step must exit 0 rather than fail the job.
 
-**Gate extension-validation run** follows `Summarise results` for `suite: extensions`: it loads the sibling results helper by file path and requires at least one passing scenario with no errors, while emitting a JSON report for either verdict.
+**Gate extension-validation run** follows `Summarise results` for `suite: extensions`: it loads the sibling results helper by file path and requires at least one passing scenario with no errors, while emitting a JSON report for either verdict. Earlier, before boot, the install step runs `scripts/guest_preflight.py` over the mounted deployment: it writes `results/guest-provenance.json` (image ref, resolved digest, guest `os-release`) and fails closed when a prerequisite such as `gnome-ponytail-daemon` is missing.
 
 ## Sparse checkout is non-cone — every script must be listed explicitly
 
@@ -177,16 +176,11 @@ sparse-checkout: |
 sparse-checkout-cone-mode: false
 ```
 
-Note that `scripts/` as a whole is **not** checked out — only the two named files are.
-
 **Rule: any script a job step invokes must be added to that job's `sparse-checkout`
 list in the same change** — extracting an inline heredoc, adding a guard step, or
 reusing a repo script elsewhere. Verify by reading the job's `sparse-checkout` block
 and confirming the exact path is listed; never assume `scripts/` is present because
 another script runs. Why this fails silently: [troubleshooting.md](references/troubleshooting.md#a-script-missing-from-the-sparse-checkout-fails-silently).
-
-The same rule applies to every other non-cone checkout in this repo, including the
-`projectbluefin/iso` harness checkout in `.github/workflows/iso-validation.yml`.
 
 ## Pipeline stages
 
@@ -196,7 +190,7 @@ The same rule applies to every other non-cone checkout in this repo, including t
 2. **Checkout testsuite** — non-cone sparse checkout of the explicitly listed paths (`flatpak-app-list.txt`, `tests`, `scripts/check_quarantine_age.py`, `scripts/install-kde-webdriver.sh`) from `inputs.test_repository` at `inputs.test_ref`; `test_repository` defaults to `<image-org>/testsuite`, while `manual.yml` passes `github.repository` so fork branches can validate themselves; always `fetch-depth: 0`
 3. **Resolve suite shard** — Python step computes `SUITE_DIR` (physical directory), `FEATURE_ARGS` (specific `.feature` files for shards), and `SCREENSHOT_SUITE` (normalized suite name for GHCR tags)
 4. **Restore/prime Flatpak download cache** — Bluefin GUI suites only; caches a runner-side user Flatpak repo keyed on `flatpak-app-list.txt` hash
-5. **Free disk space** — runs `<readonly-upstream>/remove-unwanted-software@v9`; keeps the 40 GiB `disk.raw` allocation viable on GitHub-hosted runners
+5. **Free disk space** — runs the org's `projectbluefin/actions/bootc-build/setup-runner` (SHA-pinned, `update-podman: "false"`): `remove-unwanted-software@v10` with `extra-squeeze`, plus a zstd BTRFS loopback for `/var/lib/containers` on runners that expose a separate `/mnt` disk (skipped otherwise); keeps the 40 GiB `disk.raw` allocation and the rootful image pulls viable on GitHub-hosted runners. Use this action, not the upstream cleanup action directly, in every VM-provisioning workflow
 6. **Enable KVM** — udev rule for `/dev/kvm` access
 7. **Install QEMU + pull OCI image** — parallel: `apt-get install qemu-system-x86` while `sudo podman pull <image>` and `sudo podman pull ghcr.io/<image-org>/testsuite:runner` run concurrently in background
 8. **Generate SSH keypair** — creates `ed25519` keypair at `/tmp/vm_key`; public key stored in `VM_PUBKEY` env var
@@ -206,12 +200,12 @@ The same rule applies to every other non-cone checkout in this repo, including t
    - Mounts the raw disk, finds `ROOT_UUID` (partition 3), ostree deployment hash, and `KVER`
    - Copies `vmlinuz` + `initramfs.img` from deployment `usr/lib/modules/<kver>/` (or boot partition fallback)
    - Creates `boot.N` symlinks needed by `ostree-system-generator` (including canonical `boot.N` alias for versioned `boot.N.M` dirs produced by newer bootc)
-   - Sets `KERNEL_ARGS` env (includes `root=UUID=...`, masked services, serial console; no `selinux=0` — the guest boots with the candidate's own SELinux mode, see `references/selinux-enforcing.md`)
+   - Sets `KERNEL_ARGS` env (includes `root=UUID=...`, masked services, serial console; `selinux=0` unless `selinux_enforcing: true`, which boots the candidate's own SELinux mode, see `references/selinux-enforcing.md`)
    - Iterates all deployment directories and writes: `bluefin-test` user (UID 1001, added to `wheel` like a real first-run admin account — common's `org.ublue.privileged.user.setup` polkit rule grants wheel only), GDM autologin, sshd drop-in `00-ci-auth.conf`, dconf `local.d/00-ci-testing` override, `tmpfiles.d/ci-user.conf`, masked service symlinks
    - Pre-installs `unsafe-mode@bluefin-test` gnome-shell extension files into var home (pre-boot, so gnome-shell finds it during `_loadExtensions()`)
    - Injects SSH authorized key into `/var/home/bluefin-test/.ssh/` and each deployment's `/etc/ssh/ci-authorized-keys`
-10. **Boot VM** — `qemu-system-x86_64` with KVM, 4 GB RAM, 4 vCPUs, `virtio-gpu-pci`, forwarded SSH on port 2222; daemonized; QEMU monitor socket at `/tmp/qemu-monitor.sock` (chmod 666)
-11. **Wait for SSH** — polls port 2222 up to **15 minutes** (900 s); then **Verify SELinux enforcing** — fails unless `getenforce` is `Enforcing` when the image ships a policy store; records `sestatus`/`id -Z`/`ls -Z` to `results/selinux/`
+10. **Boot VM** — `qemu-system-x86_64` with KVM, 4 GB RAM, 4 vCPUs, `-vga none` + `virtio-gpu-pci` (one display adapter; q35's default std VGA made mutter light a second monitor, so desktop screenshots came out 2560x800), forwarded SSH on port 2222; daemonized; QEMU monitor socket at `/tmp/qemu-monitor.sock` (chmod 666)
+11. **Wait for SSH** — polls port 2222 up to **15 minutes** (900 s); then, with `selinux_enforcing: true`, **Verify SELinux enforcing** — fails unless `getenforce` is `Enforcing` when the image ships a policy store; records `sestatus`/`id -Z`/`ls -Z` to `results/selinux/`
 12. **Pre-stage target image via bootc switch** — lifecycle suite only, when `inputs.target-image` is set; SSHes into VM and runs `sudo bootc switch '<target-image>'` to stage the upgrade target before the test run
 13. **Dump VM serial log** — always runs (`if: always()`); primary debug tool when SSH never comes up
 14. **Wait for GNOME session** — polls `/run/user/1001/wayland-0` up to 3 minutes
@@ -268,7 +262,7 @@ The serial log is always uploaded (even on failure) — it's the primary debug t
 
 - `bootupd` may fail (not in bootc images by default), but a non-zero `bootc install to-disk` exit is only acceptable if the ostree deployment directory is populated. The workflow now logs the full install output, records the exit code, and hard-fails if the deployment directory is empty.
 - No display output: `virtio-gpu` with `-display none`. Tests must use AT-SPI (dogtail/qecore), not pixel-based assertions.
-- No GPU acceleration for GL/Vulkan in GHA runners. Hardware-specific tests require SSH-mode suites not yet in the GHA action (epics #43/#44).
+- No GPU acceleration for GL/Vulkan in GHA runners. Hardware-oriented suites (`hardware`, `nvidia`, `security`) are selectable `suites` values; an all-blocked selection runs zero scenarios yet exits 0, so `scripts/suite_blocked.py` + the "Fail blocked hardware-only suite" backstop fail the job loud (see [`hardware-suite-blocked.md`](references/hardware-suite-blocked.md)).
 - Partition layout assumes `p3` is the root partition. Tested against standard Anaconda/bootc partition tables. Non-standard layouts may break the disk-configure step.
 
 ## Common Rationalizations
@@ -442,16 +436,15 @@ Key differences from GNOME suites:
   was added to `ExecStart` and when the checkout ref was changed to `master`.
 - **Session setup:** SDDM autologin and a KDE determinism environment drop-in are
   written at disk-prep time.
-- **`passed > 0` backstop:** the step `Assert KDE suite has passing scenarios`
-  (`if: startsWith(env.SUITE_DIR, 'kde') && steps.run.outputs.behave_rc == '0'`)
-  runs `python3 scripts/assert_kde_passed.py results/results.json`. The script
-  counts `status == 'passed'` scenarios **positively** (backgrounds and other
-  non-scenario elements are ignored) and exits 1 with an `::error::` annotation
-  when `passed <= 0`, when `results.json` is missing, or when it cannot be
-  parsed. Never re-derive `passed` as `total - failed - skipped`: that scores
-  `undefined`/`untested` as passing and reproduces the exact false green the
-  guard exists to prevent. Behaviour is locked in by
-  `tests/unit/test_assert_kde_passed.py`. The script must stay listed in the
+- **`passed > 0` backstop:** the step `Assert desktop suite has passing scenarios`
+  runs `python3 scripts/assert_passed.py results/results.json --skip-reason "${{ steps.kde_webdriver.outputs.skip_reason }}"` for KDE + GNOME GUI suites
+  (`if: ... && steps.run.outputs.behave_rc == '0'`), the verdict contract for the `e2e.yml` desktop suites (the `gnome-e2e` action runs it too): counts
+  `status == 'passed'` scenarios **positively** (backgrounds and other non-scenario elements ignored) and exits 1 with an `::error::`
+  when `passed <= 0`, when `results.json` is missing/empty/truncated, or when a `failed_setup.txt` marker is present.
+  A deliberately inapplicable shard (KDE webdriver stack could not be installed) passes through `--skip-reason` for a **passing** terminal state —
+  distinct from a suite that self-disabled after the webdriver installed, which still fails via `passed <= 0`.
+  Never re-derive `passed` as `total - failed - skipped` (scores `undefined`/`untested` as passing and reproduces the false green
+  the guard exists to prevent). Behaviour is locked in by `tests/unit/test_assert_passed.py`; the script must stay listed in the
   `Checkout testsuite` sparse-checkout block or it will not exist at runtime.
 
 See [`references/kde-suites.md`](references/kde-suites.md) for the full workflow
@@ -460,10 +453,14 @@ mapping and gating rules.
 **Important:** `testsuite-kde-runner` is published by
 `.github/workflows/build-kde-runner.yml` (added in #640, merged).
 
----
+## Hardware-only suite blocked backstop
+
+`hardware`/`nvidia`/`security` are selectable `suites`; `nvidia` is all-blocked so
+behave runs zero scenarios yet exits 0. The `suite_blocked.py` guard + the "Fail
+blocked hardware-only suite" backstop make this loud — see
+[`references/hardware-suite-blocked.md`](references/hardware-suite-blocked.md).
 
 ## Dashboard seeding — initial population
-
 
 If the `https://projectbluefin.github.io/testsuite/` dashboard shows "No JSONL results found" or no screenshots, the GHCR slug tags don't exist yet. Trigger manual e2e runs to populate them:
 
@@ -494,7 +491,10 @@ Load these when you hit the specific topic:
 - [Troubleshooting e2e workflow failures and flake signatures.](references/troubleshooting.md)
 - [Permission and runtime constraints when calling the reusable action.](references/permissions.md)
 - [KDE suite wiring, gating, and runner-image split.](references/kde-suites.md)
+- [Hardware-oriented suite groups, the all-blocked backstop, and why it fails loud.](references/hardware-suite-blocked.md)
 - [Installer suite assertions, and why an env-var gate made one unreachable.](references/installer-suite.md)
 - [Migration inputs `migration-target` / `extra-tags` and the startup_failure they cause when missing.](references/migration-inputs.md)
 - [GNOME OS guest lane for the developer extension-validation service and its mandatory gate.](references/gnome-extensions-validation.md)
-- [SELinux enforcing in the e2e guest: labeling, mode checks, AVC gate, canary.](references/selinux-enforcing.md)
+- [SELinux enforcing in the e2e guest (opt-in): labeling, mode checks, AVC gate, canary.](references/selinux-enforcing.md)
+- [GNOME OS image provenance (2-week tag expiry), verified guest inventory, and the extensions pre-boot preflight](references/gnomeos-guest-provenance.md)
+- [Which units the fast e2e lane masks, why, and which still need a startup-qualification lane.](references/startup-service-inventory.md)

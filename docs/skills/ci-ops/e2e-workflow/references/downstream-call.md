@@ -28,7 +28,7 @@ Do **not** use a full SHA pin (creates Renovate churn) or `@main` (floating, sec
 
 | Input | Type | Default | Description |
 |-------|------|---------|-------------|
-| `image` | string | `ghcr.io/projectbluefin/dakota:latest` | OCI image to test (must be a bootc/ostree image) |
+| `image` | string | `ghcr.io/projectbluefin/dakota:testing` | OCI image to test (must be a bootc/ostree image) |
 | `target-image` | string | `""` | Full OCI ref to upgrade TO (optional). When set and the `lifecycle` suite is running, stages this image via `bootc switch` before the test suite. Used for migration testing. |
 | `suites` | string | `smoke` | Comma-separated suite names: `smoke`, `developer`, `dx`, `software`, `vanilla-gnome`, `bazzite`, `common`. Note: `lifecycle` is also accepted but is not listed in the input description — use `manual.yml` or `projectbluefin/actions` wrapper workflows for lifecycle runs. |
 | `skip_native_apps` | boolean | `false` | When `true`, skips `@native_app` scenarios (Flatpak apps that may not be installed in all variants) |
@@ -67,7 +67,7 @@ coverage xml
 coverage report --fail-under=75
 ```
 
-`.coveragerc` must keep `parallel = True` and `patch = subprocess` so worker coverage files are written and merged correctly.
+`.coveragerc` must keep `parallel = True` and `patch = subprocess` so worker coverage files are written and merged correctly. It must also keep `include_namespace_packages = True` under `[report]`: suite directories such as `tests/kde-smoke/` have no `__init__.py`, and without it step files no unit test imports are left out of the report instead of counting as 0%. `tests/unit/test_coverage_config.py` pins these options.
 
 ### Lifecycle suite — special execution model
 

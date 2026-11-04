@@ -89,8 +89,8 @@ def _firefox_app(context, timeout: float = 3.0):
 
     qecore kills applications after each scenario. Its ``Application.instance``
     and our previous cache can therefore point at a dead AT-SPI object after the
-    next Background launches Firefox again. Always prefer the live desktop list;
-    use blocking name lookup only while the new process is registering.
+    next Background launches Firefox again. Always prefer the live desktop list,
+    polling it until ``timeout`` while the new process is registering.
     """
     deadline = monotonic() + timeout
     last_error = None
@@ -110,17 +110,15 @@ def _firefox_app(context, timeout: float = 3.0):
         if instance is not None:
             return instance
 
-        for name in FIREFOX_APP_NAMES:
-            try:
-                app = tree.root.application(name)
-                context.firefox_app = app
-                return app
-            except Exception as exc:  # noqa: BLE001
-                last_error = exc
+        # No per-name ``tree.root.application(name)`` fallback: it re-scans the
+        # same desktop list with dogtail's own retries, multiplying ``timeout``.
         if monotonic() >= deadline:
             break
         sleep(0.2)
-    raise AssertionError(f"Firefox application was not found via AT-SPI: {last_error}")
+    raise AssertionError(
+        f"Firefox application was not found via AT-SPI after {timeout}s: "
+        f"{last_error or 'not in the desktop application list'}"
+    )
 
 
 @step("Launch Firefox via command")
@@ -270,6 +268,22 @@ def firefox_main_window_is_accessible(context) -> None:
 
 
 
+def _app_no_retry(name: str):
+    """Look up one top-level application by exact name without dogtail's retries.
+
+    ``tree.root.application(name)`` retries internally, so calling it per alias
+    inside a poll loop multiplies the caller's timeout when the app is absent.
+    Scan the single-shot ``applications()`` snapshot instead.
+    """
+    try:
+        for app in tree.root.applications():
+            if (getattr(app, "name", "") or "").strip("'\" ") == name:
+                return app
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
 @step("Firefox is no longer running")
 def firefox_is_no_longer_running(context) -> None:
     for i in range(20):
@@ -290,7 +304,9 @@ def firefox_is_no_longer_running(context) -> None:
 
         for name in FIREFOX_APP_NAMES:
             try:
-                app = tree.root.application(name)
+                app = _app_no_retry(name)
+                if app is None:
+                    continue
                 # Liveness check only — an empty-subtree window still counts as
                 # "Firefox is running", so do not require an a11y tree here.
                 frames = app.findChildren(

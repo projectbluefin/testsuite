@@ -7,7 +7,7 @@
 # No self-hosted runners. Pure GHA ubuntu-latest.
 #
 # Inputs:
-#   image  — OCI image to test (default: ghcr.io/projectbluefin/dakota:latest)
+#   image  — OCI image to test (default: ghcr.io/projectbluefin/dakota:testing)
 #   suites — comma-separated suite names (default: smoke)
 #            common runs in SSH mode on the runner; GUI suites use qecore.
 
@@ -19,14 +19,19 @@ on:
       image:
         description: "OCI image to test"
         type: string
-        default: "ghcr.io/projectbluefin/dakota:latest"
+        default: "ghcr.io/projectbluefin/dakota:testing"
       target-image:
         description: "Full OCI ref to upgrade TO (optional). When set and lifecycle suite is running, stages this image via bootc switch before the test suite."
         type: string
         default: ""
         required: false
       suites:
-        description: "Comma-separated suites: smoke,developer,dx,software,vanilla-gnome,bazzite,common,lifecycle,installer,kde-smoke"
+        description: >-
+          Comma-separated suites: smoke,developer,dx,software,vanilla-gnome,bazzite,common,lifecycle,installer,kde-smoke,hardware,nvidia,security.
+          hardware, nvidia and security are hardware-oriented groups; when a
+          selected suite's every scenario is @hardware_blocked (no matching VM
+          hardware), the run is reported as blocked with the #706 reason and
+          the job fails instead of showing a green pass with zero tests run.
         type: string
         default: "smoke"
       compose_image:
@@ -81,11 +86,13 @@ on:
       test_ref:
         description: >
           Git ref (branch, SHA, or tag) from which to check out the tests/ directory.
-          Defaults to main when the caller does not pass it. Caller workflows must
+          Defaults to v1, the tag the post-merge VM gate (update-v1-tag.yml)
+          moves only after the merged tests boot, so consumers that call
+          e2e.yml@v1 without a test_ref run the same validated tests. Caller workflows must
           resolve branch selection before entering workflow_call; do not use
           github.ref_name inside this file because GitHub resolves it to main here.
         type: string
-        default: "main"
+        default: "v1"
       test_repository:
         description: >
           Repository from which to check out the tests/ directory. Defaults to
@@ -116,7 +123,7 @@ jobs:
           for p in parts:
               if p == 'smoke':
                   expanded.extend(['smoke-a', 'smoke-b', 'smoke-firefox'])
-              elif p in {'common', 'kde-smoke'}:
+              elif p == 'common':
                   expanded.extend([f'{p}-a', f'{p}-b'])
               else:
                   expanded.append(p)
@@ -236,7 +243,8 @@ jobs:
             flatpak-app-list.txt
             tests
             scripts/all_skipped.py
-            scripts/assert_kde_passed.py
+            scripts/assert_passed.py
+            scripts/suite_blocked.py
             scripts/check_quarantine_age.py
             scripts/install-kde-webdriver.sh
             scripts/e2e_summary.py
@@ -246,8 +254,8 @@ jobs:
             selinux_allowlist.yaml
           sparse-checkout-cone-mode: false
 
-      # smoke-a/smoke-b, common-a/common-b, and kde-smoke-a/kde-smoke-b are
-      # parallel halves of their parent suites. smoke-firefox owns the stateful
+      # smoke-a/smoke-b and common-a/common-b are parallel halves of their
+      # parent suites; kde-smoke has one feature file and runs unsharded. smoke-firefox owns the stateful
       # Firefox feature exclusively. SUITE_DIR is the physical directory and
       # FEATURE_ARGS lists the feature files for this shard (empty = run all).
       - name: Resolve suite shard
@@ -267,7 +275,7 @@ jobs:
               if base == "smoke" and label == "firefox":
                   suite_dir = base
                   feature_args = "tests/smoke/features/firefox.feature"
-              elif base in {"smoke", "common", "kde-smoke"} and label in {"a", "b"}:
+              elif base in {"smoke", "common"} and label in {"a", "b"}:
                   files = sorted(glob.glob(f"tests/{base}/features/*.feature"))
                   if base == "smoke":
                       files = [path for path in files if not path.endswith("/firefox.feature")]
@@ -332,7 +340,9 @@ jobs:
             flathub "${APPS[@]}"
 
       - name: Free disk space
-        uses: ublue-os/remove-unwanted-software@cc0becac701cf642c8f0a6613bbdaf5dc36b259e # v9
+        uses: projectbluefin/actions/bootc-build/setup-runner@a092e7813cddbf989374bed1b46ce40302c7c4da # v1
+        with:
+          update-podman: "false"
 
       - name: Enable KVM access
         run: |
@@ -571,6 +581,10 @@ jobs:
           BFT_UID=1001
           for DEP in $(sudo find /mnt/root/ostree/deploy/default/deploy \
               -maxdepth 1 -mindepth 1 -type d 2>/dev/null); do
+            # CI VMs are not users: opt out of the daily countme ping
+            # (projectbluefin-countme.service honours this marker).
+            sudo mkdir -p "${DEP}/etc/projectbluefin/countme"
+            sudo touch "${DEP}/etc/projectbluefin/countme/disabled"
 
             # Enable sshd
             sudo mkdir -p "${DEP}/etc/systemd/system/multi-user.target.wants/"
@@ -798,6 +812,7 @@ jobs:
             -device   virtio-blk-pci,drive=disk,iothread=ioth0 \
             -netdev   user,id=net0,hostfwd=tcp::2222-:22,hostfwd=tcp:127.0.0.1:4723-:4723 \
             -device   virtio-net-pci,netdev=net0 \
+            -vga      none \
             -device   virtio-gpu-pci \
             -display  none \
             -monitor  unix:/tmp/qemu-monitor.sock,server,nowait \
@@ -1454,6 +1469,20 @@ jobs:
             exit 0
           fi
 
+          # If the selected suite is entirely @hardware_blocked (e.g. nvidia on a
+          # GPU-less VM), behave would run zero scenarios and still exit 0 -- a
+          # misleading green pass. Emit an explicit blocked result with the #706
+          # reason, then fail the job so it is never a silent green. Mirrors the
+          # KDE "suite skipped" pattern above. This is structural: it covers every
+          # folded hardware-only suite (nvidia, and any future group), not one name.
+          SUITE_BLOCKED=$(python3 scripts/suite_blocked.py "tests/${SUITE_DIR}" 2>/dev/null) || SUITE_BLOCKED="RUNNABLE"
+          if [[ "${SUITE_BLOCKED}" == "BLOCKED" ]]; then
+            echo "suite_blocked=true" >> "$GITHUB_OUTPUT"
+            echo "::error::Suite '${SUITE_DIR}' is blocked: every scenario requires hardware the CI VM lacks (see https://github.com/projectbluefin/testsuite/issues/706)."
+            echo "behave_rc=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           if [[ "${SUITE_DIR}" == "common" || "${SUITE_DIR}" == "lifecycle" || "${SUITE_DIR}" == "installer" ]]; then
             python3 -m pip install -q --user behave
             if [[ -n "${FEATURE_ARGS}" ]]; then
@@ -1716,8 +1745,10 @@ jobs:
         run: |
           # If the in-VM screenshot path (grim/gdbus inside the container) produced
           # nothing, capture the QEMU virtual framebuffer directly from the runner.
-          # mutter renders the GNOME desktop to bochs-drm (card1 / primary VGA),
-          # which QEMU maintains internally even with -display none.  The monitor
+          # mutter renders the GNOME desktop to virtio-gpu, the VM's only display
+          # adapter (-vga none drops q35's default std VGA, which mutter used to
+          # light up as a second monitor and grim then captured side by side).
+          # QEMU maintains its framebuffer internally even with -display none.  The monitor
           # socket was opened at VM boot; screendump writes a PPM to the runner host.
           if find results/ -name "screenshot_*fastfetch*.png" 2>/dev/null | grep -q .; then
             echo "In-VM screenshot already present -- skipping QEMU screendump fallback."
@@ -2028,12 +2059,45 @@ jobs:
         if: steps.run.outputs.behave_rc != '0'
         run: exit "${{ steps.run.outputs.behave_rc }}"
 
-      # Backstop: an all-skipped KDE run must NOT be reported as green.
-      # If the suite silently self-disables (e.g. webdriver not reachable),
-      # CI would stay green with zero real coverage. Assert passed > 0.
-      - name: Assert KDE suite has passing scenarios
-        if: startsWith(env.SUITE_DIR, 'kde') && steps.run.outputs.behave_rc == '0'
-        run: python3 scripts/assert_kde_passed.py results/results.json
+      # Backstop: every desktop suite must have at least one genuinely passing
+      # scenario. behave exits 0 when a setup failure (failed_setup.txt) or a
+      # self-disabled suite skips every scenario, so reading behave_rc alone is a
+      # false green. assert_passed.py is the verdict contract for these suites (the
+      # gnome-e2e action runs it too); it fails on the failed_setup marker, an
+      # empty/truncated results.json, or 0 passing scenarios. Optional documented
+      # skips (quarantine/pending/future) never fail it on their own. A
+      # deliberately inapplicable shard (KDE webdriver stack could not be
+      # installed) is passed through --skip-reason and is a passing terminal
+      # state for the gate, not a product failure.
+      - name: Assert desktop suite has passing scenarios
+        if: |
+          (startsWith(env.SUITE_DIR, 'kde') ||
+           env.SUITE_DIR == 'smoke' || env.SUITE_DIR == 'developer' ||
+           env.SUITE_DIR == 'dx' || env.SUITE_DIR == 'software' ||
+           env.SUITE_DIR == 'vanilla-gnome' || env.SUITE_DIR == 'bazzite') &&
+          steps.run.outputs.behave_rc == '0'
+        env:
+          # Through env, not inline: the reason embeds strings read from the
+          # image under test (plasmashell --version, /etc/os-release).
+          SKIP_REASON: ${{ steps.kde_webdriver.outputs.skip_reason }}
+        run: |
+          # smoke-firefox skips its only scenario on images that ship Firefox
+          # only as a Flatpak (#924); an all-skipped run is a pass there.
+          ALLOW=()
+          if [[ "${SUITE}" == "smoke-firefox" ]]; then
+            ALLOW=(--allow-all-skipped)
+          fi
+          python3 scripts/assert_passed.py results/results.json \
+            --skip-reason "${SKIP_REASON}" "${ALLOW[@]}"
+
+      # Backstop: an all-blocked hardware-only suite (e.g. nvidia on a GPU-less
+      # VM) must NOT be reported as green. The run step already wrote a synthetic
+      # blocked result; fail the job here so the block is loud, never silent.
+      - name: Fail blocked hardware-only suite
+        if: steps.run.outputs.suite_blocked == 'true'
+        run: |
+          echo "::error::Suite '${{ inputs.suites }}' is blocked: every scenario requires hardware the CI VM lacks (see https://github.com/projectbluefin/testsuite/issues/706). This is a hardware gap, not a test failure."
+          exit 1
 
       - name: Write e2e metadata
         if: always()

@@ -99,12 +99,10 @@ def _suites() -> list[str]:
     )
 
 
-# Known drift: kde-smoke has one feature file, so kde-smoke-b resolves empty
-# and the shard step exits non-zero (projectbluefin/testsuite#989). Strict, so
-# this flips to a failure the moment e2e.yml stops sharding kde-smoke.
-KNOWN_DRIFT = {
-    "kde-smoke": "e2e.yml shards kde-smoke but it has one feature file (#989)",
-}
+# Suites whose shards are known not to resolve, each with its tracking issue.
+# Entries are strict xfails, so fixing the drift fails the test until the
+# entry is removed. kde-smoke left this list when it stopped sharding (#989).
+KNOWN_DRIFT: dict[str, str] = {}
 
 
 def _suite_params() -> list:

@@ -160,7 +160,7 @@ In GNOME 50:
 In GNOME 50, Firefox exposes its top-level window as `filler` or `frame` in AT-SPI, while web content and iframes within tabs also expose nested `frame` nodes (often containing child widgets such as `push button`). When tabs crash under containerized or headless environments, Firefox may also spawn `Tab crash reporter — Mozilla Firefox` frame nodes in the AT-SPI tree.
 
 To resolve the genuine browser window reliably:
-1. Resolve the app with `_firefox_app()`, which first scans the live `tree.root.applications()` list matching `FIREFOX_APP_NAMES` case-insensitively, then falls back to per-name `tree.root.application()` lookups, polling until a short elapsed-time deadline (3 s by default). Keep `"Firefox"` (the name GNOME 50 registers) first in `FIREFOX_APP_NAMES` so the fallback lookup hits on its first attempt.
+1. Resolve the app with `_firefox_app()`, which first scans the live `tree.root.applications()` list matching `FIREFOX_APP_NAMES` case-insensitively (falling back to the qecore `context.firefox.instance`), polling until a short elapsed-time deadline (3 s by default). There is no per-name `tree.root.application()` fallback: dogtail retries that call internally, multiplying the deadline.
 2. Filter out Mozilla crash reporter windows (`"crash reporter" in name.lower()`) so stale or crashed frames carrying a `page tab list` are not misidentified as browser windows.
 3. Prioritize top-level candidates (`app.children`) before recursive searching, and require genuine browser chrome: `combo box`, `entry`, `autocomplete`, or `page tab list`. In GNOME 50, the Firefox address bar exposes role `combo box` (name `"Search with Google or enter address"`), and buttons use role `button`.
 4. In headless Wayland container environments where `/dev/uinput` evdev keystrokes are not routed to windows by the compositor, provide an AT-SPI fallback via `atspi_click` targeting the `"Open a new tab (Ctrl+T)"` and tab `"Close tab"` buttons.
@@ -255,20 +255,16 @@ bazzite's `Extension "{uuid}" is enabled`) to avoid cross-suite step collisions.
 ## Bazaar on Bluefin: wait out the Refreshing spinner
 
 
-Bluefin ships **Bazaar** (`io.github.kolunmi.Bazaar`), not GNOME Software's old
-Explore/Installed toggle-button layout. For Bazaar UI tests:
-
-- wait for a visible window named **`Bazaar`**
-- then poll until any visible tab named **`Curated`**, **`Explore`**,
-  **`Library`**, or **`Search`** appears
-- accept both `page tab` and `toggle button` roles for those tabs
-
-The first launch often shows a **Refreshing** spinner page before the
-`AdwViewStack` content is ready. On GNOME 50/51, AT-SPI cache drops can also make
-nodes disappear mid-query, so wrap Bazaar window/tab lookups in retry loops
-with short sleeps and re-query the tree each attempt. Upstream GNOME Software
-legacy navigation scenarios remain `@future` (#847) while Bluefin exercises
-Bazaar natively via `bazaar_ui.feature` and `bazaar_navigation.feature`.
+Bluefin ships **Bazaar** (`io.github.kolunmi.Bazaar`), not GNOME Software. Its
+AT-SPI application is named **`bazaar`** (GTK4 uses the prgname), never
+`gnome-software`/`Bazaar`. Poll `tree.root.applications()` against one
+monotonic deadline: a missed `tree.root.application(name)` in a loop ran
+run 41182977349 for 100 minutes. A view is loaded only when its
+`AdwViewStackPage` `panel` has showing descendants, because the header tabs stay
+visible behind the first-launch **Refreshing** page (allow ~120 s). Search by
+typing into the window, then assert the field text and a result `label`. Quit
+with `<Ctrl><Q>`. Only `@bazaar_ui` scenarios get qecore hooks and a
+`flatpak kill`. Details: [Bazaar lookup](references/atspi.md#bazaar-gtk4-flatpak).
 
 ## Desktop notifications via gdbus (smoke suite)
 
@@ -353,6 +349,16 @@ applies `env` on every launch path: exported before the command in SSH mode,
 merged into `os.environ` for local `Popen`, and forwarded across the Flatpak
 sandbox boundary with `--env=`. Environment set outside a Flatpak sandbox is
 **not** visible inside it — always use the `env=` parameter, never a shell prefix.
+
+SSH-mode launches go through `detached_launch_command()` in
+`tests/shared/app_support.py`. It starts the app in a transient
+`systemd-run --user` unit, not as a `nohup ... & disown` child of the SSH
+session. Dakota's logind uses `KillUserProcesses=yes`, systemd's upstream
+default, so it SIGTERMs everything left in the SSH session scope when the
+connection closes. A `nohup` child dies before it maps a window. The VM serial
+log then shows `session-cN.scope: Killing process ... (nohup)`, and the test
+reports that Files or Settings was "not found via AT-SPI". Never hand-roll
+`nohup ... & disown` over SSH for a GUI app.
 
 An **exported Flatpak desktop entry is a trap**: an app ID under
 `/var/lib/flatpak/exports/share/applications/` looks like an ordinary desktop
@@ -457,32 +463,24 @@ The pattern `for _ in range(N): ... sleep(X)` that returns early already IS exit
 
 ## Session readiness across a GDM restart
 
+`qecore-headless` restarts GDM, destroying the session D-Bus socket and bringing
+up a fresh autologin session. `tests/shared/wait_for_shell.py` is the canonical
+helper; key contract points:
 
-`qecore-headless` restarts GDM, which destroys the session D-Bus socket and
-brings up a fresh autologin session. `tests/shared/wait_for_shell.py` is the
-canonical readiness helper and encodes the resulting contract:
-
-- `ServiceUnknown` (bus up, `org.gnome.Shell` unowned) and
-  `Could not connect: No such file or directory` (socket gone, GDM restarting)
-  are **both retryable**, never terminal.
-- The session bus address is **re-resolved on every attempt**
-  (`resolve_session_bus_env()`); an address or connection cached before the
-  restart points at a destroyed socket and can never recover. The address is
-  never *unset* — an empty `DBUS_SESSION_BUS_ADDRESS` sends `gdbus` down the
-  `dbus-launch --autolaunch` path instead of the real session socket.
-- Readiness must hold for two consecutive checks so a check does not latch onto
-  the outgoing session moments before GDM tears it down.
-- The loop is bounded by a 300s wall-clock deadline, and the timeout message
-  reports a per-error-class attempt breakdown plus the last error.
-- When the socket file is absent the probe short-circuits instead of spawning
-  `gdbus`, because an unreachable/empty address sends GIO down the
-  `dbus-launch --autolaunch` path, which cannot work in the test container.
+- `ServiceUnknown` (bus up) and `Could not connect: No such file or directory`
+  (socket gone) are **both retryable**. The bus address is **re-resolved every
+  attempt** (`resolve_session_bus_env()`): a cached address points at a destroyed
+  socket, and an empty `DBUS_SESSION_BUS_ADDRESS` hits the `dbus-launch` path, so
+  the address is never *unset*.
+- Readiness must hold across **two consecutive** checks (never latch onto the
+  outgoing session), within a 300s deadline that reports a per-error-class
+  breakdown on timeout; an absent socket short-circuits instead of spawning
+  `gdbus`.
 - `collect_session_diagnostics()` snapshots socket presence, `loginctl
-  list-sessions` and `systemctl status gdm` on the first failure, every 15th
-  failure, and at timeout. If the socket never returns and no user session is
-  listed, the fault is lane-side GDM provisioning, not this helper.
+  list-sessions` and `systemctl status gdm` on first/15th/timeout failure. No
+  socket return plus no listed session => lane-side GDM provisioning fault.
 
-Reuse this helper rather than writing a new `gdbus`-poll loop. See
+Reuse this helper rather than a new `gdbus`-poll loop. See
 `docs/skills/ci-ops/ops/references/qecore-headless-restarts-gdm-bus-socket-churn.md`.
 
 ## On-demand references
