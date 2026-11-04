@@ -75,13 +75,18 @@ def _assert_required_lifecycle_passed(features):
     Required scenarios are those containing the existing mandatory staging
     assertion, not optional capability/migration/idempotency probes. Inspect
     the parsed model rather than after_scenario events: Behave does not call
-    scenario hooks for scenarios excluded by a tag filter.
+    scenario hooks for scenarios excluded by a tag filter. Scenarios parked
+    by a skip tag (@pending, @future, @quarantine, @hardware_blocked) never
+    run, so they are not required.
     """
+    from tests.shared.quarantine import is_non_runnable
+
     required = [
         scenario
         for feature in features
         for scenario in feature.walk_scenarios()
-        if any(
+        if not is_non_runnable(scenario)
+        and any(
             step.name == "bootc upgrade output indicates image was staged"
             for step in scenario.steps
         )

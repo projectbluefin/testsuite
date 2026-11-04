@@ -41,9 +41,10 @@ class TestRequiredLifecycleVerdict:
         self.mod = environment
 
     @staticmethod
-    def scenario(status="passed", step_status="passed", required=True):
+    def scenario(status="passed", step_status="passed", required=True, tags=()):
         return types.SimpleNamespace(
             name="upgrade and rollback",
+            effective_tags=list(tags),
             status=types.SimpleNamespace(name=status),
             steps=[types.SimpleNamespace(
                 name=("bootc upgrade output indicates image was staged"
@@ -72,6 +73,20 @@ class TestRequiredLifecycleVerdict:
         with pytest.raises(AssertionError, match="skipped or incomplete"):
             self.mod._assert_required_lifecycle_passed(self.features(
                 self.scenario(step_status="skipped"),
+            ))
+
+    @pytest.mark.parametrize("tag", ["pending", "future", "quarantine", "hardware_blocked"])
+    def test_parked_required_scenario_is_not_required(self, tag):
+        # A skip-tagged scenario never runs (tests/shared/quarantine.py), so its
+        # skipped staging step must not fail a healthy targeted run.
+        self.mod._assert_required_lifecycle_passed(self.features(
+            self.scenario(), self.scenario("skipped", "skipped", tags=[tag]),
+        ))
+
+    def test_only_parked_required_scenarios_cannot_qualify(self):
+        with pytest.raises(AssertionError, match="no required upgrade scenarios"):
+            self.mod._assert_required_lifecycle_passed(self.features(
+                self.scenario("skipped", "skipped", tags=["pending"]),
             ))
 
     def test_no_required_scenarios_cannot_qualify(self):
