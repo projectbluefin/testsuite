@@ -32,9 +32,10 @@ any future all-blocked group without a hard-coded name.
 - Run step (after the KDE skip block):
   `python3 scripts/suite_blocked.py "tests/${SUITE_DIR}"` prints `BLOCKED` when
   every scenario is blocked and `RUNNABLE` otherwise.
-- On `BLOCKED` the script writes `suite_blocked=true` to `$GITHUB_OUTPUT`,
-  emits an `::error::` annotation, writes a synthetic behave result (a single
-  `skipped` scenario carrying the issue #706 reason) and `exit 0`.
+- On `BLOCKED` the script writes a synthetic behave result (a single
+  `skipped` scenario carrying the issue #706 reason); the run step then writes
+  `suite_blocked=true` to `$GITHUB_OUTPUT`, emits an `::error::` annotation
+  and `exit 0`.
 - The script must live inside the `Checkout testsuite` sparse-checkout block or
   it is absent at runtime.
 

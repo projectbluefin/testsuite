@@ -61,6 +61,15 @@ def test_feature_and_background_headers_reset_pending_tags():
     assert _parse_feature(text) == [("s", frozenset({"@a", "@c"}))]
 
 
+def test_examples_table_is_not_a_scenario():
+    """An Examples: header belongs to its outline; it is not an untagged scenario."""
+    text = (
+        "@hardware_blocked\nScenario Outline: gpu <n>\n  * step <n>\n"
+        "  Examples:\n    | n |\n    | 1 |\n"
+    )
+    assert _parse_feature(text) == [("gpu <n>", frozenset({"@hardware_blocked"}))]
+
+
 def test_step_line_clears_a_stale_pending_tag_block():
     text = "@a\nScenario: first\n  * step\n@orphan\nScenario: second\n  * step\n"
     assert _parse_feature(text) == [
@@ -122,23 +131,7 @@ def test_is_all_blocked_false_for_empty_suite(tmp_path):
 
 
 def test_blocked_report_scenario_is_not_a_pass():
-    report = [
-        {
-            "name": "nvidia suite blocked",
-            "elements": [
-                {
-                    "type": "scenario",
-                    "status": "skipped",
-                    "steps": [
-                        {
-                            "result": {"status": "skipped", "error_message": "blocked"},
-                            "status": "skipped",
-                        }
-                    ],
-                }
-            ],
-        }
-    ]
+    report = blocked_report(NVIDIA, "blocked", "nvidia")
     scenario = report[0]["elements"][0]
     assert scenario["status"] != "passed"
     assert any(

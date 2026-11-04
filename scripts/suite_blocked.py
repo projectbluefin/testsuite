@@ -69,7 +69,7 @@ def _parse_feature(text: str) -> list[tuple[str, frozenset[str]]]:
                 if token.startswith("@"):
                     pending.add(token)
             continue
-        if line.startswith("Scenario") or line.startswith("Example"):
+        if line.startswith("Scenario") or (line.startswith("Example") and not line.startswith("Examples")):
             tags = set(feature_tags) | set(pending)
             for token in line.replace(",", " ").split():
                 if token.startswith("@"):

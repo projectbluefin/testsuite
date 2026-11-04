@@ -244,7 +244,6 @@ jobs:
             tests
             scripts/all_skipped.py
             scripts/assert_passed.py
-            scripts/assert_kde_passed.py
             scripts/suite_blocked.py
             scripts/check_quarantine_age.py
             scripts/install-kde-webdriver.sh
