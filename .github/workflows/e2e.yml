@@ -123,20 +123,25 @@ jobs:
     steps:
       - name: Resolve suites
         id: resolve
+        env:
+          SUITES_INPUT: ${{ inputs.suites }}
+          IMAGE_INPUT: ${{ inputs.image }}
         run: |
           JSON=$(python3 -c "
           import json, sys
           parts = [s.strip() for s in sys.argv[1].split(',') if s.strip()]
+          image_name = sys.argv[2].lower().split('/')[-1].split(':')[0].split('@')[0]
           expanded = []
           for p in parts:
               if p == 'smoke':
                   expanded.extend(['smoke-a', 'smoke-b', 'smoke-firefox'])
-              elif p == 'common':
+              elif p == 'common' and 'dakota' not in image_name:
                   expanded.extend([f'{p}-a', f'{p}-b'])
               else:
+                  # Dakota's common coverage is two Dakota-only features; a split leaves one all-skipped half.
                   expanded.append(p)
           print(json.dumps(expanded))
-          " "${{ inputs.suites }}")
+          " "$SUITES_INPUT" "$IMAGE_INPUT")
           echo "suites=${JSON}" >> "$GITHUB_OUTPUT"
           echo "Suites: ${JSON}"
 
@@ -316,7 +321,7 @@ jobs:
       # suites must preload any explicitly-tested Flatpaks after SSH comes up.
       # Cache a small user Flatpak repo on the runner, then inject and deploy it in-VM.
       - name: Restore Flatpak download cache
-        if: ${{ contains(inputs.image, '/bluefin') && steps.shard.outputs.suite_dir != 'common' && steps.shard.outputs.suite_dir != 'lifecycle' }}
+        if: ${{ (contains(inputs.image, '/bluefin') || contains(inputs.image, '/utah')) && steps.shard.outputs.suite_dir != 'common' && steps.shard.outputs.suite_dir != 'lifecycle' }}
         id: flatpak-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
@@ -326,7 +331,7 @@ jobs:
             flatpak-home-${{ runner.os }}-
 
       - name: Prime Flatpak download cache
-        if: ${{ contains(inputs.image, '/bluefin') && steps.shard.outputs.suite_dir != 'common' && steps.shard.outputs.suite_dir != 'lifecycle' && steps.flatpak-cache.outputs.cache-hit != 'true' }}
+        if: ${{ (contains(inputs.image, '/bluefin') || contains(inputs.image, '/utah')) && steps.shard.outputs.suite_dir != 'common' && steps.shard.outputs.suite_dir != 'lifecycle' && steps.flatpak-cache.outputs.cache-hit != 'true' }}
         run: |
           sudo apt-get update -q
           sudo apt-get install -y --no-install-recommends flatpak
@@ -933,7 +938,7 @@ jobs:
           echo "${BOOT_TIME}" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
       - name: Install cached Flatpaks in VM
-        if: ${{ contains(inputs.image, '/bluefin') && steps.shard.outputs.suite_dir != 'common' && steps.shard.outputs.suite_dir != 'lifecycle' }}
+        if: ${{ (contains(inputs.image, '/bluefin') || contains(inputs.image, '/utah')) && steps.shard.outputs.suite_dir != 'common' && steps.shard.outputs.suite_dir != 'lifecycle' }}
         run: |
           SSH_COMMON="-i /tmp/vm_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ControlMaster=auto -o ControlPersist=600 -o ControlPath=/tmp/ssh-ctrl-%C -o ConnectTimeout=3"
           CACHE_ROOT="${GITHUB_WORKSPACE}/.flatpak-cache-home/.local/share"
@@ -1600,10 +1605,11 @@ jobs:
                 -e PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
                 -e BEHAVE_RETRIES=${BEHAVE_RETRIES:-2} \
                 -e TARGET_IMAGE=\"${TARGET_IMAGE}\" \
+                -e BASE_IMAGE=\"${BASE_IMAGE}\" \
                 -e IMAGE=\"${IMAGE}\" \
                 -e PYTHONPATH=/tmp/bluefin-tests \
                 ghcr.io/projectbluefin/testsuite:runner \
-                \"python3 /tmp/bluefin-tests/tests/shared/behave_retry.py ${REMOTE_FEATURE_ARGS} --format json.pretty --outfile /tmp/results/results.json --no-capture ${BEHAVE_TAG_ARGS}\"
+                \"python3 /tmp/bluefin-tests/tests/shared/behave_retry.py ${REMOTE_FEATURE_ARGS} -D image=${BASE_IMAGE} --format json.pretty --outfile /tmp/results/results.json --no-capture ${BEHAVE_TAG_ARGS}\"
             " || BEHAVE_RC=$?
 
             $SCP "bluefin-test@127.0.0.1:/tmp/results/." ./results/ 2>/dev/null || true
@@ -2081,7 +2087,7 @@ jobs:
         if: steps.run.outputs.behave_rc != '0'
         run: exit "${{ steps.run.outputs.behave_rc }}"
 
-      # Backstop: every desktop suite must have at least one genuinely passing
+      # Backstop: every desktop suite and the common SSH suite must have at least one genuinely passing
       # scenario. behave exits 0 when a setup failure (failed_setup.txt) or a
       # self-disabled suite skips every scenario, so reading behave_rc alone is a
       # false green. assert_passed.py is the verdict contract for these suites (the
@@ -2091,12 +2097,13 @@ jobs:
       # deliberately inapplicable shard (KDE webdriver stack could not be
       # installed) is passed through --skip-reason and is a passing terminal
       # state for the gate, not a product failure.
-      - name: Assert desktop suite has passing scenarios
+      - name: Assert suite has passing scenarios
         if: |
           (startsWith(env.SUITE_DIR, 'kde') ||
            env.SUITE_DIR == 'smoke' || env.SUITE_DIR == 'developer' ||
            env.SUITE_DIR == 'dx' || env.SUITE_DIR == 'software' ||
-           env.SUITE_DIR == 'vanilla-gnome' || env.SUITE_DIR == 'bazzite') &&
+           env.SUITE_DIR == 'vanilla-gnome' || env.SUITE_DIR == 'bazzite' ||
+           env.SUITE_DIR == 'common') &&
           steps.run.outputs.behave_rc == '0'
         env:
           # Through env, not inline: the reason embeds strings read from the

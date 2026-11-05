@@ -436,7 +436,7 @@ Key differences from GNOME suites:
   was added to `ExecStart` and when the checkout ref was changed to `master`.
 - **Session setup:** SDDM autologin and a KDE determinism environment drop-in are
   written at disk-prep time.
-- **`passed > 0` backstop:** the step `Assert desktop suite has passing scenarios`
+- **`passed > 0` backstop:** the step `Assert suite has passing scenarios`
   runs `python3 scripts/assert_passed.py results/results.json --skip-reason "${{ steps.kde_webdriver.outputs.skip_reason }}"` for KDE + GNOME GUI suites
   (`if: ... && steps.run.outputs.behave_rc == '0'`), the verdict contract for the `e2e.yml` desktop suites (the `gnome-e2e` action runs it too): counts
   `status == 'passed'` scenarios **positively** (backgrounds and other non-scenario elements ignored) and exits 1 with an `::error::`
