@@ -22,6 +22,15 @@ permissions:
   contents: read
 
 jobs:
+  pinned-fetches:
+    name: Pinned fetches
+    uses: projectbluefin/actions/.github/workflows/reusable-pinned-fetches.yml@6453818f6279a2f2c1282919aad0009a88c01819 # v1
+    permissions:
+      contents: read
+    with:
+      mode: fail
+      allowlist: .github/pinned-fetches-allowlist.txt
+
   lint:
     name: Lint & syntax
     runs-on: ubuntu-latest

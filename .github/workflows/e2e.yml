@@ -1349,13 +1349,13 @@ jobs:
           # grim includes its own copy of wlr-screencopy-unstable-v1.xml so no
           # external wlr-protocols package is needed.
           mkdir -p /tmp/ponytail-build
-          podman run --rm -v /tmp/ponytail-build:/out:Z debian:bookworm bash -c "
+          podman run --rm -v /tmp/ponytail-build:/out:Z debian:bookworm@sha256:268fb24c39bca92d326dd83ea3abebe4a3f7751c804ffef23bb6d857dd343ff8 bash -c "
             set -e
             export DEBIAN_FRONTEND=noninteractive
             apt-get update -qq
             apt-get install -y -qq build-essential meson ninja-build pkg-config \
               libglib2.0-dev libwayland-dev wayland-protocols libcairo2-dev libpng-dev git
-            git clone --quiet --depth 1 --branch 0.0.11 https://gitlab.gnome.org/ofourdan/gnome-ponytail-daemon.git /src
+            git clone --quiet --depth 1 --branch 0.0.11 https://gitlab.gnome.org/ofourdan/gnome-ponytail-daemon.git /src && test \"\$(git -C /src rev-parse HEAD)\" = 72f222d912de8105208f6faa865b71480c189924
             # systemd dep is only used to find systemduserunitdir; we provide it directly
             sed -i \"s/dependency('systemd')/dependency('systemd', required: false)/\" /src/meson.build
             meson setup /src/build /src --prefix=/usr -Dsystemd_user_unit_dir=/usr/lib/systemd/user -Dponytail_python=false
@@ -1363,16 +1363,14 @@ jobs:
             cp /src/build/src/gnome-ponytail-daemon /out/
             # Build wayland-protocols >=1.37 from source (bookworm ships 1.31,
             # grim 1.4+ needs 1.37 for ext-image-copy-capture-v1).
-            git clone --quiet --depth 1 --branch 1.37 \
-              https://gitlab.freedesktop.org/wayland/wayland-protocols.git /wp
+            git clone --quiet --depth 1 --branch 1.37 https://gitlab.freedesktop.org/wayland/wayland-protocols.git /wp && test \"\$(git -C /wp rev-parse HEAD)\" = 4878e025a5fb95d8d14a05088974af60cbafebd0
             meson setup /wp/build /wp --prefix=/usr
             ninja -C /wp/build install
             # Build grim (uses ext-image-copy-capture-v1, supported by mutter 47+)
             # grim moved to gitlab.freedesktop.org (the sr.ht repo is frozen);
             # pin a release and retry so a forge hiccup does not fail the suite.
             for attempt in 1 2 3; do
-              git clone --quiet --depth 1 --branch v1.5.0 \
-                https://gitlab.freedesktop.org/emersion/grim.git /grim && break
+              git clone --quiet --depth 1 --branch v1.5.0 https://gitlab.freedesktop.org/emersion/grim.git /grim && test \"\$(git -C /grim rev-parse HEAD)\" = b7a99854e46945db9f50ba8d2417ac42321173d1 && break
               rm -rf /grim
               [ \"\$attempt\" = 3 ] && exit 1
               sleep 15
@@ -1822,18 +1820,18 @@ jobs:
             echo "No desktop screenshot in results/ — skipping promotion"
           fi
 
+      - name: Install ORAS CLI
+        if: steps.desktop-screenshot.outputs.found == 'true'
+        continue-on-error: true
+        uses: oras-project/setup-oras@005458ad77f1c8facd38a094e4af2e69e5607ff4 # v2.0.2
+
       - name: Push desktop screenshot to GHCR
         if: steps.desktop-screenshot.outputs.found == 'true'
         id: upload-screenshot
         continue-on-error: true
         run: |
-          # Install oras — push the screenshot as an OCI artifact so any workflow
+          # Push the screenshot as an OCI artifact so any workflow
           # in the org can pull it with: oras pull ghcr.io/projectbluefin/testsuite/desktop-screenshot:latest
-          ORAS_VERSION="1.2.0"
-          curl -sSfL \
-            "https://github.com/oras-project/oras/releases/download/v${ORAS_VERSION}/oras_${ORAS_VERSION}_linux_amd64.tar.gz" \
-            | tar xz oras
-          sudo mv oras /usr/local/bin/oras
 
           echo "${{ github.token }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
 
