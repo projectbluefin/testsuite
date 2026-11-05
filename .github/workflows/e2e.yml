@@ -1405,8 +1405,14 @@ jobs:
             source /tmp/session.env
             # Keep the daemon outside the SSH session scope: logind can kill
             # session processes when the ControlMaster connection expires.
-            systemd-run --user --quiet --collect --unit=gnome-ponytail-daemon \
-              -- /bin/bash -c 'source /tmp/session.env; exec \$HOME/.local/libexec/gnome-ponytail-daemon >/tmp/ponytail-daemon.log 2>&1'
+            # Use a unit name the image cannot already own: on dakota:testing,
+            # systemd-run --unit=gnome-ponytail-daemon fails with already
+            # loaded or has a fragment file. Fall back to nohup if the user
+            # manager refuses the transient unit for any other reason.
+            if ! systemd-run --user --quiet --collect --unit=testsuite-ponytail-daemon \
+              -- /bin/bash -c 'source /tmp/session.env; exec \$HOME/.local/libexec/gnome-ponytail-daemon >/tmp/ponytail-daemon.log 2>&1'; then
+              nohup \$HOME/.local/libexec/gnome-ponytail-daemon >/tmp/ponytail-daemon.log 2>&1 &
+            fi
             for i in \$(seq 1 15); do
               dbus-send --session --print-reply \
                 --dest=org.freedesktop.DBus /org/freedesktop/DBus \
