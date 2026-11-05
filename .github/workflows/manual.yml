@@ -20,6 +20,10 @@ on:
         description: "Enable @zstd_chunked scenarios in the lifecycle suite"
         required: false
         default: "false"
+      selinux_enforcing:
+        description: "Boot the guest SELinux enforcing and run the AVC denial gate (#1024)"
+        required: false
+        default: "false"
       test_ref:
         description: "Git ref for tests/ checkout (default: dispatched branch; set to override)"
         required: false
@@ -36,6 +40,7 @@ jobs:
       image: ${{ github.event.inputs.image }}
       suites: ${{ github.event.inputs.suites }}
       chunked_enabled: ${{ github.event.inputs.chunked_enabled == 'true' }}
+      selinux_enforcing: ${{ github.event.inputs.selinux_enforcing == 'true' }}
       # workflow_dispatch sees the branch selected in the Actions UI. Keep
       # branch resolution here; github.ref_name inside e2e.yml resolves to main.
       test_ref: ${{ github.event.inputs.test_ref || github.ref_name }}

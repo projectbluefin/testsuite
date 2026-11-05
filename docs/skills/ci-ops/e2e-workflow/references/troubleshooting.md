@@ -79,7 +79,7 @@ still belong only in a fresh disposable guest without publishing credentials.
 Check the serial log artifact. Common causes:
 - ostree deployment missing: `bootc install` exited before writing layers (check for `ERROR: ostree deployment missing` in the install step)
 - Kernel args wrong: `root=UUID=…` mismatch — verify `ROOT_UUID` in the install step output
-- `selinux=0` is set, so SELinux policy isn't the cause
+- SELinux denial: the guest boots enforcing. Check `results/selinux/` in the results artifact and the serial log for `avc:  denied`; an unlabeled harness file means the install step's labeling missed it. See [selinux-enforcing.md](selinux-enforcing.md)
 
 ### GNOME session did not start
 

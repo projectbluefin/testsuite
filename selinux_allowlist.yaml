@@ -9,9 +9,15 @@
 # Format:
 #   - source_context: the scontext from the AVC message
 #     target_context: the tcontext from the AVC message
-#     permission: the denied permission(s)
+#     permission: the denied permission(s), space-separated, exact set
 #     comm: the process comm field
-#     reason: why this denial is acceptable
+#     tclass: the target class (optional; narrows the match)
+#     reason: why this denial is acceptable (required)
 #     upstream_bug: link to upstream tracker (if any)
+#
+# Contexts match on SELinux type only (e.g. xdm_t), so MLS ranges do not
+# matter. The e2e SELinux denial gate (scripts/selinux_qualify.py) fails on
+# any enforced denial without a matching entry. Prefer filing the denial in
+# the owning image repo over adding an entry here.
 
 allowed_denials: []
