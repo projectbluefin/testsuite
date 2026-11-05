@@ -77,7 +77,7 @@ Rollouts should start with `--grace-days` in CI (currently `--grace-days 30`) so
 `e2e.yml` reuses the same script for job-summary reporting via `python3 scripts/check_quarantine_age.py --json`.
 That summary path is informational only, but it still needs the same prerequisites: the workflow checkout must include `scripts/check_quarantine_age.py`, the `tests/` tree, and full git history (`fetch-depth: 0`) or the age calculations will be incomplete.
 
-`pr-validate.yml` runs the shared pinned-fetches check in fail mode with `.github/pinned-fetches-allowlist.txt` for reviewed exceptions. Update each harness source tag and its verified commit together; keep the Debian image digest pinned.
+`pr-validate.yml` runs the SHA-pinned shared pinned-fetches script in fail mode with `.github/pinned-fetches-allowlist.txt` for reviewed exceptions. The source and gate checkouts are siblings so the scan excludes the gate's own files. Update each harness source tag and its verified commit together; keep the Debian image digest pinned.
 Install ORAS using the SHA-pinned setup action, not an unchecked archive. Installation and screenshot upload remain best-effort.
 
 ## `unit-tests.yml` must install every `scripts/` runtime dependency
