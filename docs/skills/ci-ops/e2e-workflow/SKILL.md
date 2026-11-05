@@ -240,7 +240,7 @@ The OCI image under test **must**:
 - Include GNOME + GDM
 - Have `python3` available in the deployment
 
-**`gnome-ponytail-daemon` is built at runtime** — the workflow compiles it from source in a `debian:bookworm` container on the runner and SCPs the binary into the VM. The image does NOT need to ship `gnome-ponytail-daemon`. (See step 20 above.)
+**`gnome-ponytail-daemon` is built at runtime** — the workflow compiles it from source in a `debian:bookworm` container on the runner and SCPs the binary into the VM. The image does NOT need to ship `gnome-ponytail-daemon`. (See step 20 above.) Start it as a transient `systemd --user` service sourcing `/tmp/session.env`: with `KillUserProcesses=yes`, logind kills SSH-session processes when ControlMaster expires, leaving the runner with a stale D-Bus owner. Fail setup if the service cannot start; do not fall back to `nohup` in the SSH session.
 
 The workflow injects the test user, SSH keys, autologin config, and the unsafe-mode gnome-shell extension at disk-prep time — nothing needs to be baked into the image for those.
 

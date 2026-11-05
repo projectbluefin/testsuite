@@ -1306,7 +1306,10 @@ jobs:
 
             # Pre-start the daemon and wait for it to register on the session bus
             source /tmp/session.env
-            nohup \$HOME/.local/libexec/gnome-ponytail-daemon >/tmp/ponytail-daemon.log 2>&1 &
+            # Keep the daemon outside the SSH session scope: logind can kill
+            # session processes when the ControlMaster connection expires.
+            systemd-run --user --quiet --collect --unit=gnome-ponytail-daemon \
+              -- /bin/bash -c 'source /tmp/session.env; exec \$HOME/.local/libexec/gnome-ponytail-daemon >/tmp/ponytail-daemon.log 2>&1'
             for i in \$(seq 1 15); do
               dbus-send --session --print-reply \
                 --dest=org.freedesktop.DBus /org/freedesktop/DBus \
