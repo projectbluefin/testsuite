@@ -1355,7 +1355,7 @@ jobs:
             apt-get update -qq
             apt-get install -y -qq build-essential meson ninja-build pkg-config \
               libglib2.0-dev libwayland-dev wayland-protocols libcairo2-dev libpng-dev git
-            git clone --quiet --depth 1 --branch 0.0.11 https://gitlab.gnome.org/ofourdan/gnome-ponytail-daemon.git /src && test \"\$(git -C /src rev-parse HEAD)\" = 72f222d912de8105208f6faa865b71480c189924
+            git clone --quiet --depth 1 --branch 0.0.11 https://gitlab.gnome.org/ofourdan/gnome-ponytail-daemon.git /src && test \"\$(git -C /src rev-parse HEAD)\" = 72f222d912de8105208f6faa865b71480c189924 || exit 1
             # systemd dep is only used to find systemduserunitdir; we provide it directly
             sed -i \"s/dependency('systemd')/dependency('systemd', required: false)/\" /src/meson.build
             meson setup /src/build /src --prefix=/usr -Dsystemd_user_unit_dir=/usr/lib/systemd/user -Dponytail_python=false
@@ -1363,7 +1363,7 @@ jobs:
             cp /src/build/src/gnome-ponytail-daemon /out/
             # Build wayland-protocols >=1.37 from source (bookworm ships 1.31,
             # grim 1.4+ needs 1.37 for ext-image-copy-capture-v1).
-            git clone --quiet --depth 1 --branch 1.37 https://gitlab.freedesktop.org/wayland/wayland-protocols.git /wp && test \"\$(git -C /wp rev-parse HEAD)\" = 4878e025a5fb95d8d14a05088974af60cbafebd0
+            git clone --quiet --depth 1 --branch 1.37 https://gitlab.freedesktop.org/wayland/wayland-protocols.git /wp && test \"\$(git -C /wp rev-parse HEAD)\" = 4878e025a5fb95d8d14a05088974af60cbafebd0 || exit 1
             meson setup /wp/build /wp --prefix=/usr
             ninja -C /wp/build install
             # Build grim (uses ext-image-copy-capture-v1, supported by mutter 47+)
@@ -1823,7 +1823,7 @@ jobs:
       - name: Install ORAS CLI
         if: steps.desktop-screenshot.outputs.found == 'true'
         continue-on-error: true
-        uses: oras-project/setup-oras@005458ad77f1c8facd38a094e4af2e69e5607ff4 # v2.0.2
+        uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2.0.3
 
       - name: Push desktop screenshot to GHCR
         if: steps.desktop-screenshot.outputs.found == 'true'
