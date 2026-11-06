@@ -103,8 +103,10 @@ absolute guest symlinks are not followed onto the host.
 
 `container/Containerfile.gnomeos-harness` supplies the missing Ponytail daemon
 and Python test stack using the matching GNOME OS development image. It rejects
-a base/development build-commit mismatch and verifies the source archive hash,
-native imports and library linkage. The script records official base and builder
+a base/development build-commit mismatch (`container/gnomeos-harness-identity.py`)
+and verifies the source archive hash, native imports and library linkage. Keep
+the Containerfile free of heredocs: the runner's stock podman parses each
+heredoc line as a build instruction. The script records official base and builder
 digest references separately from the resulting local harness image ID.
 
 Use the dispatch-only `gnomeos-canary.yml` baseline to exercise the overlay with
