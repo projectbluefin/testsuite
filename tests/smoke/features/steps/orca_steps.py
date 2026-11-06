@@ -1,7 +1,7 @@
 """Orca screen-reader smoke-test steps.
 
-The smoke suite runs inside the VM via qecore-headless, so these steps use the
-local subprocess helper `_run_host()` from `steps.py` rather than SSH.
+In CI the smoke suite runs in the GUI runner container; `_run_host()` (steps.py)
+runs the command on the VM over SSH there, and locally otherwise.
 
 Note: qecore's generic "Run and save command output" step executes in the
 runner container, not the VM, so any command that must run in the VM needs a
