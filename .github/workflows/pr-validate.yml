@@ -22,6 +22,28 @@ permissions:
   contents: read
 
 jobs:
+  pinned-fetches:
+    name: Pinned fetches / Pinned fetches (fail)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out the code under scan
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          path: source
+          persist-credentials: false
+
+      - name: Check out the shared gate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: projectbluefin/actions
+          ref: 6453818f6279a2f2c1282919aad0009a88c01819 # v1
+          path: pinned-fetches-gate
+          persist-credentials: false
+
+      - name: Run the pinned-fetches gate
+        run: ./pinned-fetches-gate/scripts/check-pinned-fetches.sh --root source --mode fail --allowlist source/.github/pinned-fetches-allowlist.txt
+
   lint:
     name: Lint & syntax
     runs-on: ubuntu-latest

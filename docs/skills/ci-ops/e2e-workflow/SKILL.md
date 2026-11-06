@@ -24,16 +24,13 @@ metadata:
 
 Load when: integrating the testsuite into another repo's CI (e.g. `<image-org>/dakota`), debugging e2e workflow failures, or understanding how the QEMU boot pipeline works.
 
-
 ## When to Use
-
 
 - Changing `.github/workflows/e2e.yml` inputs, matrix behavior, job timeouts, or artifact handling
 - Debugging OCI image pulls, QEMU boot/setup stages, or reusable `workflow_call` behavior
 - Adding or troubleshooting GitHub Actions caching for the root podman image store
 
 ## When NOT to Use
-
 
 - Writing or debugging behave steps inside `tests/**` — use `behave.md`, `gnome.md`, or `bootc.md`
 - Changing Argo/KubeVirt lab infrastructure — that belongs in `<image-org>/testing-lab`
@@ -79,6 +76,9 @@ Rollouts should start with `--grace-days` in CI (currently `--grace-days 30`) so
 
 `e2e.yml` reuses the same script for job-summary reporting via `python3 scripts/check_quarantine_age.py --json`.
 That summary path is informational only, but it still needs the same prerequisites: the workflow checkout must include `scripts/check_quarantine_age.py`, the `tests/` tree, and full git history (`fetch-depth: 0`) or the age calculations will be incomplete.
+
+`pr-validate.yml` runs the SHA-pinned shared pinned-fetches script in fail mode with `.github/pinned-fetches-allowlist.txt` for reviewed exceptions. The source and gate checkouts are siblings so the scan excludes the gate's own files. Update each harness source tag and its verified commit together (`git ls-remote <url> 'refs/tags/<tag>^{}'`); keep the Debian image digest pinned and refresh it manually with `skopeo inspect docker://debian:bookworm | jq -r .Digest`. Renovate does not track image refs inside `run:` blocks.
+Install ORAS using the SHA-pinned setup action, not an unchecked archive. Installation and screenshot upload remain best-effort.
 
 ## `unit-tests.yml` must install every `scripts/` runtime dependency
 
