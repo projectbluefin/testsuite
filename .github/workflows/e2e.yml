@@ -268,7 +268,7 @@ jobs:
           sparse-checkout-cone-mode: false
 
       # smoke-a/smoke-b and common-a/common-b are parallel halves of their
-      # parent suites; kde-smoke has one feature file and runs unsharded. smoke-firefox owns the stateful
+      # parent suites (Dakota runs common unsplit); kde-smoke has one feature file and runs unsharded. smoke-firefox owns the stateful
       # Firefox feature exclusively. SUITE_DIR is the physical directory and
       # FEATURE_ARGS lists the feature files for this shard (empty = run all).
       - name: Resolve suite shard
@@ -1609,7 +1609,7 @@ jobs:
                 -e IMAGE=\"${IMAGE}\" \
                 -e PYTHONPATH=/tmp/bluefin-tests \
                 ghcr.io/projectbluefin/testsuite:runner \
-                \"python3 /tmp/bluefin-tests/tests/shared/behave_retry.py ${REMOTE_FEATURE_ARGS} -D image=${BASE_IMAGE} --format json.pretty --outfile /tmp/results/results.json --no-capture ${BEHAVE_TAG_ARGS}\"
+                \"python3 /tmp/bluefin-tests/tests/shared/behave_retry.py ${REMOTE_FEATURE_ARGS} --format json.pretty --outfile /tmp/results/results.json --no-capture ${BEHAVE_TAG_ARGS}\"
             " || BEHAVE_RC=$?
 
             $SCP "bluefin-test@127.0.0.1:/tmp/results/." ./results/ 2>/dev/null || true

@@ -189,7 +189,7 @@ another script runs. Why this fails silently: [troubleshooting.md](references/tr
    exclude the stateful `firefox.feature` journey.
 2. **Checkout testsuite** — non-cone sparse checkout of the explicitly listed paths (`flatpak-app-list.txt`, `tests`, `scripts/check_quarantine_age.py`, `scripts/install-kde-webdriver.sh`) from `inputs.test_repository` at `inputs.test_ref`; `test_repository` defaults to `<image-org>/testsuite`, while `manual.yml` passes `github.repository` so fork branches can validate themselves; always `fetch-depth: 0`
 3. **Resolve suite shard** — Python step computes `SUITE_DIR` (physical directory), `FEATURE_ARGS` (specific `.feature` files for shards), and `SCREENSHOT_SUITE` (normalized suite name for GHCR tags)
-4. **Restore/prime Flatpak download cache** — Bluefin GUI suites only; caches a runner-side user Flatpak repo keyed on `flatpak-app-list.txt` hash
+4. **Restore/prime Flatpak download cache** — Bluefin and Utah GUI suites only (skipped for `common` and `lifecycle`); caches a runner-side user Flatpak repo keyed on `flatpak-app-list.txt` hash
 5. **Free disk space** — runs the org's `projectbluefin/actions/bootc-build/setup-runner` (SHA-pinned, `update-podman: "false"`): `remove-unwanted-software@v10` with `extra-squeeze`, plus a zstd BTRFS loopback for `/var/lib/containers` on runners that expose a separate `/mnt` disk (skipped otherwise); keeps the 40 GiB `disk.raw` allocation and the rootful image pulls viable on GitHub-hosted runners. Use this action, not the upstream cleanup action directly, in every VM-provisioning workflow
 6. **Enable KVM** — udev rule for `/dev/kvm` access
 7. **Install QEMU + pull OCI image** — parallel: `apt-get install qemu-system-x86` while `sudo podman pull <image>` and `sudo podman pull ghcr.io/<image-org>/testsuite:runner` run concurrently in background
@@ -437,8 +437,8 @@ Key differences from GNOME suites:
 - **Session setup:** SDDM autologin and a KDE determinism environment drop-in are
   written at disk-prep time.
 - **`passed > 0` backstop:** the step `Assert suite has passing scenarios`
-  runs `python3 scripts/assert_passed.py results/results.json --skip-reason "${{ steps.kde_webdriver.outputs.skip_reason }}"` for KDE + GNOME GUI suites
-  (`if: ... && steps.run.outputs.behave_rc == '0'`), the verdict contract for the `e2e.yml` desktop suites (the `gnome-e2e` action runs it too): counts
+  runs `python3 scripts/assert_passed.py results/results.json --skip-reason "${{ steps.kde_webdriver.outputs.skip_reason }}"` for KDE + GNOME GUI suites and the `common` SSH suite
+  (`if: ... && steps.run.outputs.behave_rc == '0'`), the verdict contract for the `e2e.yml` desktop suites and `common` (the `gnome-e2e` action runs it too): counts
   `status == 'passed'` scenarios **positively** (backgrounds and other non-scenario elements ignored) and exits 1 with an `::error::`
   when `passed <= 0`, when `results.json` is missing/empty/truncated, or when a `failed_setup.txt` marker is present.
   A deliberately inapplicable shard (KDE webdriver stack could not be installed) passes through `--skip-reason` for a **passing** terminal state —
