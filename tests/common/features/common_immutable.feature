@@ -10,14 +10,10 @@ Feature: Immutable OS integrity
 
   # The SSH user (bluefin-test) is not root, so status queries use sudo like the
   # lifecycle suite does, and stderr is kept so a failure shows its cause.
-  # Pending: not yet re-validated on a booted current image. Tracked in #838.
-  @pending
   Scenario: No RPM packages are layered on the base image
     * Run SSH command: "sudo rpm-ostree status --json | python3 -c $'import sys,json; d=json.load(sys.stdin); layers=[p for dep in d.get(\"deployments\",[]) for p in dep.get(\"requested-packages\",[])]; print(len(layers)); sys.exit(0 if not layers else 1)'"
     * SSH command return code is "0"
 
-  # Pending: not yet re-validated on a booted current image. Tracked in #838.
-  @pending
   Scenario: bootc status shows a pinned image
     * Run SSH command: "sudo bootc status --format=json | python3 -c $'import sys,json; d=json.load(sys.stdin); img=d.get(\"status\",{}).get(\"booted\",{}).get(\"image\",{}); print(img.get(\"image\",{}).get(\"image\",\"none\")); sys.exit(0 if img else 1)'"
     * SSH command return code is "0"
