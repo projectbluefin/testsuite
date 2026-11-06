@@ -5,17 +5,8 @@ ARG GNOMEOS_DEVEL
 FROM ${GNOMEOS_BASE} AS base
 FROM ${GNOMEOS_DEVEL} AS build
 COPY --from=base /usr/lib/os-release /tmp/base-os-release
-RUN python3 - <<'PY'
-import shlex
-from pathlib import Path
-def identity(path):
-    return dict(line.split('=', 1) for line in shlex.split(Path(path).read_text(), comments=True))
-base = identity('/tmp/base-os-release')
-devel = identity('/usr/lib/os-release')
-assert base['ID'] == devel['ID'] == 'org.gnome.os', 'not GNOME OS'
-assert base.get('GNOMEOS_COMMIT'), 'missing base commit'
-assert base['GNOMEOS_COMMIT'] == devel.get('GNOMEOS_COMMIT'), 'base/devel build mismatch; retry after publication completes'
-PY
+COPY gnomeos-harness-identity.py /tmp/gnomeos-harness-identity.py
+RUN python3 /tmp/gnomeos-harness-identity.py
 COPY ponytail.tar.gz /tmp/ponytail.tar.gz
 RUN echo '9b18d267c55ec950beeea42d3291d2e77f8f7e351c31c6a48feb90dacb195fc5  /tmp/ponytail.tar.gz' | sha256sum -c - \
     && mkdir /tmp/ponytail \
