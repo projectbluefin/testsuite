@@ -70,3 +70,22 @@ class TestUnmaskCups:
         assert any("cp /usr/lib/systemd/system/cups.socket /etc/systemd/system.control/cups.socket" in c for c in calls)
         assert "sudo -n mkdir -p /etc/systemd/system.control" in calls
         assert "sudo -n systemctl daemon-reload" in calls
+
+
+class TestSocketListener:
+    def test_listener_outlives_the_ssh_session(self):
+        m = _import_steps()
+        calls = []
+
+        def fake_run_host(cmd, timeout=30):
+            calls.append(cmd)
+            if cmd.startswith("test -f"):
+                return ("ready", 0, "")
+            return ("", 0, "")
+
+        with patch.object(m, "_run_host", side_effect=fake_run_host):
+            m._start_socket_listener(19191)
+
+        launch = [c for c in calls if f"python3 {m._LISTENER_SCRIPT}" in c]
+        assert len(launch) == 1
+        assert "systemd-run --user" in launch[0]
