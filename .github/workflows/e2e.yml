@@ -70,10 +70,10 @@ on:
         description: >
           Boot the guest with the candidate's own SELinux mode instead of
           selinux=0, label the harness files, verify enforcing after boot and
-          run the AVC denial gate (#1024). Defaults to false until a hosted
-          run qualifies the path and the rollout plan in #1021 turns it on.
+          run the AVC denial gate (#1024). Defaults to true; set false only
+          to fall back to the legacy selinux=0 boot while triaging.
         type: boolean
-        default: false
+        default: true
       migration-target:
         description: >
           Migration target image ref for cross-registry migration scenarios.
@@ -563,8 +563,8 @@ jobs:
           # systemd.journald.forward_to_console=1 — forward full journal to serial for
           #   diagnostics when SSH fails (output captured in vm-serial.log artifact).
           KERNEL_ARGS="root=UUID=${ROOT_UUID} rw ostree=${OSTREE_PATH} systemd.firstboot=no console=ttyS0,115200 systemd.journald.forward_to_console=1 systemd.mask=brew-setup.service systemd.mask=NetworkManager-wait-online.service systemd.mask=firewalld.service systemd.mask=wpa_supplicant.service systemd.mask=flatpak-preinstall.service systemd.mask=podman-auto-update.service systemd.mask=podman-auto-update.timer systemd.mask=malcontent-webd.service systemd.mask=malcontent-webd-update.service systemd.mask=malcontent-control.service systemd.mask=speech-dispatcherd.service systemd.mask=avahi-daemon.service systemd.mask=avahi-daemon.socket systemd.mask=cups.service systemd.mask=cups.path systemd.mask=cups.socket systemd.mask=cups.browsed.service systemd.mask=blueman-mechanism.service systemd.mask=gnome-remote-desktop.service systemd.mask=bazzite-hardware-setup.service systemd.mask=greenboot-healthcheck.service systemd.mask=greenboot-set-rollback-trigger.service systemd.mask=systemd-udev-settle.service systemd.wants=sshd.service"
-          # Enforcing mode is opt-in (inputs.selinux_enforcing) until a hosted
-          # run qualifies it; otherwise the guest keeps SELinux off as before.
+          # Enforcing mode is the default (inputs.selinux_enforcing); passing
+          # false falls back to the legacy selinux=0 boot.
           if [[ "${SELINUX_ENFORCING}" != "true" ]]; then
             KERNEL_ARGS="${KERNEL_ARGS} selinux=0"
           fi

@@ -200,12 +200,12 @@ another script runs. Why this fails silently: [troubleshooting.md](references/tr
    - Mounts the raw disk, finds `ROOT_UUID` (partition 3), ostree deployment hash, and `KVER`
    - Copies `vmlinuz` + `initramfs.img` from deployment `usr/lib/modules/<kver>/` (or boot partition fallback)
    - Creates `boot.N` symlinks needed by `ostree-system-generator` (including canonical `boot.N` alias for versioned `boot.N.M` dirs produced by newer bootc)
-   - Sets `KERNEL_ARGS` env (includes `root=UUID=...`, masked services, serial console; `selinux=0` unless `selinux_enforcing: true`, which boots the candidate's own SELinux mode, see `references/selinux-enforcing.md`)
+   - Sets `KERNEL_ARGS` env (includes `root=UUID=...`, masked services, serial console; boots the candidate's own SELinux mode by default; `selinux=0` only when a caller passes `selinux_enforcing: false`, see `references/selinux-enforcing.md`)
    - Iterates all deployment directories and writes: `bluefin-test` user (UID 1001, added to `wheel` like a real first-run admin account — common's `org.ublue.privileged.user.setup` polkit rule grants wheel only), GDM autologin, sshd drop-in `00-ci-auth.conf`, dconf `local.d/00-ci-testing` override, `tmpfiles.d/ci-user.conf`, masked service symlinks
    - Pre-installs `unsafe-mode@bluefin-test` gnome-shell extension files into var home (pre-boot, so gnome-shell finds it during `_loadExtensions()`)
    - Injects SSH authorized key into `/var/home/bluefin-test/.ssh/` and each deployment's `/etc/ssh/ci-authorized-keys`
 10. **Boot VM** — `qemu-system-x86_64` with KVM, 4 GB RAM, 4 vCPUs, `-vga none` + `virtio-gpu-pci` (one display adapter; q35's default std VGA made mutter light a second monitor, so desktop screenshots came out 2560x800), forwarded SSH on port 2222; daemonized; QEMU monitor socket at `/tmp/qemu-monitor.sock` (chmod 666)
-11. **Wait for SSH** — polls port 2222 up to **15 minutes** (900 s); then, with `selinux_enforcing: true`, **Verify SELinux enforcing** — fails unless `getenforce` is `Enforcing` when the image ships a policy store; records `sestatus`/`id -Z`/`ls -Z` to `results/selinux/`
+11. **Wait for SSH** — polls port 2222 up to **15 minutes** (900 s); then, unless `selinux_enforcing: false`, **Verify SELinux enforcing** — fails unless `getenforce` is `Enforcing` when the image ships a policy store; records `sestatus`/`id -Z`/`ls -Z` to `results/selinux/`
 12. **Pre-stage target image via bootc switch** — lifecycle suite only, when `inputs.target-image` is set; SSHes into VM and runs `sudo bootc switch '<target-image>'` to stage the upgrade target before the test run
 13. **Dump VM serial log** — always runs (`if: always()`); primary debug tool when SSH never comes up
 14. **Wait for GNOME session** — polls `/run/user/1001/wayland-0` up to 3 minutes
@@ -495,6 +495,6 @@ Load these when you hit the specific topic:
 - [Installer suite assertions, and why an env-var gate made one unreachable.](references/installer-suite.md)
 - [Migration inputs `migration-target` / `extra-tags` and the startup_failure they cause when missing.](references/migration-inputs.md)
 - [GNOME OS guest lane for the developer extension-validation service and its mandatory gate.](references/gnome-extensions-validation.md)
-- [SELinux enforcing in the e2e guest (opt-in): labeling, mode checks, AVC gate, canary.](references/selinux-enforcing.md)
+- [SELinux enforcing in the e2e guest (default on): labeling, mode checks, AVC gate, canary.](references/selinux-enforcing.md)
 - [GNOME OS image provenance (2-week tag expiry), verified guest inventory, and the extensions pre-boot preflight](references/gnomeos-guest-provenance.md)
 - [Which units the fast e2e lane masks, why, and which still need a startup-qualification lane.](references/startup-service-inventory.md)
