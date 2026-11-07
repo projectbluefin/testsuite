@@ -37,6 +37,12 @@ PTYXIS_APP_NAMES = ("ptyxis", "Ptyxis")
 # like "user@host:~" are also accepted when window_names is empty or contains shell tokens.
 PTYXIS_WINDOW_NAMES: set[str] = set()
 FILES_APP_NAMES = ("org.gnome.Nautilus", "Files", "nautilus")
+# Dakota's Nautilus D-Bus-activates from `gio launch` of its .desktop file but
+# never maps a window; the `nautilus` command opens one on every image.
+FILES_LAUNCH_TARGETS = (
+    ("command", "nautilus"),
+    ("desktop", "org.gnome.Nautilus.desktop"),
+)
 MISSION_CENTER_APP_NAMES = (
     "Mission Center",
     "MissionCenter",
@@ -343,8 +349,12 @@ def _launch_assert_and_close(
     app_names: tuple[str, ...],
     window_names: set[str],
     label: str,
+    launch_targets: tuple[tuple[str, str], ...] | None = None,
 ) -> None:
-    _launch_app(app_id)
+    if launch_targets:
+        launch_background(launch_targets)
+    else:
+        _launch_app(app_id)
     window = _wait_for_window(app_names, window_names, label)
     context.last_launched_app_window = window
     try:
@@ -415,6 +425,7 @@ def files_file_manager_launches_successfully(context) -> None:
         FILES_APP_NAMES,
         {"Files", "Home"},
         "Files",
+        launch_targets=FILES_LAUNCH_TARGETS,
     )
 
 

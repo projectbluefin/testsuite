@@ -61,7 +61,8 @@ def sudoedit_binary_check(context) -> None:
     assert returncode == 0, f"sudoedit binary not found on PATH: {stderr or path}"
 
     stat_out, returncode, stderr = _run_host(
-        "stat -c '%a %U:%G' \"$(command -v sudoedit)\""
+        # sudoedit is a symlink to sudo on Dakota; check the binary it resolves to.
+        "stat -L -c '%a %U:%G' \"$(command -v sudoedit)\""
     )
     assert returncode == 0, f"stat sudoedit failed: {stderr or stat_out}"
     mode, owner = stat_out.split(maxsplit=1)

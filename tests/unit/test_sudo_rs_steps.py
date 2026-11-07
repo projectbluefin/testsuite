@@ -161,6 +161,18 @@ class TestSudoeditBinaryCheck:
 
         assert len(mod._run_host.call_args_list) == 3
 
+    def test_stat_follows_sudoedit_symlink(self, mod):
+        _responses(
+            mod,
+            ("/usr/bin/sudoedit", 0, ""),
+            ("4755 root:root", 0, ""),
+            ("sudo-rs 0.2.6", 0, ""),
+        )
+
+        mod.sudoedit_binary_check(MagicMock())
+
+        assert mod._run_host.call_args_list[1][0][0].startswith("stat -L ")
+
     def test_fails_when_binary_missing(self, mod):
         _responses(mod, ("", 1, "not found"))
 
