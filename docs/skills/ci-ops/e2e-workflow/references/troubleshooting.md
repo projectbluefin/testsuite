@@ -74,10 +74,18 @@ still belong only in a fresh disposable guest without publishing credentials.
 
 **Fix:** Pass `test_ref` through the `workflow_dispatch` caller (`manual.yml`, `migration-test.yml`, or another wrapper) using `github.ref_name` on the **workflow_dispatch** side (where it correctly reflects the dispatched branch), then forward it as an input to `e2e.yml`. Inside `e2e.yml`, the checkout must use `inputs.test_ref` directly — never `github.ref_name`. See ops.md "test_ref and github.ref_name" for the exact pattern.
 
+### Install OCI image fails: "root partition 3 has type <none>"
+
+**Root cause:** bootc 1.17+ (Dakota since 2026-11-01) checks the new root partition's DPS type through `lsblk`/udev about 200 ms after `sfdisk` re-reads the partition table. On GitHub-hosted runners udev has not always processed `loopNp3` by then, so `lsblk` reports no type and bootc aborts before writing anything. It is a race, not a property of the image: runs of the same Dakota image before and after got past it.
+
+**Evidence:** run 42611596358 — `error: Installing to disk: Creating rootfs: root partition 3 has type <none>; expected 4f68bce3-e8cd-4db1-96e7-fbcaf984b709`, about 0.2 s after `Calling ioctl() to re-read partition table`.
+
+**Fix:** the "Install OCI image and configure disk" step in `e2e.yml` retries `bootc install to-disk` (3 attempts) whenever no ostree deployment was written, and fails with a `bootc install wrote no deployment` annotation naming the image and bootc's `error:` line if every attempt fails. Do not retry when the deployment *was* written: `bootupd is required for ostree-based installs` (bootc 1.17+ with `--bootloader systemd`) is the expected late bootloader failure, and direct kernel boot continues past it.
+
 ### SSH never became ready
 
 Check the serial log artifact. Common causes:
-- ostree deployment missing: `bootc install` exited before writing layers (check for `ERROR: ostree deployment missing` in the install step)
+- ostree deployment missing: `bootc install` exited before writing layers on every attempt (look for the `bootc install wrote no deployment` annotation in the install step; it quotes bootc's error)
 - Kernel args wrong: `root=UUID=…` mismatch — verify `ROOT_UUID` in the install step output
 - SELinux denial: the guest boots enforcing. Check `results/selinux/` in the results artifact and the serial log for `avc:  denied`; an unlabeled harness file means the install step's labeling missed it. See [selinux-enforcing.md](selinux-enforcing.md)
 

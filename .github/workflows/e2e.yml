@@ -390,9 +390,16 @@ jobs:
           echo "VM_PUBKEY=$(cat /tmp/vm_key.pub)" >> "$GITHUB_ENV"
 
       # Install OCI image to a raw disk and configure it for CI testing.
-      # bootc install to-disk deploys ostree layers but fails at the bootloader
-      # step (bootupd not in the image). We catch that, then set up direct QEMU
-      # kernel boot so OVMF/systemd-boot is not needed.
+      # bootc install to-disk fails in one of two ways, and only one is fatal:
+      #  - Late: the ostree deployment is written, then the bootloader step
+      #    fails (bootupd not in the image; bootc >=1.17 says "bootupd is
+      #    required for ostree-based installs"). Direct QEMU kernel boot below
+      #    needs no bootloader, so the step continues.
+      #  - Early: nothing is deployed. bootc >=1.17 reads the new root
+      #    partition's type from udev ~200 ms after sfdisk; on GHA runners udev
+      #    has not always processed loopNp3 by then and bootc aborts with
+      #    "root partition 3 has type <none>" (Dakota, run 42611596358). That
+      #    is a race, so an early failure is retried before the step fails.
       - name: Install OCI image and configure disk
         env:
           SUITE_DIR: ${{ steps.shard.outputs.suite_dir }}
@@ -414,49 +421,69 @@ jobs:
           fi
 
           BOOTC_INSTALL_LOG="$(pwd)/bootc-install.log"
-          set +e
-          sudo podman run \
-            --rm --privileged --pid=host \
-            --security-opt label=type:unconfined_t \
-            -v /var/lib/containers:/var/lib/containers \
-            -v /dev:/dev \
-            -v "$(pwd):/data" \
-            "${IMAGE}" bootc install to-disk \
-              --via-loopback /data/disk.raw \
-              --filesystem ext4 \
-              --wipe \
-              ${BOOTLOADER_FLAG} \
-            2>&1 | tee "${BOOTC_INSTALL_LOG}"
-          BOOTC_INSTALL_RC=${PIPESTATUS[0]}
-          set -e
-          if [[ ${BOOTC_INSTALL_RC} -ne 0 ]]; then
-            echo "bootc install exited ${BOOTC_INSTALL_RC}; checking whether deployment was written before continuing"
-            echo "bootc install log saved to ${BOOTC_INSTALL_LOG}"
-          fi
-
-          LOOP=$(sudo losetup -f --show -P disk.raw)
-          echo "Loop: ${LOOP}"
+          BOOTC_INSTALL_ATTEMPTS=3
           sudo mkdir -p /mnt/root
-
-          ROOT_PART="${LOOP}p3"
-          ROOT_UUID=$(sudo blkid -s UUID -o value "${ROOT_PART}")
-          echo "root=${ROOT_PART}  uuid=${ROOT_UUID}"
-
-          sudo mount "${ROOT_PART}" /mnt/root
-
-          DEPLOY=$(sudo find /mnt/root/ostree/deploy/default/deploy/ -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | head -1)
-          if [[ -z "${DEPLOY}" ]]; then
-            echo "ERROR: ostree deployment missing — bootc install failed before writing layers"
+          DEPLOY=""
+          for ATTEMPT in $(seq 1 "${BOOTC_INSTALL_ATTEMPTS}"); do
+            echo "bootc install to-disk: attempt ${ATTEMPT}/${BOOTC_INSTALL_ATTEMPTS}"
+            set +e
+            sudo podman run \
+              --rm --privileged --pid=host \
+              --security-opt label=type:unconfined_t \
+              -v /var/lib/containers:/var/lib/containers \
+              -v /dev:/dev \
+              -v "$(pwd):/data" \
+              "${IMAGE}" bootc install to-disk \
+                --via-loopback /data/disk.raw \
+                --filesystem ext4 \
+                --wipe \
+                ${BOOTLOADER_FLAG} \
+              2>&1 | tee "${BOOTC_INSTALL_LOG}"
+            BOOTC_INSTALL_RC=${PIPESTATUS[0]}
+            set -e
             if [[ ${BOOTC_INSTALL_RC} -ne 0 ]]; then
-              echo "bootc install exited ${BOOTC_INSTALL_RC}; full install log:"
-              cat "${BOOTC_INSTALL_LOG}"
+              echo "bootc install exited ${BOOTC_INSTALL_RC}; checking whether deployment was written before continuing"
             fi
-            sudo ls -la /mnt/root/ || true
+
+            LOOP=$(sudo losetup -f --show -P disk.raw)
+            echo "Loop: ${LOOP}"
+            ROOT_PART="${LOOP}p3"
+            # An early failure leaves p3 missing or without a filesystem. Probe
+            # before mounting so that case reaches the retry and the error below
+            # instead of ending the step on a bare "mount: wrong fs type".
+            if sudo blkid -s TYPE -o value "${ROOT_PART}" >/dev/null 2>&1 \
+              && sudo mount "${ROOT_PART}" /mnt/root; then
+              DEPLOY=$(sudo find /mnt/root/ostree/deploy/default/deploy/ -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | head -1)
+              if [[ -n "${DEPLOY}" ]]; then
+                break
+              fi
+              sudo umount /mnt/root
+            fi
+            sudo losetup -d "${LOOP}"
+            if [[ ${BOOTC_INSTALL_RC} -eq 0 || ${ATTEMPT} -eq ${BOOTC_INSTALL_ATTEMPTS} ]]; then
+              break
+            fi
+            echo "No deployment written; retrying bootc install to-disk"
+            # Release any loop device bootc left on disk.raw and let udev drain
+            # its events before --wipe repartitions the same file.
+            for STALE_LOOP in $(sudo losetup -n -O NAME -j disk.raw); do
+              sudo losetup -d "${STALE_LOOP}" || true
+            done
+            sudo udevadm settle || true
+          done
+
+          if [[ -z "${DEPLOY}" ]]; then
+            BOOTC_ERROR=$(grep -m1 '^error:' "${BOOTC_INSTALL_LOG}" || true)
+            echo "::error title=bootc install wrote no deployment::bootc install to-disk could not deploy ${IMAGE} (${ATTEMPT} attempt(s), last exit ${BOOTC_INSTALL_RC}): ${BOOTC_ERROR:-no error line in bootc-install.log}"
+            echo "Full install log of the last attempt:"
+            cat "${BOOTC_INSTALL_LOG}"
             exit 1
           fi
           if [[ ${BOOTC_INSTALL_RC} -ne 0 ]]; then
             echo "bootc install exited ${BOOTC_INSTALL_RC} after writing deployment ${DEPLOY}; continuing with direct kernel boot"
           fi
+          ROOT_UUID=$(sudo blkid -s UUID -o value "${ROOT_PART}")
+          echo "root=${ROOT_PART}  uuid=${ROOT_UUID}"
           D="/mnt/root/ostree/deploy/default/deploy/${DEPLOY}"
           VAR="/mnt/root/ostree/deploy/default/var"
           # el10/LTS images may have multiple entries in usr/lib/modules/ (e.g., a

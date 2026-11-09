@@ -381,7 +381,9 @@ def test_harness_files_are_labeled_before_unmount_with_candidate_setfiles():
     baseline = install.index("baseline-unlabeled-var.txt")
     first_injection = install.index('"${DEP}/etc/ssh/sshd_config.d/"')
     labeling = install.index("setfiles -m -F -r")
-    umount = install.index("sudo umount /mnt/root")
+    # rindex: the install retry loop unmounts discarded attempts earlier; the
+    # final unmount is the one that ends disk configuration before boot.
+    umount = install.rindex("sudo umount /mnt/root")
     last_injection = install.index('sudo cp /tmp/vm_key.pub "${DEP}/etc/ssh/ci-authorized-keys"')
     assert baseline < first_injection < last_injection < labeling < umount
     assert '"${IMAGE}" setfiles' in install
