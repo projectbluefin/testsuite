@@ -10,7 +10,10 @@ permissions:
 
 jobs:
   canary:
-    runs-on: ubuntu-latest
+    # Pinned: on ubuntu-26.04 (ubuntu-latest since 2026-11-09) bootc's
+    # loopback install stops with "root partition 3 has type <none>"; the
+    # same image installs on 24.04 (#1123). Lift once it works on 26.04.
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
       - name: Checkout

@@ -75,11 +75,26 @@ runs:
 
     # ── Checkout test content ─────────────────────────────────────────────────
     # Match the action repository/ref, including local calls on fork branches.
+    # Resolve them in a run step: inside the checkout step itself
+    # github.action_repository names actions/checkout, so the checkout fetched
+    # testsuite's commit from the wrong repository ("not our ref", canary run
+    # 42919533096). A local ./ call has no action repository; fall back to the
+    # caller's repository.
+    - name: Resolve testsuite source
+      id: testsuite-source
+      shell: bash
+      env:
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: |
+        echo "repository=${ACTION_REPOSITORY:-${GITHUB_REPOSITORY}}" >> "$GITHUB_OUTPUT"
+        echo "ref=${ACTION_REF}" >> "$GITHUB_OUTPUT"
+
     - name: Checkout testsuite
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       with:
-        repository: ${{ github.action_repository || github.repository }}
-        ref: ${{ inputs.testsuite-ref || github.action_ref }}
+        repository: ${{ steps.testsuite-source.outputs.repository }}
+        ref: ${{ inputs.testsuite-ref || steps.testsuite-source.outputs.ref }}
         path: _testsuite
         sparse-checkout: |
           tests/${{ inputs.suite }}
