@@ -111,9 +111,13 @@ jobs:
             BOOTLOADER_FLAG="--bootloader systemd"
           fi
           set +e
+          # /run/udev: bootc >=1.17 reads the new root partition's type with
+          # lsblk, which takes it from the udev database. Without the host's
+          # /run/udev the container sees no type and bootc aborts with
+          # "root partition 3 has type <none>" (testsuite#1123).
           sudo podman run --rm --privileged --pid=host \
             --security-opt label=type:unconfined_t \
-            -v /var/lib/containers:/var/lib/containers -v /dev:/dev -v "$(pwd):/data" \
+            -v /var/lib/containers:/var/lib/containers -v /dev:/dev -v /run/udev:/run/udev -v "$(pwd):/data" \
             "${IMAGE}" bootc install to-disk --via-loopback /data/disk.raw \
               --filesystem ext4 --wipe ${BOOTLOADER_FLAG} 2>&1 | tee bootc-install.log
           echo "bootc install exited ${PIPESTATUS[0]} (bootloader step may fail; deployment checked below)"

@@ -82,6 +82,8 @@ still belong only in a fresh disposable guest without publishing credentials.
 
 **Fix:** the "Install OCI image and configure disk" step in `e2e.yml` retries `bootc install to-disk` (3 attempts) whenever no ostree deployment was written, and fails with a `bootc install wrote no deployment` annotation naming the image and bootc's `error:` line if every attempt fails. Do not retry when the deployment *was* written: `bootupd is required for ostree-based installs` (bootc 1.17+ with `--bootloader systemd`) is the expected late bootloader failure, and direct kernel boot continues past it.
 
+**Update (2026-11-10, #1123):** on `dakota:testing@sha256:dc3f6aee…` (built 2026-11-09) the error is not a race: every `v1` gate run since 2026-11-09 09:31Z failed all 3 attempts identically (for example run 42807521428), and the `startup` checks fail the same way (run 42842531479). The install container is given `/dev` but not the host's `/run/udev`, so `lsblk` inside it has no udev database to read the partition type from (compare bootc-dev/bootc#2239 and #2169). `startup-qualification.yml` now passes `-v /run/udev:/run/udev` to the install container. If that holds, `e2e.yml`'s install step needs the same mount; that file is a human-merge release workflow, so it is a separate change.
+
 ### SSH never became ready
 
 Check the serial log artifact. Common causes:
