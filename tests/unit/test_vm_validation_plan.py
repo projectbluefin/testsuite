@@ -32,6 +32,7 @@ SCRIPT_PATH = REPO_ROOT / "scripts" / "vm_validation_plan.py"
         "tests/unit/test_image_slug.py",
         "dashboard/index.html",
         "Justfile",
+        "image-versions.yml",
         ".github/workflows/unit-tests.yml",
         ".github/workflows/update-v1-tag.yml",
         "scripts/validate_docs.py",

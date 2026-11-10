@@ -71,6 +71,9 @@ RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("LICENSE", ()),
     ("renovate.json", ()),
     ("codecov.yml", ()),
+    # The gate image pin changes no test: the bump PR's startup checks prove
+    # the new image installs and boots (#1123).
+    ("image-versions.yml", ()),
     ("Justfile", ()),
     ("plans/*", ()),
     (".github/workflows/pr-validate.yml", ()),

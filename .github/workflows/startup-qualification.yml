@@ -20,6 +20,11 @@
 #
 # Not a release gate. Wiring it into consumers or promotion is a separate
 # maintainer decision (#1021, #1022).
+#
+# Pull request runs boot the digest pinned in image-versions.yml, which the v1
+# gate also boots. Renovate bumps that pin in a pull request, and this lane is
+# what proves the new image still installs and boots (#1123). A manual run
+# boots the image given as input.
 
 name: Startup Qualification
 
@@ -46,6 +51,7 @@ on:
       - scripts/startup_lane.py
       - scripts/startup_lane_collect.sh
       - startup_service_inventory.yaml
+      - image-versions.yml
 
 permissions:
   contents: read
@@ -65,7 +71,7 @@ jobs:
         control: ${{ fromJSON(inputs.negative_control == 'skip' && '["candidate"]' || '["candidate","broken"]') }}
 
     env:
-      IMAGE: ${{ inputs.image || 'ghcr.io/projectbluefin/dakota:testing' }}
+      IMAGE_INPUT: ${{ inputs.image }}
       PROFILE: ${{ inputs.profile || 'dakota' }}
       CONTROL: ${{ matrix.control }}
       SSH_COMMON: "-i /tmp/vm_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ControlMaster=auto -o ControlPersist=600 -o ControlPath=/tmp/ssh-ctrl-%C -o ConnectTimeout=3"
@@ -73,6 +79,20 @@ jobs:
     steps:
       - name: Checkout testsuite
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Choose the image
+        run: |
+          set -euo pipefail
+          if [[ -n "${IMAGE_INPUT}" ]]; then
+            IMAGE="${IMAGE_INPUT}"
+          else
+            PIN_IMAGE=$(awk '$1 == "image:" { print $2 }' image-versions.yml)
+            PIN_TAG=$(awk '$1 == "tag:" { print $2 }' image-versions.yml)
+            PIN_DIGEST=$(awk '$1 == "digest:" { print $2 }' image-versions.yml)
+            IMAGE="${PIN_IMAGE}:${PIN_TAG}@${PIN_DIGEST}"
+          fi
+          echo "IMAGE=${IMAGE}" >> "$GITHUB_ENV"
+          echo "Image under test: ${IMAGE}"
 
       - name: Plan required units
         run: |

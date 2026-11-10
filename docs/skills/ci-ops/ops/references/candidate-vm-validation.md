@@ -84,8 +84,12 @@ and `.../check-runs`.
 2. Turns the plan into an action with `scripts/v1_gate.py`:
    - `move`: nothing reaches a VM (docs, unit tests, repo tooling).
    - `gate`: boot the planned suites through `e2e.yml` at the merged SHA,
-     on `GATE_IMAGE` pinned by digest (repository variable `V1_GATE_IMAGE`,
-     default `ghcr.io/projectbluefin/dakota:testing`). `v1` moves if the
+     on the Dakota digest pinned in `image-versions.yml` (the repository
+     variable `V1_GATE_IMAGE` overrides it in an emergency; a tag without a
+     digest there is resolved at plan time). Renovate bumps the pin in a pull
+     request, and that pull request's `startup` checks prove the new image
+     installs and boots, so a Dakota build that cannot be installed fails one
+     pull request instead of holding `v1` (#1123). `v1` moves if the
      call succeeds, which includes the #1022 `assert_passed.py` verdict.
      If it fails, the same suites boot again with the tests at the current
      `v1` on the same digest (the baseline), and

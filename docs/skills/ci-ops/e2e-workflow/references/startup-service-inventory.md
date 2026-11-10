@@ -133,7 +133,9 @@ entry uses it.
   "Nothing to do" and exited 0. `bluefin:stable` is a frozen build of the
   archived projectbluefin/bluefin repository (2026-09-17), so the lane now
   defaults to `ghcr.io/projectbluefin/dakota:testing` with the `dakota`
-  profile.
+  profile. Since #1123, pull request runs boot the digest pinned in
+  `image-versions.yml` rather than the moving tag, and a pull request that
+  bumps that pin runs this lane; manual runs boot the `image` input.
 - The `dakota` profile requires only what the dakota build is known to
   enable: `flatpak-preinstall.service` and `NetworkManager-wait-online.service`.
   The lane now reports `brew-setup.service`, `firewalld.service`,

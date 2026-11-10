@@ -1,0 +1,9 @@
+# Dakota image that the v1 gate (update-v1-tag.yml) and the startup lane's PR
+# checks (startup-qualification.yml) boot. Pinned by digest so a Dakota build
+# that cannot be installed fails one pull request instead of every gate run
+# (#1123). Renovate opens a pull request when :testing moves; its startup
+# checks show whether the new image installs and boots before anything else
+# uses it.
+image: ghcr.io/projectbluefin/dakota
+tag: testing
+digest: sha256:c10a8b189c34e53cf213f4b03342ac89c322b7e6a4eb0eb19012c6a59d7e4378
