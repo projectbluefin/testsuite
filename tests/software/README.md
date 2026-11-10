@@ -8,7 +8,7 @@ scenarios in `flatpak.feature` are `@future` (#847).
 ```yaml
 uses: projectbluefin/testsuite/.github/workflows/e2e.yml@v1
 with:
-  image: ghcr.io/projectbluefin/bluefin:testing
+  image: ghcr.io/projectbluefin/dakota:testing
   suites: software
 ```
 

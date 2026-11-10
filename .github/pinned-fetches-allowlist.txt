@@ -15,7 +15,6 @@ Full OCI ref to upgrade TO
 Pre-stage target image via bootc switch
 OCI image to test (e.g.
 Full OCI image reference (e.g.
-default: "ghcr.io/projectbluefin/bluefin:latest"
 Target OCI image to bootc switch to
 Run bootc switch to target image
 sudo bootc switch '${TARGET_IMAGE}'

@@ -9,9 +9,9 @@ on:
   workflow_dispatch:
     inputs:
       image:
-        description: "Full OCI image reference (e.g. ghcr.io/projectbluefin/bluefin:latest)"
+        description: "Full OCI image reference (e.g. ghcr.io/projectbluefin/dakota:testing)"
         required: true
-        default: "ghcr.io/projectbluefin/bluefin:latest"
+        default: "ghcr.io/projectbluefin/dakota:testing"
       suites:
         description: "Comma-separated suites: smoke,developer,dx,software,vanilla-gnome,bazzite,lifecycle"
         required: true
