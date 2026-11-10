@@ -24,6 +24,7 @@ def _import_module():
     gnome_extensions_stub = types.ModuleType("steps.gnome_extensions_steps")
     gnome_extensions_stub._extension_state = MagicMock(return_value="1")
     gnome_extensions_stub._run_host = MagicMock(return_value=("", 0, ""))
+    gnome_extensions_stub._IN_CONTAINER = True
     sys.modules["steps.gnome_extensions_steps"] = gnome_extensions_stub
 
     steps_mod_stub = types.ModuleType("steps.steps")
