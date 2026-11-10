@@ -92,6 +92,43 @@ def test_no_candidate_artifacts_hold_v1(tmp_path):
     assert compare(tmp_path, CANDIDATE, BASELINE)["verdict"] == "hold"
 
 
+def test_no_results_on_either_side_is_infrastructure(tmp_path):
+    # #1123: the VM never booted, so neither side wrote results.json.
+    for suite in ("smoke-a", "common"):
+        write_suite(tmp_path, CANDIDATE, suite, "failure", None)
+        write_suite(tmp_path, BASELINE, suite, "failure", None)
+    result = compare(tmp_path, CANDIDATE, BASELINE)
+    assert result["verdict"] == "hold"
+    assert result["infrastructure"] is True
+    assert "never booted" in summary_markdown(result)
+
+
+def test_results_on_one_side_is_not_infrastructure(tmp_path):
+    write_suite(tmp_path, CANDIDATE, "smoke-a", "failure", None)
+    write_suite(tmp_path, BASELINE, "smoke-a", "failure", {"A": "failed"})
+    assert compare(tmp_path, CANDIDATE, BASELINE)["infrastructure"] is False
+
+
+def test_failed_scenarios_are_not_infrastructure(tmp_path):
+    write_suite(tmp_path, CANDIDATE, "smoke-a", "failure", {"A": "failed"})
+    write_suite(tmp_path, BASELINE, "smoke-a", "failure", {"A": "passed"})
+    result = compare(tmp_path, CANDIDATE, BASELINE)
+    assert result["infrastructure"] is False
+    assert "never booted" not in summary_markdown(result)
+
+
+def test_one_suite_with_results_is_not_infrastructure(tmp_path):
+    write_suite(tmp_path, CANDIDATE, "smoke-a", "failure", None)
+    write_suite(tmp_path, BASELINE, "smoke-a", "failure", None)
+    write_suite(tmp_path, CANDIDATE, "common", "failure", {"A": "failed"})
+    write_suite(tmp_path, BASELINE, "common", "failure", {"A": "failed"})
+    assert compare(tmp_path, CANDIDATE, BASELINE)["infrastructure"] is False
+
+
+def test_no_candidate_artifacts_is_not_infrastructure(tmp_path):
+    assert compare(tmp_path, CANDIDATE, BASELINE)["infrastructure"] is False
+
+
 def test_summary_lists_preexisting_and_new(tmp_path):
     write_suite(tmp_path, CANDIDATE, "smoke-a", "failure", {"A": "failed"})
     write_suite(tmp_path, BASELINE, "smoke-a", "failure", {"A": "failed"})
@@ -118,5 +155,5 @@ def test_cli_prints_verdict_and_writes_summary(tmp_path):
         text=True,
         check=True,
     ).stdout
-    assert out.strip() == "verdict=move"
+    assert out.splitlines() == ["verdict=move", "infrastructure=false"]
     assert summary.read_text().startswith("### Candidate failures compared with v1")

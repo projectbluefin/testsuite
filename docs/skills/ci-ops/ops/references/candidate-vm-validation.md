@@ -97,7 +97,14 @@ and `.../check-runs`.
      or `no_hosted_lane`).
 3. On a hold or a failed gate, fails the run and opens (or comments on) the
    issue **"v1 tag held by the post-merge VM gate"** naming the held SHA. The
-   next successful move closes it.
+   next successful move closes it. Two holds are a maintainer's problem rather
+   than contributor work, so the comment starts with **Needs a maintainer** and
+   the issue gets `needs-human` and `priority/critical-urgent` (and loses
+   `good first issue` / `help wanted`):
+   - no failed suite produced test results on either side
+     (`v1_gate_compare.py` prints `infrastructure=true`): the test machines
+     most likely never booted, as when `ubuntu-latest` moved to 26.04 (#1123);
+   - the issue has been open for more than 24 hours.
 
 `lifecycle` is planned but not booted (`UNGATED_SUITES`): its upgrade
 scenarios need a second, newer image to upgrade to (#706, #1023), and on one

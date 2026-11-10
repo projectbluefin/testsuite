@@ -24,7 +24,11 @@ digest, so their suffixes differ.
 Usage:
     python3 scripts/v1_gate_compare.py ARTIFACT_DIR CANDIDATE_IMAGE BASELINE_IMAGE [--summary FILE]
 
-Prints ``verdict=move`` or ``verdict=hold`` for ``$GITHUB_OUTPUT``.
+Prints ``verdict=move`` or ``verdict=hold`` and ``infrastructure=true`` or
+``infrastructure=false`` for ``$GITHUB_OUTPUT``. ``infrastructure=true`` means
+no failed suite produced test results on either side: the test machines most
+likely never booted (a runner or install problem, as in #1123), so the hold is
+not a test regression and needs a maintainer rather than a contributor.
 """
 
 from __future__ import annotations
@@ -113,11 +117,36 @@ def compare(artifacts: Path, candidate_image: str, baseline_image: str) -> dict:
         "verdict": "hold" if problems else "move",
         "problems": problems,
         "preexisting": preexisting,
+        "infrastructure": nothing_ran(candidate, baseline),
     }
+
+
+def nothing_ran(
+    candidate: dict[str, tuple[str, set[str] | None]],
+    baseline: dict[str, tuple[str, set[str] | None]],
+) -> bool:
+    """True when every failed candidate suite, and the same suite at v1, has no results."""
+    failed = [suite for suite, (conclusion, _) in candidate.items() if conclusion != "success"]
+    if not failed:
+        return False
+    for suite in failed:
+        base = baseline.get(suite)
+        if candidate[suite][1] is not None or base is None:
+            return False
+        if base[0] == "success" or base[1] is not None:
+            return False
+    return True
 
 
 def summary_markdown(result: dict) -> str:
     lines = ["### Candidate failures compared with v1", ""]
+    if result.get("infrastructure"):
+        lines.append(
+            "**No failed suite produced test results on either side:** the test "
+            "machines most likely never booted (a runner or install problem), "
+            "not a test regression."
+        )
+        lines.append("")
     if result["problems"]:
         lines.append("**Not explained by v1:**")
         lines.extend(f"- {p}" for p in result["problems"])
@@ -140,6 +169,7 @@ def main(argv: list[str]) -> int:
     if args.summary:
         args.summary.write_text(summary_markdown(result), encoding="utf-8")
     print(f"verdict={result['verdict']}")
+    print(f"infrastructure={'true' if result['infrastructure'] else 'false'}")
     return 0
 
 

@@ -241,6 +241,7 @@ jobs:
       - name: Move or hold v1
         env:
           COMPARE: ${{ steps.compare.outputs.verdict }}
+          INFRA: ${{ steps.compare.outputs.infrastructure }}
         run: |
           set -euo pipefail
           HELD=$(gh issue list --state open --search "\"${HELD_TITLE}\" in:title" \
@@ -281,7 +282,23 @@ jobs:
           else
             WHY="${REASON}"
           fi
-          BODY=$(printf '%s\n\n%s\n\n%s\n\n%s\n' \
+          # A hold that no test change explains, or one that has lasted a day,
+          # is a maintainer's problem, not contributor work: say so first and
+          # label the issue so it is parked for a person (#1123 sat 36 hours as
+          # a "good first issue" while the runner could not boot any VM).
+          ESCALATE=""
+          if [ "${INFRA:-false}" = "true" ]; then
+            ESCALATE="no failed suite produced test results on either side, so the test machines most likely never booted (a runner or install problem). This is not a test regression."
+          elif [ -n "${HELD}" ]; then
+            OPENED=$(gh issue view "${HELD}" --json createdAt --jq .createdAt)
+            if [ $(( $(date +%s) - $(date -d "${OPENED}" +%s) )) -gt 86400 ]; then
+              ESCALATE="v1 has been held for more than 24 hours."
+            fi
+          fi
+          HEADLINE=""
+          if [ -n "${ESCALATE}" ]; then HEADLINE="**Needs a maintainer:** ${ESCALATE}"; fi
+          BODY=$(printf '%s\n\n%s\n\n%s\n\n%s\n\n%s\n' \
+            "${HEADLINE}" \
             "v1 stays at \`${PREVIOUS:-none}\` and was **not** moved to \`${SHA}\`." \
             "Why: ${WHY}." \
             "Run: ${RUN_URL}" \
@@ -289,7 +306,14 @@ jobs:
           if [ -n "${HELD}" ]; then
             gh issue comment "${HELD}" --body "${BODY}"
           else
-            gh issue create --title "${HELD_TITLE}" --body "${BODY}"
+            HELD=$(gh issue create --title "${HELD_TITLE}" --body "${BODY}" | grep -oE '[0-9]+$')
+          fi
+          if [ -n "${ESCALATE}" ] && [ -n "${HELD}" ]; then
+            gh issue edit "${HELD}" --add-label needs-human --add-label priority/critical-urgent \
+              || echo "::warning::could not label #${HELD} for a maintainer"
+            for LABEL in "good first issue" "help wanted"; do
+              gh issue edit "${HELD}" --remove-label "${LABEL}" > /dev/null 2>&1 || true
+            done
           fi
           {
             echo "### v1 held at \`${PREVIOUS:-none}\`"
