@@ -82,7 +82,7 @@ The hive merges a PR once its reviewer approves and the required checks pass. A 
 gh pr merge <NUMBER> --repo projectbluefin/testsuite --squash
 ```
 
-`v1` moves later, after the post-merge VM gate (`update-v1-tag.yml`); see `docs/skills/ci-ops/ops/references/candidate-vm-validation.md`.
+`v1` is moved separately by `update-v1-tag.yml`. It looks at every change since the current `v1` tag and either moves the tag straight away (for example, docs-only changes), boots the affected suites in a VM first, or holds it for a manual check. See [the gate policy](skills/ci-ops/ops/references/candidate-vm-validation.md) for the exceptions and how to recover a hold.
 
 ## Vanilla GNOME baseline comparison
 
