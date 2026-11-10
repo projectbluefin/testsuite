@@ -794,15 +794,25 @@ jobs:
           # Label exactly the files the harness added, using the candidate's own
           # setfiles and file_contexts so the result matches what the guest
           # policy expects. -m: this runner's mounts carry no seclabel flag.
+          # The disk is mounted at /harness/root inside the container, not at
+          # /mnt/root: in ostree-style images /mnt (and /home, where SELINUX_DIR
+          # lives) is a symlink into /var that the image does not populate, so
+          # podman cannot create the mount point there ("crun: creating
+          # `/mnt/root`: openat2 `mnt`: No such file or directory" on
+          # utah:testing). Paths are rewritten to match, so setfiles labels the
+          # same files.
           if [[ "${SELINUX_EXPECTED}" == enforcing ]]; then
+            HARNESS_LIST_DIR=$(mktemp -d)
             label_harness_files() {  # ROOT FILE_CONTEXTS BASELINE LIST SCAN_PATH
               sudo python3 -I scripts/selinux_qualify.py unlabeled --root "$1" --exclude "$3" "$5" > "$4"
               if [[ -s "$4" ]]; then
+                sed 's#^/mnt/root#/harness/root#' "$4" > "${HARNESS_LIST_DIR}/list"
                 sudo podman run --rm --privileged --network none \
                   --security-opt label=disable \
-                  -v /mnt/root:/mnt/root \
-                  -v "${SELINUX_DIR}:${SELINUX_DIR}:ro" \
-                  "${IMAGE}" setfiles -m -F -r "$1" -f "$4" "$2"
+                  -v /mnt/root:/harness/root \
+                  -v "${HARNESS_LIST_DIR}:/harness/list:ro" \
+                  "${IMAGE}" setfiles -m -F -r "/harness/root${1#/mnt/root}" \
+                    -f /harness/list/list "/harness/root${2#/mnt/root}"
               fi
               LEFT=$(sudo python3 -I scripts/selinux_qualify.py unlabeled --root "$1" --exclude "$3" "$5")
               if [[ -n "${LEFT}" ]]; then

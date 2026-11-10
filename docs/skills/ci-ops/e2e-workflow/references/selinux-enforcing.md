@@ -53,7 +53,12 @@ read only by `ostree`/`bootc`, which run unconfined.
    image: `setfiles -m -F -r <root> -f <list> <file_contexts>`. `-r` strips
    the deployment or stateroot prefix so `.../default/var/home/...` matches
    `/var/home/...`. `-m` is required because the runner's mounts carry no
-   `seclabel` option.
+   `seclabel` option. The container sees the disk at `/harness/root`
+   (and the list at `/harness/list`), not at `/mnt/root`: in ostree-style
+   images `/mnt` and `/home` are symlinks into an unpopulated `/var`, so
+   podman cannot create mount points there (`utah:testing` failed with
+   "crun: creating `/mnt/root`"). The step rewrites `/mnt/root` to
+   `/harness/root` in the root, the `file_contexts` path and every list entry.
 3. Re-scan; anything still unlabeled fails the step.
 
 Never fix a denial by relabeling the whole tree, `-F` over candidate files,
