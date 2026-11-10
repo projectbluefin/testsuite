@@ -13,6 +13,7 @@ journal errors, no coredump) always run and fail hard.
 import random
 import re
 import string
+import subprocess
 import time
 from time import sleep
 
@@ -23,8 +24,9 @@ try:
 except Exception:  # noqa: BLE001
     tree = None  # type: ignore[assignment]
 
-from steps.gnome_extensions_steps import _extension_state, _run_host
+from steps.gnome_extensions_steps import _IN_CONTAINER, _extension_state, _run_host
 from steps.steps import _eval_bool, _shell_eval
+from tests.shared.ssh_config import ssh_argv
 
 # ---------------------------------------------------------------------------
 # Extension identifiers (issue #793 / projectbluefin/common#1087)
@@ -181,18 +183,35 @@ def _systemd_unit_start_stop(unit: str) -> tuple[bool, bool, str]:
 # Copyous — clipboard manager stress/AT-SPI coverage
 # ---------------------------------------------------------------------------
 
+# The session's Wayland/D-Bus environment, written by _run_host on the host.
+_SESSION_ENV = "[ -f /tmp/session.env ] && . /tmp/session.env; "
+
+
 def _clipboard_set(text: str) -> None:
-    stdout, rc, stderr = _run_host(["sh", "-c", f"printf %s {_shell_quote(text)} | wl-copy"])
-    assert rc == 0, f"wl-copy failed: {stderr or stdout}"
+    """Put ``text`` on the clipboard, fed to wl-copy on stdin.
 
-
-def _shell_quote(text: str) -> str:
-    import shlex
-    return shlex.quote(text)
+    On stdin, not argv: a NUL byte cannot go in an argument (Python raises
+    ValueError before running anything). wl-copy forks a child that keeps
+    serving the selection; it inherits wl-copy's stdout and stderr, so with
+    those on the SSH channel ssh waits for the child and hangs to the
+    timeout. Send stdout to /dev/null and stderr to a file, shown only if
+    wl-copy fails.
+    """
+    inner = _SESSION_ENV + (
+        'err=$(mktemp); '
+        'if wl-copy >/dev/null 2>"$err"; then rm -f "$err"; '
+        'else cat "$err" >&2; rm -f "$err"; exit 1; fi'
+    )
+    argv = ssh_argv() + [inner] if _IN_CONTAINER else ["sh", "-c", inner]
+    result = subprocess.run(
+        argv, input=text.encode("utf-8"), capture_output=True, timeout=30, check=False,
+    )
+    stderr = result.stderr.decode("utf-8", errors="replace").strip()
+    assert result.returncode == 0, f"wl-copy failed (exit {result.returncode}): {stderr}"
 
 
 def _clipboard_get() -> str:
-    stdout, rc, stderr = _run_host(["wl-paste", "--no-newline"])
+    stdout, rc, stderr = _run_host(_SESSION_ENV + "wl-paste --no-newline")
     assert rc == 0, f"wl-paste failed: {stderr or stdout}"
     return stdout
 

@@ -30,6 +30,7 @@ curl --fail --location --retry 3 \
 echo "$PONYTAIL_SHA256  $CONTEXT/ponytail.tar.gz" | sha256sum -c -
 cp "$REPO_ROOT/container/Containerfile.gnomeos-harness" "$CONTEXT/Containerfile"
 cp "$REPO_ROOT/scripts/configure_gnomeos_canary_shell.py" "$CONTEXT/"
+cp "$REPO_ROOT/container/gnomeos-harness-identity.py" "$CONTEXT/"
 podman build --arch amd64 --build-arg "GNOMEOS_BASE=$GNOMEOS_BASE" \
   --build-arg "GNOMEOS_DEVEL=$GNOMEOS_DEVEL" \
   --tag localhost/gnomeos-harness:canary "$CONTEXT"

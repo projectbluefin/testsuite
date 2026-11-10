@@ -31,7 +31,9 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = REPO_ROOT / ".github" / "workflows" / "e2e.yml"
 
-EXPAND_RE = re.compile(r'python3 -c "\n(?P<code>.*?)\n" "\$\{\{ inputs\.suites \}\}"', re.S)
+EXPAND_RE = re.compile(r'python3 -c "\n(?P<code>.*?)\n" "\$SUITES_INPUT" "\$IMAGE_INPUT"', re.S)
+DEFAULT_IMAGE = "ghcr.io/ublue-os/bluefin:stable"
+DAKOTA_IMAGE = "ghcr.io/projectbluefin/dakota:latest"
 RESOLVE_RE = re.compile(r"python3 - <<'PY'\n(?P<code>.*?)\nPY\n", re.S)
 
 
@@ -60,9 +62,9 @@ def resolve_program() -> str:
     return _program("e2e", "shard", RESOLVE_RE)
 
 
-def _expand(program: str, suites: str) -> list[str]:
+def _expand(program: str, suites: str, image: str = DEFAULT_IMAGE) -> list[str]:
     out = subprocess.run(
-        [sys.executable, "-c", program, suites],
+        [sys.executable, "-c", program, suites, image],
         cwd=REPO_ROOT,
         check=True,
         capture_output=True,
@@ -176,3 +178,18 @@ def test_sharded_suites_actually_shard(expand_program):
     # are already covered per suite by the parametrized resolver test above.
     for suite in ("smoke", "common"):
         assert len(_expand(expand_program, suite)) > 1, f"{suite} is no longer sharded"
+
+
+def test_dakota_common_runs_as_one_shard(expand_program, resolve_program, tmp_path):
+    # Dakota's common coverage is two Dakota-only features, so splitting it
+    # would leave one shard whose scenarios are all skipped.
+    assert _expand(expand_program, "common", DAKOTA_IMAGE) == ["common"]
+    assert _expand(expand_program, "smoke,common", f"{DAKOTA_IMAGE}@sha256:abc") == [
+        "smoke-a",
+        "smoke-b",
+        "smoke-firefox",
+        "common",
+    ]
+    resolved = _resolve(resolve_program, "common", tmp_path)
+    assert resolved["suite_dir"] == "common"
+    assert resolved["feature_args"].split() == []

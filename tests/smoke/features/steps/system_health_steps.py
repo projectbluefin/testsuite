@@ -31,6 +31,9 @@ IGNORED_FAILED_UNITS_IN_VM = {
     "gnome-remote-desktop.service",
     # bootupd cannot update the bootloader inside a QEMU VM (no EFI vars/bootctl)
     "bootloader-update.service",
+    # bootctl refuses to set the systemd-boot timeout when not booted with UEFI;
+    # the CI VM boots without UEFI firmware
+    "ublue-boot-timeout.service",
     # TuneD invokes bootc/rpm-ostree while first-boot storage initialization owns
     # the daemon in the disposable QEMU guest. It times out only on that boot;
     # non-virtualized failures remain release-blocking.

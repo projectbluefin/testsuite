@@ -94,7 +94,10 @@ Dependency updates for this repo and `projectbluefin/bluefin` are managed by Ren
 | Update type | Action |
 |---|---|
 | `digest`, `pin`, `patch`, `minor` | Automerged when CI passes (squash) |
+| Third-party GitHub Actions (not `projectbluefin/**`) | Same, but only once the release is 3 days old (`minimumReleaseAge`) |
 | `major` | Opens a PR — requires manual review |
+
+Action bumps in the three release workflows (`e2e.yml`, `build-runner.yml`, `build-kde-runner.yml`) arrive in their own PR, "release workflow action pins". The hive merges a pure pin bump to those files without a person (its pin-only exception) only when the PR touches nothing else. The VM jobs' `runs-on: ubuntu-24.04` pin is excluded from major runner updates (#1131).
 
 **Triggering Renovate manually** (e.g. after config changes):
 

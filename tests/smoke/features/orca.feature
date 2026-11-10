@@ -5,10 +5,10 @@ Feature: Orca screen reader
 
   @orca @binary @a11y
   Scenario: Orca and speech-dispatcher binaries are installed
-    * Run command on VM: "command -v orca && rpm -q orca speech-dispatcher"
+    * Run command on VM: "command -v orca && command -v speech-dispatcher"
     * VM command return code is "0"
-    * VM command output contains "orca-"
-    * VM command output contains "speech-dispatcher-"
+    * VM command output contains "/orca"
+    * VM command output contains "/speech-dispatcher"
 
   @orca @a11y @bus
   Scenario: AT-SPI accessibility bus name is registered

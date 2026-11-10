@@ -5,11 +5,30 @@
   ],
   "packageRules": [
     {
-      "description": "Immutable-ref housekeeping automerges; code-changing updates (digest, patch, minor) require human review under the supply-chain gate.",
+      "description": "Immutable-ref housekeeping (pin, pinDigest) automerges. Digest, patch and minor updates also automerge, through the org's inherited rules, once checks pass; nothing here holds them for a person.",
       "matchUpdateTypes": ["pin", "pinDigest"],
       "automerge": true,
       "automergeType": "pr",
       "automergeStrategy": "squash"
+    },
+    {
+      "description": "Third-party GitHub Actions (everything except first-party projectbluefin/**) automerge only once their release is three days old, so a compromised release has time to be spotted and pulled upstream before it lands here. Same decision as finpilot#645. First-party projectbluefin/** actions are not delayed.",
+      "matchManagers": ["github-actions"],
+      "matchPackageNames": ["!projectbluefin/**"],
+      "automerge": true,
+      "minimumReleaseAge": "3 days"
+    },
+    {
+      "description": "Give action bumps in the three release workflows their own pull request. The hive lets a trusted bot merge a pure pin bump to these files without a person (its pin-only exception), but only when every file in the pull request is one of them; grouped with other workflows, as in #1127, the bump always waits for a person.",
+      "matchManagers": ["github-actions"],
+      "matchFileNames": [
+        ".github/workflows/e2e.yml",
+        ".github/workflows/build-runner.yml",
+        ".github/workflows/build-kde-runner.yml"
+      ],
+      "matchUpdateTypes": ["digest", "pin", "pinDigest", "patch", "minor"],
+      "groupName": "release workflow action pins",
+      "groupSlug": "release-workflow-action-pins"
     },
     {
       "description": "KDE runner image and Python requirements",
@@ -18,6 +37,17 @@
         "container/requirements.kde-runner.txt"
       ],
       "addLabels": ["kde", "runner"]
+    },
+    {
+      "description": "Keep the VM jobs on Ubuntu 24.04: bootc's loopback install fails on 26.04 runners (#1123, #1131). Drop this once the install works there.",
+      "matchDepNames": ["ubuntu"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    },
+    {
+      "description": "A major update always waits for a person. Last matching rule wins, so keep this rule last.",
+      "matchUpdateTypes": ["major"],
+      "automerge": false
     }
   ]
 }

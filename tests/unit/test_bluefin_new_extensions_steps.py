@@ -37,6 +37,7 @@ def _import_module(tree_available: bool = True):
     gnome_extensions_stub = types.ModuleType("steps.gnome_extensions_steps")
     gnome_extensions_stub._extension_state = MagicMock(return_value="1")
     gnome_extensions_stub._run_host = MagicMock(return_value=("", 0, ""))
+    gnome_extensions_stub._IN_CONTAINER = True
     sys.modules["steps.gnome_extensions_steps"] = gnome_extensions_stub
 
     steps_mod_stub = types.ModuleType("steps.steps")
@@ -369,3 +370,58 @@ class TestWaitGnomeShellAccessible:
     def test_returns_when_shell_found(self, mod):
         mod.tree.root.application.return_value = MagicMock()
         mod._wait_gnome_shell_accessible()
+
+
+# ---------------------------------------------------------------------------
+# Copyous clipboard helpers: payload on stdin, wl-copy's output detached
+# ---------------------------------------------------------------------------
+
+_SSH = ["ssh", "-i", "/key", "-p", "2222", "bluefin@127.0.0.1"]
+
+
+class TestClipboardSet:
+    def _run(self, mod, text, returncode=0, stderr=b""):
+        result = MagicMock(returncode=returncode, stderr=stderr, stdout=b"")
+        with patch.object(mod, "ssh_argv", return_value=list(_SSH)), \
+             patch.object(mod.subprocess, "run", return_value=result) as run:
+            mod._clipboard_set(text)
+        return run
+
+    def test_payload_goes_on_stdin_and_a_nul_byte_survives(self, mod):
+        payload = "before \x00 after \r\n\t\x1b[31m"
+        run = self._run(mod, payload)
+        argv = run.call_args.args[0]
+        assert run.call_args.kwargs["input"] == payload.encode("utf-8")
+        assert all("\x00" not in arg for arg in argv)
+        assert not any("before" in arg for arg in argv), "the payload must not be on argv"
+
+    def test_argv_is_ssh_with_detached_wl_copy_and_session_env(self, mod):
+        run = self._run(mod, "hello")
+        argv = run.call_args.args[0]
+        assert argv[: len(_SSH)] == _SSH
+        inner = argv[-1]
+        assert "wl-copy >/dev/null 2>" in inner
+        assert "/tmp/session.env" in inner
+        assert run.call_args.kwargs["timeout"] == 30
+        assert run.call_args.kwargs["capture_output"] is True
+
+    def test_outside_the_container_runs_sh_locally(self, mod):
+        with patch.object(mod, "_IN_CONTAINER", False):
+            run = self._run(mod, "hello")
+        argv = run.call_args.args[0]
+        assert argv[:2] == ["sh", "-c"]
+        assert "wl-copy >/dev/null 2>" in argv[2]
+
+    def test_a_failure_reports_wl_copys_stderr(self, mod):
+        with pytest.raises(AssertionError, match="Failed to connect to a Wayland server"):
+            self._run(mod, "hello", returncode=1, stderr=b"Failed to connect to a Wayland server\n")
+
+
+class TestClipboardGet:
+    def test_reads_with_the_session_env(self, mod):
+        with patch.object(mod, "_run_host", return_value=("pasted", 0, "")) as run_host:
+            assert mod._clipboard_get() == "pasted"
+        cmd = run_host.call_args.args[0]
+        assert cmd.startswith(mod._SESSION_ENV)
+        assert "/tmp/session.env" in cmd
+        assert cmd.endswith("wl-paste --no-newline")

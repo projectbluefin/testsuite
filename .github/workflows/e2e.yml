@@ -26,7 +26,12 @@ on:
         default: ""
         required: false
       suites:
-        description: "Comma-separated suites: smoke,developer,dx,software,vanilla-gnome,bazzite,common,lifecycle,installer,kde-smoke"
+        description: >-
+          Comma-separated suites: smoke,developer,dx,software,vanilla-gnome,bazzite,common,lifecycle,installer,kde-smoke,hardware,nvidia,security.
+          hardware, nvidia and security are hardware-oriented groups; when a
+          selected suite's every scenario is @hardware_blocked (no matching VM
+          hardware), the run is reported as blocked with the #706 reason and
+          the job fails instead of showing a green pass with zero tests run.
         type: string
         default: "smoke"
       compose_image:
@@ -61,6 +66,14 @@ on:
           Example: "org.gnome.Calculator,io.github.kolunmi.Bazaar"
         type: string
         default: ""
+      selinux_enforcing:
+        description: >
+          Boot the guest with the candidate's own SELinux mode instead of
+          selinux=0, label the harness files, verify enforcing after boot and
+          run the AVC denial gate (#1024). Defaults to true; set false only
+          to fall back to the legacy selinux=0 boot while triaging.
+        type: boolean
+        default: true
       migration-target:
         description: >
           Migration target image ref for cross-registry migration scenarios.
@@ -110,20 +123,25 @@ jobs:
     steps:
       - name: Resolve suites
         id: resolve
+        env:
+          SUITES_INPUT: ${{ inputs.suites }}
+          IMAGE_INPUT: ${{ inputs.image }}
         run: |
           JSON=$(python3 -c "
           import json, sys
           parts = [s.strip() for s in sys.argv[1].split(',') if s.strip()]
+          image_name = sys.argv[2].lower().split('/')[-1].split(':')[0].split('@')[0]
           expanded = []
           for p in parts:
               if p == 'smoke':
                   expanded.extend(['smoke-a', 'smoke-b', 'smoke-firefox'])
-              elif p == 'common':
+              elif p == 'common' and 'dakota' not in image_name:
                   expanded.extend([f'{p}-a', f'{p}-b'])
               else:
+                  # Dakota's common coverage is two Dakota-only features; a split leaves one all-skipped half.
                   expanded.append(p)
           print(json.dumps(expanded))
-          " "${{ inputs.suites }}")
+          " "$SUITES_INPUT" "$IMAGE_INPUT")
           echo "suites=${JSON}" >> "$GITHUB_OUTPUT"
           echo "Suites: ${JSON}"
 
@@ -194,7 +212,10 @@ jobs:
     # Run whenever the matrix resolved, even if compose was skipped (toggle
     # off) or failed (fallback to the raw image + runtime installs).
     if: ${{ !cancelled() && needs.matrix.result == 'success' }}
-    runs-on: ubuntu-latest
+    # Pinned: on ubuntu-26.04 (ubuntu-latest since 2026-11-09) bootc's
+    # loopback install stops with "root partition 3 has type <none>"; the
+    # same image installs on 24.04 (#1123). Lift once it works on 26.04.
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     permissions:
       contents: read
@@ -239,14 +260,18 @@ jobs:
             tests
             scripts/all_skipped.py
             scripts/assert_passed.py
+            scripts/suite_blocked.py
             scripts/check_quarantine_age.py
             scripts/install-kde-webdriver.sh
             scripts/e2e_summary.py
             scripts/image_slug.py
+            scripts/selinux_collect_avc.sh
+            scripts/selinux_qualify.py
+            selinux_allowlist.yaml
           sparse-checkout-cone-mode: false
 
       # smoke-a/smoke-b and common-a/common-b are parallel halves of their
-      # parent suites; kde-smoke has one feature file and runs unsharded. smoke-firefox owns the stateful
+      # parent suites (Dakota runs common unsplit); kde-smoke has one feature file and runs unsharded. smoke-firefox owns the stateful
       # Firefox feature exclusively. SUITE_DIR is the physical directory and
       # FEATURE_ARGS lists the feature files for this shard (empty = run all).
       - name: Resolve suite shard
@@ -299,7 +324,7 @@ jobs:
       # suites must preload any explicitly-tested Flatpaks after SSH comes up.
       # Cache a small user Flatpak repo on the runner, then inject and deploy it in-VM.
       - name: Restore Flatpak download cache
-        if: ${{ contains(inputs.image, '/bluefin') && steps.shard.outputs.suite_dir != 'common' && steps.shard.outputs.suite_dir != 'lifecycle' }}
+        if: ${{ (contains(inputs.image, '/bluefin') || contains(inputs.image, '/utah')) && steps.shard.outputs.suite_dir != 'common' && steps.shard.outputs.suite_dir != 'lifecycle' }}
         id: flatpak-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
@@ -309,7 +334,7 @@ jobs:
             flatpak-home-${{ runner.os }}-
 
       - name: Prime Flatpak download cache
-        if: ${{ contains(inputs.image, '/bluefin') && steps.shard.outputs.suite_dir != 'common' && steps.shard.outputs.suite_dir != 'lifecycle' && steps.flatpak-cache.outputs.cache-hit != 'true' }}
+        if: ${{ (contains(inputs.image, '/bluefin') || contains(inputs.image, '/utah')) && steps.shard.outputs.suite_dir != 'common' && steps.shard.outputs.suite_dir != 'lifecycle' && steps.flatpak-cache.outputs.cache-hit != 'true' }}
         run: |
           sudo apt-get update -q
           sudo apt-get install -y --no-install-recommends flatpak
@@ -331,7 +356,9 @@ jobs:
             flathub "${APPS[@]}"
 
       - name: Free disk space
-        uses: ublue-os/remove-unwanted-software@cc0becac701cf642c8f0a6613bbdaf5dc36b259e # v9
+        uses: projectbluefin/actions/bootc-build/setup-runner@6453818f6279a2f2c1282919aad0009a88c01819 # v1
+        with:
+          update-podman: "false"
 
       - name: Enable KVM access
         run: |
@@ -366,12 +393,20 @@ jobs:
           echo "VM_PUBKEY=$(cat /tmp/vm_key.pub)" >> "$GITHUB_ENV"
 
       # Install OCI image to a raw disk and configure it for CI testing.
-      # bootc install to-disk deploys ostree layers but fails at the bootloader
-      # step (bootupd not in the image). We catch that, then set up direct QEMU
-      # kernel boot so OVMF/systemd-boot is not needed.
+      # bootc install to-disk fails in one of two ways, and only one is fatal:
+      #  - Late: the ostree deployment is written, then the bootloader step
+      #    fails (bootupd not in the image; bootc >=1.17 says "bootupd is
+      #    required for ostree-based installs"). Direct QEMU kernel boot below
+      #    needs no bootloader, so the step continues.
+      #  - Early: nothing is deployed. bootc >=1.17 reads the new root
+      #    partition's type from udev ~200 ms after sfdisk; on GHA runners udev
+      #    has not always processed loopNp3 by then and bootc aborts with
+      #    "root partition 3 has type <none>" (Dakota, run 42611596358). That
+      #    is a race, so an early failure is retried before the step fails.
       - name: Install OCI image and configure disk
         env:
           SUITE_DIR: ${{ steps.shard.outputs.suite_dir }}
+          SELINUX_ENFORCING: ${{ inputs.selinux_enforcing && 'true' || 'false' }}
         run: |
           # The NVIDIA release candidate used 92% of a 32 GiB disk in run
           # 30926761425.  A 40 GiB disk leaves roughly 26% free at that same
@@ -389,49 +424,69 @@ jobs:
           fi
 
           BOOTC_INSTALL_LOG="$(pwd)/bootc-install.log"
-          set +e
-          sudo podman run \
-            --rm --privileged --pid=host \
-            --security-opt label=type:unconfined_t \
-            -v /var/lib/containers:/var/lib/containers \
-            -v /dev:/dev \
-            -v "$(pwd):/data" \
-            "${IMAGE}" bootc install to-disk \
-              --via-loopback /data/disk.raw \
-              --filesystem ext4 \
-              --wipe \
-              ${BOOTLOADER_FLAG} \
-            2>&1 | tee "${BOOTC_INSTALL_LOG}"
-          BOOTC_INSTALL_RC=${PIPESTATUS[0]}
-          set -e
-          if [[ ${BOOTC_INSTALL_RC} -ne 0 ]]; then
-            echo "bootc install exited ${BOOTC_INSTALL_RC}; checking whether deployment was written before continuing"
-            echo "bootc install log saved to ${BOOTC_INSTALL_LOG}"
-          fi
-
-          LOOP=$(sudo losetup -f --show -P disk.raw)
-          echo "Loop: ${LOOP}"
+          BOOTC_INSTALL_ATTEMPTS=3
           sudo mkdir -p /mnt/root
-
-          ROOT_PART="${LOOP}p3"
-          ROOT_UUID=$(sudo blkid -s UUID -o value "${ROOT_PART}")
-          echo "root=${ROOT_PART}  uuid=${ROOT_UUID}"
-
-          sudo mount "${ROOT_PART}" /mnt/root
-
-          DEPLOY=$(sudo find /mnt/root/ostree/deploy/default/deploy/ -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | head -1)
-          if [[ -z "${DEPLOY}" ]]; then
-            echo "ERROR: ostree deployment missing — bootc install failed before writing layers"
+          DEPLOY=""
+          for ATTEMPT in $(seq 1 "${BOOTC_INSTALL_ATTEMPTS}"); do
+            echo "bootc install to-disk: attempt ${ATTEMPT}/${BOOTC_INSTALL_ATTEMPTS}"
+            set +e
+            sudo podman run \
+              --rm --privileged --pid=host \
+              --security-opt label=type:unconfined_t \
+              -v /var/lib/containers:/var/lib/containers \
+              -v /dev:/dev \
+              -v "$(pwd):/data" \
+              "${IMAGE}" bootc install to-disk \
+                --via-loopback /data/disk.raw \
+                --filesystem ext4 \
+                --wipe \
+                ${BOOTLOADER_FLAG} \
+              2>&1 | tee "${BOOTC_INSTALL_LOG}"
+            BOOTC_INSTALL_RC=${PIPESTATUS[0]}
+            set -e
             if [[ ${BOOTC_INSTALL_RC} -ne 0 ]]; then
-              echo "bootc install exited ${BOOTC_INSTALL_RC}; full install log:"
-              cat "${BOOTC_INSTALL_LOG}"
+              echo "bootc install exited ${BOOTC_INSTALL_RC}; checking whether deployment was written before continuing"
             fi
-            sudo ls -la /mnt/root/ || true
+
+            LOOP=$(sudo losetup -f --show -P disk.raw)
+            echo "Loop: ${LOOP}"
+            ROOT_PART="${LOOP}p3"
+            # An early failure leaves p3 missing or without a filesystem. Probe
+            # before mounting so that case reaches the retry and the error below
+            # instead of ending the step on a bare "mount: wrong fs type".
+            if sudo blkid -s TYPE -o value "${ROOT_PART}" >/dev/null 2>&1 \
+              && sudo mount "${ROOT_PART}" /mnt/root; then
+              DEPLOY=$(sudo find /mnt/root/ostree/deploy/default/deploy/ -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | head -1)
+              if [[ -n "${DEPLOY}" ]]; then
+                break
+              fi
+              sudo umount /mnt/root
+            fi
+            sudo losetup -d "${LOOP}"
+            if [[ ${BOOTC_INSTALL_RC} -eq 0 || ${ATTEMPT} -eq ${BOOTC_INSTALL_ATTEMPTS} ]]; then
+              break
+            fi
+            echo "No deployment written; retrying bootc install to-disk"
+            # Release any loop device bootc left on disk.raw and let udev drain
+            # its events before --wipe repartitions the same file.
+            for STALE_LOOP in $(sudo losetup -n -O NAME -j disk.raw); do
+              sudo losetup -d "${STALE_LOOP}" || true
+            done
+            sudo udevadm settle || true
+          done
+
+          if [[ -z "${DEPLOY}" ]]; then
+            BOOTC_ERROR=$(grep -m1 '^error:' "${BOOTC_INSTALL_LOG}" || true)
+            echo "::error title=bootc install wrote no deployment::bootc install to-disk could not deploy ${IMAGE} (${ATTEMPT} attempt(s), last exit ${BOOTC_INSTALL_RC}): ${BOOTC_ERROR:-no error line in bootc-install.log}"
+            echo "Full install log of the last attempt:"
+            cat "${BOOTC_INSTALL_LOG}"
             exit 1
           fi
           if [[ ${BOOTC_INSTALL_RC} -ne 0 ]]; then
             echo "bootc install exited ${BOOTC_INSTALL_RC} after writing deployment ${DEPLOY}; continuing with direct kernel boot"
           fi
+          ROOT_UUID=$(sudo blkid -s UUID -o value "${ROOT_PART}")
+          echo "root=${ROOT_PART}  uuid=${ROOT_UUID}"
           D="/mnt/root/ostree/deploy/default/deploy/${DEPLOY}"
           VAR="/mnt/root/ostree/deploy/default/var"
           # el10/LTS images may have multiple entries in usr/lib/modules/ (e.g., a
@@ -537,8 +592,41 @@ jobs:
           #
           # systemd.journald.forward_to_console=1 — forward full journal to serial for
           #   diagnostics when SSH fails (output captured in vm-serial.log artifact).
-          KERNEL_ARGS="root=UUID=${ROOT_UUID} rw ostree=${OSTREE_PATH} systemd.firstboot=no selinux=0 console=ttyS0,115200 systemd.journald.forward_to_console=1 systemd.mask=brew-setup.service systemd.mask=NetworkManager-wait-online.service systemd.mask=firewalld.service systemd.mask=wpa_supplicant.service systemd.mask=flatpak-preinstall.service systemd.mask=podman-auto-update.service systemd.mask=podman-auto-update.timer systemd.mask=malcontent-webd.service systemd.mask=malcontent-webd-update.service systemd.mask=malcontent-control.service systemd.mask=speech-dispatcherd.service systemd.mask=avahi-daemon.service systemd.mask=avahi-daemon.socket systemd.mask=cups.service systemd.mask=cups.path systemd.mask=cups.socket systemd.mask=cups.browsed.service systemd.mask=blueman-mechanism.service systemd.mask=gnome-remote-desktop.service systemd.mask=bazzite-hardware-setup.service systemd.mask=greenboot-healthcheck.service systemd.mask=greenboot-set-rollback-trigger.service systemd.mask=systemd-udev-settle.service systemd.wants=sshd.service"
+          KERNEL_ARGS="root=UUID=${ROOT_UUID} rw ostree=${OSTREE_PATH} systemd.firstboot=no console=ttyS0,115200 systemd.journald.forward_to_console=1 systemd.mask=brew-setup.service systemd.mask=NetworkManager-wait-online.service systemd.mask=firewalld.service systemd.mask=wpa_supplicant.service systemd.mask=flatpak-preinstall.service systemd.mask=podman-auto-update.service systemd.mask=podman-auto-update.timer systemd.mask=malcontent-webd.service systemd.mask=malcontent-webd-update.service systemd.mask=malcontent-control.service systemd.mask=speech-dispatcherd.service systemd.mask=avahi-daemon.service systemd.mask=avahi-daemon.socket systemd.mask=cups.service systemd.mask=cups.path systemd.mask=cups.socket systemd.mask=cups.browsed.service systemd.mask=blueman-mechanism.service systemd.mask=gnome-remote-desktop.service systemd.mask=bazzite-hardware-setup.service systemd.mask=greenboot-healthcheck.service systemd.mask=greenboot-set-rollback-trigger.service systemd.mask=systemd-udev-settle.service systemd.wants=sshd.service"
+          # Enforcing mode is the default (inputs.selinux_enforcing); passing
+          # false falls back to the legacy SELinux-off boot.
+          if [[ "${SELINUX_ENFORCING}" != "true" ]]; then
+            KERNEL_ARGS="${KERNEL_ARGS} selinux=0"
+          fi
           echo "KERNEL_ARGS=${KERNEL_ARGS}" >> "$GITHUB_ENV"
+          # SELinux: the guest boots with the candidate's own mode, which must
+          # be enforcing whenever the image ships a policy store (#1024).
+          # bootc labels everything it installs, but files written below on
+          # this non-SELinux runner carry no label and would be unlabeled_t in
+          # the guest. Record what is already unlabeled first: that is
+          # candidate-owned and is left alone so its defects stay visible.
+          if [[ "${SELINUX_ENFORCING}" == "true" ]]; then
+            SELINUX_INFO=$(sudo python3 -I scripts/selinux_qualify.py expected-mode "${D}")
+          else
+            SELINUX_INFO="off none"
+          fi
+          SELINUX_EXPECTED="${SELINUX_INFO% *}"
+          SELINUX_POLICY="${SELINUX_INFO#* }"
+          echo "SELinux: expected=${SELINUX_EXPECTED} policy=${SELINUX_POLICY}"
+          echo "SELINUX_EXPECTED=${SELINUX_EXPECTED}" >> "$GITHUB_ENV"
+          SELINUX_DIR="$(pwd)/results/selinux"
+          STATEROOT="/mnt/root/ostree/deploy/default"
+          mkdir -p "${SELINUX_DIR}"
+          if [[ "${SELINUX_EXPECTED}" == enforcing ]]; then
+            for DEP in $(sudo find "${STATEROOT}/deploy" -maxdepth 1 -mindepth 1 -type d 2>/dev/null); do
+              sudo python3 -I scripts/selinux_qualify.py unlabeled --root "${DEP}" "${DEP}/etc" \
+                > "${SELINUX_DIR}/baseline-unlabeled-$(basename "${DEP}").txt"
+            done
+            sudo python3 -I scripts/selinux_qualify.py unlabeled --root "${STATEROOT}" "${VAR}" \
+              > "${SELINUX_DIR}/baseline-unlabeled-var.txt"
+            echo "Unlabeled before harness changes (candidate-owned, not relabeled):"
+            wc -l "${SELINUX_DIR}"/baseline-unlabeled-*.txt
+          fi
 
           # Apply user + sshd config to ALL deployments in this stateroot.
           # bootc may deploy with a different checksum than what `ls|head-1`
@@ -703,6 +791,42 @@ jobs:
             sudo chmod 644 "${DEP}/etc/ssh/ci-authorized-keys"
           done
 
+          # Label exactly the files the harness added, using the candidate's own
+          # setfiles and file_contexts so the result matches what the guest
+          # policy expects. -m: this runner's mounts carry no seclabel flag.
+          if [[ "${SELINUX_EXPECTED}" == enforcing ]]; then
+            label_harness_files() {  # ROOT FILE_CONTEXTS BASELINE LIST SCAN_PATH
+              sudo python3 -I scripts/selinux_qualify.py unlabeled --root "$1" --exclude "$3" "$5" > "$4"
+              if [[ -s "$4" ]]; then
+                sudo podman run --rm --privileged --network none \
+                  --security-opt label=disable \
+                  -v /mnt/root:/mnt/root \
+                  -v "${SELINUX_DIR}:${SELINUX_DIR}:ro" \
+                  "${IMAGE}" setfiles -m -F -r "$1" -f "$4" "$2"
+              fi
+              LEFT=$(sudo python3 -I scripts/selinux_qualify.py unlabeled --root "$1" --exclude "$3" "$5")
+              if [[ -n "${LEFT}" ]]; then
+                echo "::error::harness files still unlabeled after setfiles:"
+                echo "${LEFT}"
+                exit 1
+              fi
+            }
+            for DEP in $(sudo find "${STATEROOT}/deploy" -maxdepth 1 -mindepth 1 -type d 2>/dev/null); do
+              NAME=$(basename "${DEP}")
+              label_harness_files "${DEP}" \
+                "${DEP}/etc/selinux/${SELINUX_POLICY}/contexts/files/file_contexts" \
+                "${SELINUX_DIR}/baseline-unlabeled-${NAME}.txt" \
+                "${SELINUX_DIR}/harness-labeled-${NAME}.txt" \
+                "${DEP}/etc"
+            done
+            label_harness_files "${STATEROOT}" \
+              "${D}/etc/selinux/${SELINUX_POLICY}/contexts/files/file_contexts" \
+              "${SELINUX_DIR}/baseline-unlabeled-var.txt" \
+              "${SELINUX_DIR}/harness-labeled-var.txt" \
+              "${VAR}"
+            echo "Harness files labeled with the candidate policy:"
+            wc -l "${SELINUX_DIR}"/harness-labeled-*.txt
+          fi
           # Pre-boot diagnostics: confirm key files and sshd drop-in are correct.
           echo "=== ci-authorized-keys ==="
           for DEP in $(sudo find /mnt/root/ostree/deploy/default/deploy \
@@ -741,6 +865,7 @@ jobs:
             -device   virtio-blk-pci,drive=disk,iothread=ioth0 \
             -netdev   user,id=net0,hostfwd=tcp::2222-:22,hostfwd=tcp:127.0.0.1:4723-:4723 \
             -device   virtio-net-pci,netdev=net0 \
+            -vga      none \
             -device   virtio-gpu-pci \
             -display  none \
             -monitor  unix:/tmp/qemu-monitor.sock,server,nowait \
@@ -757,7 +882,7 @@ jobs:
           [[ -S /tmp/qemu-monitor.sock ]] && echo "QEMU monitor socket ready." \
             || echo "WARNING: QEMU monitor socket not found after 5s"
 
-      # selinux=0 + pre-generated host keys + masked slow services = SSH ready in ~90s
+      # Pre-generated host keys + masked slow services = SSH ready in ~90s
       - name: Wait for SSH
         run: |
           SSH_COMMON="-i /tmp/vm_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ControlMaster=auto -o ControlPersist=600 -o ControlPath=/tmp/ssh-ctrl-%C -o ConnectTimeout=3"
@@ -779,6 +904,22 @@ jobs:
           echo "=== dbus / ostree lines in serial log ==="
           grep -i "dbus\|broker\|ostree-system\|composefs\|FAILED\|Error" "$(pwd)/vm-serial.log" 2>/dev/null | tail -40 || echo "(none found)"
           exit 1
+
+      # Fail early if the guest is not enforcing: every later result would be
+      # a qualification of the wrong security posture.
+      - name: Verify SELinux enforcing
+        if: env.SELINUX_EXPECTED != 'off'
+        run: |
+          SSH_COMMON="-i /tmp/vm_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ControlMaster=auto -o ControlPersist=600 -o ControlPath=/tmp/ssh-ctrl-%C -o ConnectTimeout=3"
+          SSH="ssh ${SSH_COMMON} -p 2222 bluefin-test@127.0.0.1"
+          mkdir -p results/selinux
+          OBSERVED=$($SSH "getenforce 2>/dev/null" || true)
+          echo "image=${BASE_IMAGE} booted=${IMAGE} expected=${SELINUX_EXPECTED:-enforcing} after-boot=${OBSERVED:-none}" \
+            | tee results/selinux/mode.txt
+          $SSH "sestatus 2>&1; id -Z; ls -Z /etc/group /etc/ssh/ci-authorized-keys /etc/ssh/sshd_config.d/00-ci-auth.conf /etc/sudoers.d/zz-bluefin-test ~/.ssh/authorized_keys 2>&1" \
+            > results/selinux/contexts-boot.txt 2>&1 || true
+          cat results/selinux/contexts-boot.txt
+          python3 scripts/selinux_qualify.py check-mode "${SELINUX_EXPECTED:-enforcing}" "${OBSERVED}"
 
       - name: Pre-stage target image via bootc switch
         if: ${{ inputs.target-image != '' && contains(inputs.suites, 'lifecycle') && env.SUITE == 'lifecycle' }}
@@ -827,7 +968,7 @@ jobs:
           echo "${BOOT_TIME}" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
       - name: Install cached Flatpaks in VM
-        if: ${{ contains(inputs.image, '/bluefin') && steps.shard.outputs.suite_dir != 'common' && steps.shard.outputs.suite_dir != 'lifecycle' }}
+        if: ${{ (contains(inputs.image, '/bluefin') || contains(inputs.image, '/utah')) && steps.shard.outputs.suite_dir != 'common' && steps.shard.outputs.suite_dir != 'lifecycle' }}
         run: |
           SSH_COMMON="-i /tmp/vm_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ControlMaster=auto -o ControlPersist=600 -o ControlPath=/tmp/ssh-ctrl-%C -o ConnectTimeout=3"
           CACHE_ROOT="${GITHUB_WORKSPACE}/.flatpak-cache-home/.local/share"
@@ -1243,13 +1384,13 @@ jobs:
           # grim includes its own copy of wlr-screencopy-unstable-v1.xml so no
           # external wlr-protocols package is needed.
           mkdir -p /tmp/ponytail-build
-          podman run --rm -v /tmp/ponytail-build:/out:Z debian:bookworm bash -c "
+          podman run --rm -v /tmp/ponytail-build:/out:Z debian:bookworm@sha256:268fb24c39bca92d326dd83ea3abebe4a3f7751c804ffef23bb6d857dd343ff8 bash -c "
             set -e
             export DEBIAN_FRONTEND=noninteractive
             apt-get update -qq
             apt-get install -y -qq build-essential meson ninja-build pkg-config \
               libglib2.0-dev libwayland-dev wayland-protocols libcairo2-dev libpng-dev git
-            git clone --quiet --depth 1 --branch 0.0.11 https://gitlab.gnome.org/ofourdan/gnome-ponytail-daemon.git /src
+            git clone --quiet --depth 1 --branch 0.0.11 https://gitlab.gnome.org/ofourdan/gnome-ponytail-daemon.git /src && test \"\$(git -C /src rev-parse HEAD)\" = 72f222d912de8105208f6faa865b71480c189924 || exit 1
             # systemd dep is only used to find systemduserunitdir; we provide it directly
             sed -i \"s/dependency('systemd')/dependency('systemd', required: false)/\" /src/meson.build
             meson setup /src/build /src --prefix=/usr -Dsystemd_user_unit_dir=/usr/lib/systemd/user -Dponytail_python=false
@@ -1257,16 +1398,14 @@ jobs:
             cp /src/build/src/gnome-ponytail-daemon /out/
             # Build wayland-protocols >=1.37 from source (bookworm ships 1.31,
             # grim 1.4+ needs 1.37 for ext-image-copy-capture-v1).
-            git clone --quiet --depth 1 --branch 1.37 \
-              https://gitlab.freedesktop.org/wayland/wayland-protocols.git /wp
+            git clone --quiet --depth 1 --branch 1.37 https://gitlab.freedesktop.org/wayland/wayland-protocols.git /wp && test \"\$(git -C /wp rev-parse HEAD)\" = 4878e025a5fb95d8d14a05088974af60cbafebd0 || exit 1
             meson setup /wp/build /wp --prefix=/usr
             ninja -C /wp/build install
             # Build grim (uses ext-image-copy-capture-v1, supported by mutter 47+)
             # grim moved to gitlab.freedesktop.org (the sr.ht repo is frozen);
             # pin a release and retry so a forge hiccup does not fail the suite.
             for attempt in 1 2 3; do
-              git clone --quiet --depth 1 --branch v1.5.0 \
-                https://gitlab.freedesktop.org/emersion/grim.git /grim && break
+              git clone --quiet --depth 1 --branch v1.5.0 https://gitlab.freedesktop.org/emersion/grim.git /grim && test \"\$(git -C /grim rev-parse HEAD)\" = b7a99854e46945db9f50ba8d2417ac42321173d1 && break
               rm -rf /grim
               [ \"\$attempt\" = 3 ] && exit 1
               sleep 15
@@ -1297,7 +1436,13 @@ jobs:
 
             # Pre-start the daemon and wait for it to register on the session bus
             source /tmp/session.env
-            nohup \$HOME/.local/libexec/gnome-ponytail-daemon >/tmp/ponytail-daemon.log 2>&1 &
+            # Keep the daemon outside the SSH session scope: logind can kill
+            # session processes when the ControlMaster connection expires.
+            # Use a unit name the image cannot already own: on dakota:testing,
+            # systemd-run --unit=gnome-ponytail-daemon fails with already
+            # loaded or has a fragment file.
+            systemd-run --user --quiet --collect --unit=testsuite-ponytail-daemon \
+              -- /bin/bash -c 'source /tmp/session.env; exec \$HOME/.local/libexec/gnome-ponytail-daemon >/tmp/ponytail-daemon.log 2>&1'
             for i in \$(seq 1 15); do
               dbus-send --session --print-reply \
                 --dest=org.freedesktop.DBus /org/freedesktop/DBus \
@@ -1378,6 +1523,20 @@ jobs:
               json.dump(data, f, indent=2)
           print(f"Wrote skip results: {reason}")
           PY
+            echo "behave_rc=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # If the selected suite is entirely @hardware_blocked (e.g. nvidia on a
+          # GPU-less VM), behave would run zero scenarios and still exit 0 -- a
+          # misleading green pass. Emit an explicit blocked result with the #706
+          # reason, then fail the job so it is never a silent green. Mirrors the
+          # KDE "suite skipped" pattern above. This is structural: it covers every
+          # folded hardware-only suite (nvidia, and any future group), not one name.
+          SUITE_BLOCKED=$(python3 scripts/suite_blocked.py "tests/${SUITE_DIR}" 2>/dev/null) || SUITE_BLOCKED="RUNNABLE"
+          if [[ "${SUITE_BLOCKED}" == "BLOCKED" ]]; then
+            echo "suite_blocked=true" >> "$GITHUB_OUTPUT"
+            echo "::error::Suite '${SUITE_DIR}' is blocked: every scenario requires hardware the CI VM lacks (see https://github.com/projectbluefin/testsuite/issues/706)."
             echo "behave_rc=0" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -1477,6 +1636,7 @@ jobs:
                 -e PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
                 -e BEHAVE_RETRIES=${BEHAVE_RETRIES:-2} \
                 -e TARGET_IMAGE=\"${TARGET_IMAGE}\" \
+                -e BASE_IMAGE=\"${BASE_IMAGE}\" \
                 -e IMAGE=\"${IMAGE}\" \
                 -e PYTHONPATH=/tmp/bluefin-tests \
                 ghcr.io/projectbluefin/testsuite:runner \
@@ -1487,6 +1647,45 @@ jobs:
           fi
 
           echo "behave_rc=${BEHAVE_RC}" >> "$GITHUB_OUTPUT"
+
+      # Runs after the suite, so it also covers the state after any lifecycle
+      # reboot. A canary denial then proves the collection path reaches the
+      # verdict; without it a clean gate could mean "no logs" rather than
+      # "no denials".
+      - name: SELinux denial gate
+        if: always() && steps.run.conclusion != 'skipped' && env.SELINUX_EXPECTED == 'enforcing'
+        run: |
+          # Fresh connection: the VM may have rebooted during the suite.
+          SSH="ssh -i /tmp/vm_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ControlMaster=no -o ConnectTimeout=10 -p 2222 bluefin-test@127.0.0.1"
+          D=results/selinux
+          mkdir -p "${D}"
+          DEADLINE=$((SECONDS + 300))
+          until $SSH true 2>/dev/null; do
+            [[ $SECONDS -lt $DEADLINE ]] || { echo "::error::VM unreachable for the SELinux gate"; exit 1; }
+            sleep 5
+          done
+          OBSERVED=$($SSH "getenforce 2>/dev/null" || true)
+          echo "after-run=${OBSERVED:-none}" | tee -a "${D}/mode.txt"
+          RC=0
+          python3 scripts/selinux_qualify.py check-mode enforcing "${OBSERVED}" || RC=1
+          $SSH 'sudo bash -s' < scripts/selinux_collect_avc.sh > "${D}/avc-scenario.log"
+          python3 scripts/selinux_qualify.py gate "${D}/avc-scenario.log" \
+            --allowlist selinux_allowlist.yaml --json "${D}/avc-verdict.json" || RC=1
+          # Canary: start a transient unit in httpd_t, which may not run
+          # /usr/bin/cat or read shadow_t. Output goes nowhere.
+          $SSH "sudo timeout 60 systemd-run --quiet --wait --collect -p StandardOutput=null -p StandardError=null -p SELinuxContext=system_u:system_r:httpd_t:s0 /usr/bin/cat /etc/shadow" || true
+          sleep 3
+          $SSH 'sudo bash -s' < scripts/selinux_collect_avc.sh > "${D}/avc-after-canary.log"
+          python3 scripts/selinux_qualify.py canary "${D}/avc-scenario.log" "${D}/avc-after-canary.log" \
+            --allowlist selinux_allowlist.yaml --json "${D}/canary.json" || RC=1
+          {
+            echo "### SELinux qualification: $([[ ${RC} -eq 0 ]] && echo passed || echo FAILED)"
+            echo '```'
+            cat "${D}/mode.txt"
+            python3 scripts/selinux_qualify.py gate "${D}/avc-scenario.log" --allowlist selinux_allowlist.yaml 2>&1 | sed -E 's/^::[a-z]+:://' || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "${RC}"
 
       - name: Capture post-upgrade desktop screenshot
         if: always() && env.SUITE == 'lifecycle'
@@ -1605,8 +1804,10 @@ jobs:
         run: |
           # If the in-VM screenshot path (grim/gdbus inside the container) produced
           # nothing, capture the QEMU virtual framebuffer directly from the runner.
-          # mutter renders the GNOME desktop to bochs-drm (card1 / primary VGA),
-          # which QEMU maintains internally even with -display none.  The monitor
+          # mutter renders the GNOME desktop to virtio-gpu, the VM's only display
+          # adapter (-vga none drops q35's default std VGA, which mutter used to
+          # light up as a second monitor and grim then captured side by side).
+          # QEMU maintains its framebuffer internally even with -display none.  The monitor
           # socket was opened at VM boot; screendump writes a PPM to the runner host.
           if find results/ -name "screenshot_*fastfetch*.png" 2>/dev/null | grep -q .; then
             echo "In-VM screenshot already present -- skipping QEMU screendump fallback."
@@ -1658,18 +1859,18 @@ jobs:
             echo "No desktop screenshot in results/ — skipping promotion"
           fi
 
+      - name: Install ORAS CLI
+        if: steps.desktop-screenshot.outputs.found == 'true'
+        continue-on-error: true
+        uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2.0.3
+
       - name: Push desktop screenshot to GHCR
         if: steps.desktop-screenshot.outputs.found == 'true'
         id: upload-screenshot
         continue-on-error: true
         run: |
-          # Install oras — push the screenshot as an OCI artifact so any workflow
+          # Push the screenshot as an OCI artifact so any workflow
           # in the org can pull it with: oras pull ghcr.io/projectbluefin/testsuite/desktop-screenshot:latest
-          ORAS_VERSION="1.2.0"
-          curl -sSfL \
-            "https://github.com/oras-project/oras/releases/download/v${ORAS_VERSION}/oras_${ORAS_VERSION}_linux_amd64.tar.gz" \
-            | tar xz oras
-          sudo mv oras /usr/local/bin/oras
 
           echo "${{ github.token }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
 
@@ -1917,22 +2118,23 @@ jobs:
         if: steps.run.outputs.behave_rc != '0'
         run: exit "${{ steps.run.outputs.behave_rc }}"
 
-      # Backstop: every desktop suite must have at least one genuinely passing
+      # Backstop: every desktop suite and the common SSH suite must have at least one genuinely passing
       # scenario. behave exits 0 when a setup failure (failed_setup.txt) or a
       # self-disabled suite skips every scenario, so reading behave_rc alone is a
       # false green. assert_passed.py is the verdict contract for these suites (the
-      # gnome-e2e action does not call it yet); it fails on the failed_setup marker, an
+      # gnome-e2e action runs it too); it fails on the failed_setup marker, an
       # empty/truncated results.json, or 0 passing scenarios. Optional documented
       # skips (quarantine/pending/future) never fail it on their own. A
       # deliberately inapplicable shard (KDE webdriver stack could not be
       # installed) is passed through --skip-reason and is a passing terminal
       # state for the gate, not a product failure.
-      - name: Assert desktop suite has passing scenarios
+      - name: Assert suite has passing scenarios
         if: |
           (startsWith(env.SUITE_DIR, 'kde') ||
            env.SUITE_DIR == 'smoke' || env.SUITE_DIR == 'developer' ||
            env.SUITE_DIR == 'dx' || env.SUITE_DIR == 'software' ||
-           env.SUITE_DIR == 'vanilla-gnome' || env.SUITE_DIR == 'bazzite') &&
+           env.SUITE_DIR == 'vanilla-gnome' || env.SUITE_DIR == 'bazzite' ||
+           env.SUITE_DIR == 'common') &&
           steps.run.outputs.behave_rc == '0'
         env:
           # Through env, not inline: the reason embeds strings read from the
@@ -1947,6 +2149,15 @@ jobs:
           fi
           python3 scripts/assert_passed.py results/results.json \
             --skip-reason "${SKIP_REASON}" "${ALLOW[@]}"
+
+      # Backstop: an all-blocked hardware-only suite (e.g. nvidia on a GPU-less
+      # VM) must NOT be reported as green. The run step already wrote a synthetic
+      # blocked result; fail the job here so the block is loud, never silent.
+      - name: Fail blocked hardware-only suite
+        if: steps.run.outputs.suite_blocked == 'true'
+        run: |
+          echo "::error::Suite '${{ inputs.suites }}' is blocked: every scenario requires hardware the CI VM lacks (see https://github.com/projectbluefin/testsuite/issues/706). This is a hardware gap, not a test failure."
+          exit 1
 
       - name: Write e2e metadata
         if: always()

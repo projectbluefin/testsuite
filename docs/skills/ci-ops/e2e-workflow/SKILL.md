@@ -24,16 +24,13 @@ metadata:
 
 Load when: integrating the testsuite into another repo's CI (e.g. `<image-org>/dakota`), debugging e2e workflow failures, or understanding how the QEMU boot pipeline works.
 
-
 ## When to Use
-
 
 - Changing `.github/workflows/e2e.yml` inputs, matrix behavior, job timeouts, or artifact handling
 - Debugging OCI image pulls, QEMU boot/setup stages, or reusable `workflow_call` behavior
 - Adding or troubleshooting GitHub Actions caching for the root podman image store
 
 ## When NOT to Use
-
 
 - Writing or debugging behave steps inside `tests/**` — use `behave.md`, `gnome.md`, or `bootc.md`
 - Changing Argo/KubeVirt lab infrastructure — that belongs in `<image-org>/testing-lab`
@@ -79,6 +76,9 @@ Rollouts should start with `--grace-days` in CI (currently `--grace-days 30`) so
 
 `e2e.yml` reuses the same script for job-summary reporting via `python3 scripts/check_quarantine_age.py --json`.
 That summary path is informational only, but it still needs the same prerequisites: the workflow checkout must include `scripts/check_quarantine_age.py`, the `tests/` tree, and full git history (`fetch-depth: 0`) or the age calculations will be incomplete.
+
+`pr-validate.yml` runs the SHA-pinned shared pinned-fetches script in fail mode with `.github/pinned-fetches-allowlist.txt` for reviewed exceptions. The source and gate checkouts are siblings so the scan excludes the gate's own files. Update each harness source tag and its verified commit together (`git ls-remote <url> 'refs/tags/<tag>^{}'`); keep the Debian image digest pinned and refresh it manually with `skopeo inspect docker://debian:bookworm | jq -r .Digest`. Renovate does not track image refs inside `run:` blocks.
+Install ORAS using the SHA-pinned setup action, not an unchecked archive. Installation and screenshot upload remain best-effort.
 
 ## `unit-tests.yml` must install every `scripts/` runtime dependency
 
@@ -176,16 +176,11 @@ sparse-checkout: |
 sparse-checkout-cone-mode: false
 ```
 
-Note that `scripts/` as a whole is **not** checked out — only the two named files are.
-
 **Rule: any script a job step invokes must be added to that job's `sparse-checkout`
 list in the same change** — extracting an inline heredoc, adding a guard step, or
 reusing a repo script elsewhere. Verify by reading the job's `sparse-checkout` block
 and confirming the exact path is listed; never assume `scripts/` is present because
 another script runs. Why this fails silently: [troubleshooting.md](references/troubleshooting.md#a-script-missing-from-the-sparse-checkout-fails-silently).
-
-The same rule applies to every other non-cone checkout in this repo, including the
-`projectbluefin/iso` harness checkout in `.github/workflows/iso-validation.yml`.
 
 ## Pipeline stages
 
@@ -194,8 +189,8 @@ The same rule applies to every other non-cone checkout in this repo, including t
    exclude the stateful `firefox.feature` journey.
 2. **Checkout testsuite** — non-cone sparse checkout of the explicitly listed paths (`flatpak-app-list.txt`, `tests`, `scripts/check_quarantine_age.py`, `scripts/install-kde-webdriver.sh`) from `inputs.test_repository` at `inputs.test_ref`; `test_repository` defaults to `<image-org>/testsuite`, while `manual.yml` passes `github.repository` so fork branches can validate themselves; always `fetch-depth: 0`
 3. **Resolve suite shard** — Python step computes `SUITE_DIR` (physical directory), `FEATURE_ARGS` (specific `.feature` files for shards), and `SCREENSHOT_SUITE` (normalized suite name for GHCR tags)
-4. **Restore/prime Flatpak download cache** — Bluefin GUI suites only; caches a runner-side user Flatpak repo keyed on `flatpak-app-list.txt` hash
-5. **Free disk space** — runs `<readonly-upstream>/remove-unwanted-software@v9`; keeps the 40 GiB `disk.raw` allocation viable on GitHub-hosted runners
+4. **Restore/prime Flatpak download cache** — Bluefin and Utah GUI suites only (skipped for `common` and `lifecycle`); caches a runner-side user Flatpak repo keyed on `flatpak-app-list.txt` hash
+5. **Free disk space** — runs the org's `projectbluefin/actions/bootc-build/setup-runner` (SHA-pinned, `update-podman: "false"`): `remove-unwanted-software@v10` with `extra-squeeze`, plus a zstd BTRFS loopback for `/var/lib/containers` on runners that expose a separate `/mnt` disk (skipped otherwise); keeps the 40 GiB `disk.raw` allocation and the rootful image pulls viable on GitHub-hosted runners. Use this action, not the upstream cleanup action directly, in every VM-provisioning workflow
 6. **Enable KVM** — udev rule for `/dev/kvm` access
 7. **Install QEMU + pull OCI image** — parallel: `apt-get install qemu-system-x86` while `sudo podman pull <image>` and `sudo podman pull ghcr.io/<image-org>/testsuite:runner` run concurrently in background
 8. **Generate SSH keypair** — creates `ed25519` keypair at `/tmp/vm_key`; public key stored in `VM_PUBKEY` env var
@@ -205,12 +200,12 @@ The same rule applies to every other non-cone checkout in this repo, including t
    - Mounts the raw disk, finds `ROOT_UUID` (partition 3), ostree deployment hash, and `KVER`
    - Copies `vmlinuz` + `initramfs.img` from deployment `usr/lib/modules/<kver>/` (or boot partition fallback)
    - Creates `boot.N` symlinks needed by `ostree-system-generator` (including canonical `boot.N` alias for versioned `boot.N.M` dirs produced by newer bootc)
-   - Sets `KERNEL_ARGS` env (includes `root=UUID=...`, masked services, serial console, `selinux=0`)
+   - Sets `KERNEL_ARGS` env (includes `root=UUID=...`, masked services, serial console; boots the candidate's own SELinux mode by default; `selinux=0` only when a caller passes `selinux_enforcing: false`, see `references/selinux-enforcing.md`)
    - Iterates all deployment directories and writes: `bluefin-test` user (UID 1001, added to `wheel` like a real first-run admin account — common's `org.ublue.privileged.user.setup` polkit rule grants wheel only), GDM autologin, sshd drop-in `00-ci-auth.conf`, dconf `local.d/00-ci-testing` override, `tmpfiles.d/ci-user.conf`, masked service symlinks
    - Pre-installs `unsafe-mode@bluefin-test` gnome-shell extension files into var home (pre-boot, so gnome-shell finds it during `_loadExtensions()`)
    - Injects SSH authorized key into `/var/home/bluefin-test/.ssh/` and each deployment's `/etc/ssh/ci-authorized-keys`
-10. **Boot VM** — `qemu-system-x86_64` with KVM, 4 GB RAM, 4 vCPUs, `virtio-gpu-pci`, forwarded SSH on port 2222; daemonized; QEMU monitor socket at `/tmp/qemu-monitor.sock` (chmod 666)
-11. **Wait for SSH** — polls port 2222 up to **15 minutes** (900 s)
+10. **Boot VM** — `qemu-system-x86_64` with KVM, 4 GB RAM, 4 vCPUs, `-vga none` + `virtio-gpu-pci` (one display adapter; q35's default std VGA made mutter light a second monitor, so desktop screenshots came out 2560x800), forwarded SSH on port 2222; daemonized; QEMU monitor socket at `/tmp/qemu-monitor.sock` (chmod 666)
+11. **Wait for SSH** — polls port 2222 up to **15 minutes** (900 s); then, unless `selinux_enforcing: false`, **Verify SELinux enforcing** — fails unless `getenforce` is `Enforcing` when the image ships a policy store; records `sestatus`/`id -Z`/`ls -Z` to `results/selinux/`
 12. **Pre-stage target image via bootc switch** — lifecycle suite only, when `inputs.target-image` is set; SSHes into VM and runs `sudo bootc switch '<target-image>'` to stage the upgrade target before the test run
 13. **Dump VM serial log** — always runs (`if: always()`); primary debug tool when SSH never comes up
 14. **Wait for GNOME session** — polls `/run/user/1001/wayland-0` up to 3 minutes
@@ -220,7 +215,7 @@ The same rule applies to every other non-cone checkout in this repo, including t
 18. **Load runner container into VM** — non-common suites; ensures `bluefin-test` has `/etc/subuid`/`/etc/subgid`, runs `podman system migrate`, pipes `ghcr.io/<image-org>/testsuite:runner` via `podman save | ssh podman load`; patches `openssh-clients` into the runner image if missing
 19. **Install Python test stack** — non-common suites; loads `uinput` kernel module, sets device permissions, copies SSH private key into VM for `@plain_ssh` scenarios, queries GNOME session environment into `/tmp/session.env`, enables `unsafe-mode@bluefin-test` extension, sets `toolkit-accessibility true`, disables idle locking for the disposable test user, re-queries AT-SPI bus address after enabling accessibility, terminates any pre-started `gnome-control-center`
 20. **Install gnome-ponytail-daemon** — non-common suites; builds `gnome-ponytail-daemon` (tag `0.0.11`) and `grim` from source inside a `debian:bookworm` container on the runner (without libei, uses Mutter D-Bus fallback for input events; wayland-protocols 1.37 built from source for grim); SCPs binaries into `~/.local/libexec/` and `~/.local/bin/`; registers D-Bus service file and pre-starts the daemon
-21. **Run behave suite** — `common`/`lifecycle`/`installer`: runner-side `python3 tests/shared/behave_retry.py` with `VM_IP/VM_USER/SSH_KEY/SSH_PORT` env vars (this fixed list is the whole environment those suites get — a scenario gated on any other variable can never run; see [installer-suite.md](references/installer-suite.md)). The migration lane additionally receives `MIGRATION_TARGET` and `EXTRA_TAGS` from the two `migration-target`/`extra-tags` inputs below; `EXTRA_TAGS` is appended to `BEHAVE_TAG_ARGS` as `--tags <value>` so a dispatch can scope the lifecycle run to just `@migration`. GUI suites: SCP `tests/<suite>` + `tests/shared` + `tests/__init__.py` to VM, then `podman run ... ghcr.io/<image-org>/testsuite:runner "python3 .../behave_retry.py ... --format json.pretty"` inside VM; always `--tags ~quarantine`; retries controlled by `BEHAVE_RETRIES=2`
+21. **Run behave suite** — `common`/`lifecycle`/`installer`: runner-side `python3 tests/shared/behave_retry.py` with `VM_IP/VM_USER/SSH_KEY/SSH_PORT` env vars (this fixed list is the whole environment those suites get — a scenario gated on any other variable can never run; see [installer-suite.md](references/installer-suite.md)). The migration lane additionally receives `MIGRATION_TARGET` and `EXTRA_TAGS` from the two `migration-target`/`extra-tags` inputs below; `EXTRA_TAGS` is appended to `BEHAVE_TAG_ARGS` as `--tags <value>` so a dispatch can scope the lifecycle run to just `@migration`. GUI suites: SCP `tests/<suite>` + `tests/shared` + `tests/__init__.py` to VM, then `podman run ... ghcr.io/<image-org>/testsuite:runner "python3 .../behave_retry.py ... --format json.pretty"` inside VM; always `--tags ~quarantine`; retries controlled by `BEHAVE_RETRIES=2`; then **SELinux denial gate** — `always()` after the suite; re-checks enforcing, collects AVCs via `scripts/selinux_collect_avc.sh`, fails on denials not in `selinux_allowlist.yaml`, then runs the `httpd_t` canary (see [selinux-enforcing.md](references/selinux-enforcing.md))
 22. **Capture post-upgrade desktop screenshot** — lifecycle suite only; SSHes with `ControlMaster=no`, waits up to 60 s for Wayland socket, captures via `gdbus org.gnome.Shell.Eval`
 23. **Capture post-migration screenshot and status** — lifecycle suite only; QEMU framebuffer capture via `qemu_screendump.py` + SSH for `bootc status`, `fastfetch`, `os-release` into `results/migration-status.txt`
 24. **Capture Flatpak screenshots** — when `inputs.screenshot_flatpaks != ''`; runs `screenshot_cli.py` inside the runner container
@@ -245,7 +240,7 @@ The OCI image under test **must**:
 - Include GNOME + GDM
 - Have `python3` available in the deployment
 
-**`gnome-ponytail-daemon` is built at runtime** — the workflow compiles it from source in a `debian:bookworm` container on the runner and SCPs the binary into the VM. The image does NOT need to ship `gnome-ponytail-daemon`. (See step 20 above.)
+**`gnome-ponytail-daemon` is built at runtime** — the workflow compiles it from source in a `debian:bookworm` container on the runner and SCPs the binary into the VM. The image does NOT need to ship `gnome-ponytail-daemon`. (See step 20 above.) Start it as a transient `systemd --user` service sourcing `/tmp/session.env`: with `KillUserProcesses=yes`, logind kills SSH-session processes when ControlMaster expires, leaving the runner with a stale D-Bus owner. Fail setup if the service cannot start; do not fall back to `nohup` in the SSH session.
 
 The workflow injects the test user, SSH keys, autologin config, and the unsafe-mode gnome-shell extension at disk-prep time — nothing needs to be baked into the image for those.
 
@@ -267,7 +262,7 @@ The serial log is always uploaded (even on failure) — it's the primary debug t
 
 - `bootupd` may fail (not in bootc images by default), but a non-zero `bootc install to-disk` exit is only acceptable if the ostree deployment directory is populated. The workflow now logs the full install output, records the exit code, and hard-fails if the deployment directory is empty.
 - No display output: `virtio-gpu` with `-display none`. Tests must use AT-SPI (dogtail/qecore), not pixel-based assertions.
-- No GPU acceleration for GL/Vulkan in GHA runners. Hardware-specific tests require SSH-mode suites not yet in the GHA action (epics #43/#44).
+- No GPU acceleration for GL/Vulkan in GHA runners. Hardware-oriented suites (`hardware`, `nvidia`, `security`) are selectable `suites` values; an all-blocked selection runs zero scenarios yet exits 0, so `scripts/suite_blocked.py` + the "Fail blocked hardware-only suite" backstop fail the job loud (see [`hardware-suite-blocked.md`](references/hardware-suite-blocked.md)).
 - Partition layout assumes `p3` is the root partition. Tested against standard Anaconda/bootc partition tables. Non-standard layouts may break the disk-configure step.
 
 ## Common Rationalizations
@@ -441,9 +436,9 @@ Key differences from GNOME suites:
   was added to `ExecStart` and when the checkout ref was changed to `master`.
 - **Session setup:** SDDM autologin and a KDE determinism environment drop-in are
   written at disk-prep time.
-- **`passed > 0` backstop:** the step `Assert desktop suite has passing scenarios`
-  runs `python3 scripts/assert_passed.py results/results.json --skip-reason "${{ steps.kde_webdriver.outputs.skip_reason }}"` for KDE + GNOME GUI suites
-  (`if: ... && steps.run.outputs.behave_rc == '0'`), the verdict contract for the `e2e.yml` desktop suites (the `gnome-e2e` action does not call it yet): counts
+- **`passed > 0` backstop:** the step `Assert suite has passing scenarios`
+  runs `python3 scripts/assert_passed.py results/results.json --skip-reason "${{ steps.kde_webdriver.outputs.skip_reason }}"` for KDE + GNOME GUI suites and the `common` SSH suite
+  (`if: ... && steps.run.outputs.behave_rc == '0'`), the verdict contract for the `e2e.yml` desktop suites and `common` (the `gnome-e2e` action runs it too): counts
   `status == 'passed'` scenarios **positively** (backgrounds and other non-scenario elements ignored) and exits 1 with an `::error::`
   when `passed <= 0`, when `results.json` is missing/empty/truncated, or when a `failed_setup.txt` marker is present.
   A deliberately inapplicable shard (KDE webdriver stack could not be installed) passes through `--skip-reason` for a **passing** terminal state —
@@ -458,10 +453,14 @@ mapping and gating rules.
 **Important:** `testsuite-kde-runner` is published by
 `.github/workflows/build-kde-runner.yml` (added in #640, merged).
 
----
+## Hardware-only suite blocked backstop
+
+`hardware`/`nvidia`/`security` are selectable `suites`; `nvidia` is all-blocked so
+behave runs zero scenarios yet exits 0. The `suite_blocked.py` guard + the "Fail
+blocked hardware-only suite" backstop make this loud — see
+[`references/hardware-suite-blocked.md`](references/hardware-suite-blocked.md).
 
 ## Dashboard seeding — initial population
-
 
 If the `https://projectbluefin.github.io/testsuite/` dashboard shows "No JSONL results found" or no screenshots, the GHCR slug tags don't exist yet. Trigger manual e2e runs to populate them:
 
@@ -492,8 +491,10 @@ Load these when you hit the specific topic:
 - [Troubleshooting e2e workflow failures and flake signatures.](references/troubleshooting.md)
 - [Permission and runtime constraints when calling the reusable action.](references/permissions.md)
 - [KDE suite wiring, gating, and runner-image split.](references/kde-suites.md)
+- [Hardware-oriented suite groups, the all-blocked backstop, and why it fails loud.](references/hardware-suite-blocked.md)
 - [Installer suite assertions, and why an env-var gate made one unreachable.](references/installer-suite.md)
 - [Migration inputs `migration-target` / `extra-tags` and the startup_failure they cause when missing.](references/migration-inputs.md)
 - [GNOME OS guest lane for the developer extension-validation service and its mandatory gate.](references/gnome-extensions-validation.md)
+- [SELinux enforcing in the e2e guest (default on): labeling, mode checks, AVC gate, canary.](references/selinux-enforcing.md)
 - [GNOME OS image provenance (2-week tag expiry), verified guest inventory, and the extensions pre-boot preflight](references/gnomeos-guest-provenance.md)
 - [Which units the fast e2e lane masks, why, and which still need a startup-qualification lane.](references/startup-service-inventory.md)

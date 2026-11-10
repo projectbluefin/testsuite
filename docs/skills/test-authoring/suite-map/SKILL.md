@@ -139,8 +139,9 @@ Set `chunked_enabled: true` once `ghcr.io/projectbluefin/bluefin:latest` ships z
 | Tag | Meaning |
 |---|---|
 | `@smoke_suite` | Runs as part of the standard smoke suite |
-| `@bluefin` | Smoke scenario runs only when the image name contains `bluefin`; smoke `environment.py` skips it elsewhere |
-| `@dakota_only` | Scenario runs only when the image name contains `dakota`; the `smoke` and `common` `environment.py` files skip it elsewhere. Only the image **name** is matched, so the `projectbluefin` org name cannot false-positive |
+| `@bluefin` | Scenario runs on Bluefin-family image names (`bluefin`, `bazzite`, `utah`, `common`); smoke and common read `BASE_IMAGE` before `IMAGE`, so composed runs keep their family |
+| `@dakota_only` | Scenario runs only when the image name contains `dakota`; smoke and common read `BASE_IMAGE` before `IMAGE`. Only the image **name** is matched, so the `projectbluefin` org name cannot false-positive |
+| `@skip_utah` | Common scenario skips when the image name contains `utah`: it asserts content Bluefin's common pin still ships but Utah's newer pin does not. Remove it when the scenario is replaced (#1076) |
 | `@dx_only` / `@developer_suite` | DX variant only |
 | `@nvidia_only` | NVIDIA variant only |
 | `@flatcar_suite` | Flatcar OS only |
@@ -163,12 +164,12 @@ Set `chunked_enabled: true` once `ghcr.io/projectbluefin/bluefin:latest` ships z
 
 <!-- coverage-snapshot:start -->
 
-574 scenarios across 83 feature files: 456 active, 0 quarantined, 118 `@future`/`@pending`/`@hardware_blocked`
+572 scenarios across 83 feature files: 456 active, 0 quarantined, 116 `@future`/`@pending`/`@hardware_blocked`
 
 | Suite | Scenarios | Active | Quarantined | Pending/Future | Notes |
 |---|---|---|---|---|---|
 | bazzite | 20 | 9 | 0 | 11 | Extension presence + shell behaviour; 11 'is enabled' scenarios `@pending` on an upstream image regression — all extensions report state=6/ERROR in bazzite-gnome:testing/stable since 2026-06-05 (#408); 'is installed' scenarios remain active |
-| common | 118 | 98 | 0 | 20 | Signing assertions `@future` pending the ublue-os→projectbluefin policy migration; flatpak model/state, dconf defaults, and immutability checks `@pending` on CI infra (#838); Flatpak model + state; XDG portal health + integration; container runtime (podman); polkit rules; shell env + sourcing; system scripts; ujust recipes; GSettings/dconf defaults; immutable OS integrity; desktop entries; signing assertions; Dakota `ujust --choose` regression guard active (`@dakota_only`); `ujust report` is `@pending` on #706 until a Dakota lab run validates the mocked submit flow |
+| common | 118 | 100 | 0 | 18 | Signing assertions `@future` pending the ublue-os→projectbluefin policy migration; flatpak model/state and dconf defaults `@pending` on CI infra (#838); Flatpak model + state; XDG portal health + integration; container runtime (podman); polkit rules; shell env + sourcing; system scripts; ujust recipes; GSettings/dconf defaults; immutable OS integrity; desktop entries; signing assertions; Dakota `ujust --choose` regression guard active (`@dakota_only`); `ujust report` is `@pending` on #706 until a Dakota lab run validates the mocked submit flow |
 | developer | 19 | 7 | 0 | 12 | 6 brew + 6 ptyxis now `@pending`: `brew-setup.service` masked in CI (#487) and the ptyxis AT-SPI restart issue (#368) |
 | dx | 18 | 13 | 0 | 5 | distrobox create/install/export are active behind the `@requires_cached_image` runtime gate — they skip until `fedora-toolbox:latest` is pre-pulled on the VM (#501 / projectbluefin/lab#621) and activate without a feature-file edit; distrobox enter, JupyterLab, brew, mise remain `@pending` on infra gaps |
 | extensions | 22 | 22 | 0 | 0 | Four Hive extension lifecycle/rendering profiles; guest-only Behave; GNOME OS provisioning/artifact and HTTPS fixture execution deferred to #908/#909 |
@@ -180,7 +181,7 @@ Set `chunked_enabled: true` once `ghcr.io/projectbluefin/bluefin:latest` ships z
 | lifecycle | 33 | 30 | 0 | 3 | bootc upgrade / rollback / migration; switch is `@future` (needs a valid alternate image ref; pin activated with settled-deployment barrier) |
 | nvidia | 12 | 0 | 0 | 12 | `@future` / `@hardware_blocked` until GPU passthrough exists in the lab |
 | security | 15 | 15 | 0 | 0 | cosign verify: projectbluefin (bluefin, lts, dakota) + ublue-os (latest, LTS, DX, nvidia, GTS, DX-nvidia, negative) |
-| smoke | 224 | 178 | 0 | 46 | 39 `@pending` flatpak-permission audits blocked on CI never seeding system Flatpaks; MIME handler coverage (Firefox/Papers/Loupe/Text Editor/video); GNOME accessibility (AT-SPI daemon, high-contrast toggle, a11y panel); display fractional/integer scaling via Mutter DisplayConfig; Bluefin desktop identity (Wayland, hardware accel, Dash to Dock); GNOME regression guards in gnome_regression.feature; Dakota sudo-rs privilege and PAM checks |
+| smoke | 222 | 176 | 0 | 46 | 39 `@pending` flatpak-permission audits blocked on CI never seeding system Flatpaks; MIME handler coverage (Firefox/Papers/Loupe/Text Editor/video); GNOME accessibility (AT-SPI daemon, high-contrast toggle, a11y panel); display fractional/integer scaling via Mutter DisplayConfig; Bluefin desktop identity (Wayland, hardware accel, Dash to Dock); GNOME regression guards in gnome_regression.feature; Dakota sudo-rs privilege and PAM checks |
 | software | 35 | 27 | 0 | 8 | Bazaar GUI (`@bazaar_ui`: launch, view content per tab, typed search with a visible result, Ctrl+Q quit) + CLI presence/info/remote + config YAML parse (non-empty mappings; empty dir fails) active on images that carry Bazaar; CLI (Flathub remote + permissions DB) active on all images; Flatpak per-app permission management active on all images; FlatPark remote + Compass (`org.tunaos.compass`) system install/permission/export/uninstall lifecycle active (x86_64 only) and the shipped `compass@tunaos.org` default gated on the image enabling it (#1073); upstream GNOME Software scenarios are `@future` (#847) |
 | vanilla-gnome | 15 | 15 | 0 | 0 | Baseline GNOME Shell parity check; runs on any GNOME image; org.gnome.desktop.a11y.interface reduced-motion + keyboard-focus-visible-timeout gsettings round-trips (@requires_gnome_51, skip on GNOME <= 50 via runtime Shell version probe) |
 

@@ -74,12 +74,23 @@ still belong only in a fresh disposable guest without publishing credentials.
 
 **Fix:** Pass `test_ref` through the `workflow_dispatch` caller (`manual.yml`, `migration-test.yml`, or another wrapper) using `github.ref_name` on the **workflow_dispatch** side (where it correctly reflects the dispatched branch), then forward it as an input to `e2e.yml`. Inside `e2e.yml`, the checkout must use `inputs.test_ref` directly — never `github.ref_name`. See ops.md "test_ref and github.ref_name" for the exact pattern.
 
+### Install OCI image fails: "root partition 3 has type <none>"
+
+**Root cause:** the runner's Ubuntu release, not the image and not a timing race (#1123). bootc 1.17+ (Dakota since 2026-11-01) reads the new root partition's DPS type through `lsblk` after `sfdisk`. On `ubuntu-26.04` runners, which `ubuntu-latest` became on 2026-11-09, it gets no type every time and bootc aborts before writing anything. On `ubuntu-24.04` the same image installs.
+
+**Evidence:**
+- Image `sha256:c10a8b18…` installed on `ubuntu-24.04` (gate run 42479593163, 2026-11-08) and failed on `ubuntu-26.04` (run 42908422162, 2026-11-10).
+- Every `v1` gate boot since the switch failed all 3 install attempts identically (for example run 42807521428).
+- Mounting the host's `/run/udev` into the install container did not help (run 42905999048).
+
+**Fix:** the VM jobs (`e2e.yml` test job, `startup-qualification.yml`) run on `ubuntu-24.04` instead of `ubuntu-latest`, as `iso-validation.yml` already does. Lift the pin once the install works on 26.04. Separately, the "Install OCI image and configure disk" step in `e2e.yml` retries `bootc install to-disk` (3 attempts) whenever no ostree deployment was written, and fails with a `bootc install wrote no deployment` annotation naming the image and bootc's `error:` line if every attempt fails. Do not retry when the deployment *was* written: `bootupd is required for ostree-based installs` (bootc 1.17+ with `--bootloader systemd`) is the expected late bootloader failure, and direct kernel boot continues past it.
+
 ### SSH never became ready
 
 Check the serial log artifact. Common causes:
-- ostree deployment missing: `bootc install` exited before writing layers (check for `ERROR: ostree deployment missing` in the install step)
+- ostree deployment missing: `bootc install` exited before writing layers on every attempt (look for the `bootc install wrote no deployment` annotation in the install step; it quotes bootc's error)
 - Kernel args wrong: `root=UUID=…` mismatch — verify `ROOT_UUID` in the install step output
-- `selinux=0` is set, so SELinux policy isn't the cause
+- SELinux denial: the guest boots enforcing. Check `results/selinux/` in the results artifact and the serial log for `avc:  denied`; an unlabeled harness file means the install step's labeling missed it. See [selinux-enforcing.md](selinux-enforcing.md)
 
 ### GNOME session did not start
 

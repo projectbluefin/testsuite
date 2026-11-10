@@ -229,6 +229,31 @@ class TestPtyxisLaunch:
             assert context.last_launched_app_window is frame
 
 
+class TestFilesLaunch:
+    def test_files_launches_via_nautilus_command(self):
+        m = _import_gnome_apps()
+        frame = MagicMock()
+        frame.roleName = "frame"
+        frame.showing = True
+        frame.name = "Home"
+        app = MagicMock()
+        app.findChildren = MagicMock(return_value=[frame])
+
+        with patch.object(m, "_launch_app") as launch_app, \
+             patch.object(m, "launch_background") as launch_background, \
+             patch.object(m, "_app", return_value=app), \
+             patch.object(m, "_shell_eval_force_close"), \
+             patch.object(m, "_wait_for_app_to_close"), \
+             patch("subprocess.run"):
+            context = MagicMock()
+            m.files_file_manager_launches_successfully(context)
+
+        launch_app.assert_not_called()
+        launch_background.assert_called_once_with(m.FILES_LAUNCH_TARGETS)
+        assert m.FILES_LAUNCH_TARGETS[0] == ("command", "nautilus")
+        assert context.last_launched_app_window is frame
+
+
 class TestWindowDeadline:
     @pytest.fixture
     def clock(self, monkeypatch):

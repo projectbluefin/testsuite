@@ -9,6 +9,7 @@ paths; TestContainerMode forces it True to cover the SSH paths that behave
 uses inside the runner container.
 """
 
+import shlex
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -448,6 +449,54 @@ class TestContainerMode:
         assert result == "desktop:org.gnome.Calculator.desktop"
         launch.assert_called_once_with(f"gio launch {dp}", None)
         popen.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Detached SSH launches (must survive logind KillUserProcesses=yes)
+# ---------------------------------------------------------------------------
+
+class TestDetachedLaunchCommand:
+    def _systemd_run_argv(self, remote_cmd: str) -> list[str]:
+        primary = remote_cmd.split(" || ", 1)[0]
+        argv = shlex.split(primary.split("; ", 1)[1])
+        assert argv[:argv.index("--")] == [
+            "systemd-run", "--user", "--quiet", "--collect", "-p", "KillMode=process",
+        ]
+        return argv
+
+    def test_launches_outside_the_ssh_session_scope(self):
+        remote_cmd = app_support.detached_launch_command("nautilus")
+
+        argv = self._systemd_run_argv(remote_cmd)
+        assert argv[argv.index("--") + 1:argv.index("--") + 3] == ["/bin/bash", "-c"]
+        inner = argv[argv.index("--") + 3]
+        assert inner == "source /tmp/session.env 2>/dev/null; exec nautilus"
+
+    def test_unit_receives_session_env_and_launch_env(self):
+        remote_cmd = app_support.detached_launch_command(
+            "gnome-control-center wifi", {"GTK_A11Y": "atspi"},
+        )
+
+        argv = self._systemd_run_argv(remote_cmd)
+        inner = argv[argv.index("--") + 3]
+        assert inner == (
+            "source /tmp/session.env 2>/dev/null; "
+            "export GTK_A11Y=atspi; exec gnome-control-center wifi"
+        )
+
+    def test_falls_back_to_nohup_without_systemd_run(self):
+        remote_cmd = app_support.detached_launch_command("nautilus", {"A": "1"})
+
+        fallback = remote_cmd.split(" || ", 1)[1]
+        assert fallback == "{ export A=1; nohup nautilus </dev/null &>/dev/null & disown; }"
+
+    def test_ssh_launch_uses_detached_command(self):
+        with patch("tests.shared.app_support.subprocess.run") as mock_run:
+            app_support._ssh_launch("nautilus")
+
+        remote_cmd = mock_run.call_args.args[0][-1]
+        assert remote_cmd == app_support.detached_launch_command("nautilus")
+        assert "systemd-run --user" in remote_cmd
 
 
 # ---------------------------------------------------------------------------

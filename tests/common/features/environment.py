@@ -7,6 +7,12 @@ GSettings-focused checks over SSH against a live Bluefin session.
 import os
 import shlex
 
+from tests.shared.image_family import (
+    image_under_test,
+    is_bluefin_image as _is_bluefin_image,
+    is_dakota_image as _is_dakota_image,
+    is_utah_image as _is_utah_image,
+)
 from tests.shared.ssh_config import _first_value
 from tests.shared.ssh_steps import *  # noqa: F401,F403
 from tests.shared.ssh_steps import run_ssh
@@ -19,31 +25,6 @@ except Exception:  # noqa: BLE001
 
     def record_end(context, scenario):
         return None
-
-
-def _is_bluefin_image(image: str) -> bool:
-    """Return True if the image reference looks like a Bluefin image.
-
-    Matches the image name component only (e.g. "bluefin" in
-    "ghcr.io/projectbluefin/bluefin:testing") to avoid false-positives where
-    the org name "projectbluefin" would match a dakota image URL.
-    """
-    lower = image.lower()
-    # Extract image name: last path segment before any tag/digest
-    name = lower.split("/")[-1].split(":")[0].split("@")[0]
-    return "bluefin" in name or "bazzite" in lower
-
-
-def _is_dakota_image(image: str) -> bool:
-    """Return True if the image reference looks like a Dakota image.
-
-    Matches the image name component only (e.g. "dakota" in
-    "ghcr.io/projectbluefin/dakota:testing") to avoid false-positives where
-    the org name "projectbluefin" would match a Bluefin image URL.
-    """
-    lower = image.lower()
-    name = lower.split("/")[-1].split(":")[0].split("@")[0]
-    return "dakota" in name
 
 
 def _is_projectbluefin_image(image: str) -> bool:
@@ -138,19 +119,15 @@ def _has_custom_command_list(context) -> bool:
 
 def before_all(context):
     userdata = context.config.userdata
-    # When IMAGE env var is set (GHA runner), auto-detect image family so
-    # @bluefin scenarios can be skipped gracefully on non-Bluefin images.
-    # Prefer BASE_IMAGE: on composed runs IMAGE is the derived
-    # ghcr.io/<owner>/testsuite-e2e:run-<id> ref, which carries neither the
-    # family nor the org of the image under test (#907).
-    image_ref = (
-        os.environ.get("BASE_IMAGE")
-        or os.environ.get("IMAGE")
-        or userdata.get("image", "")
-    )
+    # Auto-detect the image family so @bluefin scenarios skip on non-Bluefin
+    # images. image_under_test() prefers BASE_IMAGE: on composed runs IMAGE is
+    # the derived ghcr.io/<owner>/testsuite-e2e:run-<id> ref, which carries
+    # neither the family nor the org of the image under test (#907).
+    image_ref = image_under_test(userdata)
     context.is_bluefin_image = _is_bluefin_image(image_ref) if image_ref else True
     context.is_dakota_image = _is_dakota_image(image_ref) if image_ref else False
     context.is_projectbluefin_image = _is_projectbluefin_image(image_ref)
+    context.is_utah_image = _is_utah_image(image_ref) if image_ref else False
     context.vm_ip = _first_value(
         userdata.get("vm_ip", ""),
         userdata.get("host", ""),
@@ -235,6 +212,10 @@ def before_scenario(context, scenario):
             f"Skipping @dakota_only scenario on non-Dakota image "
             f"(IMAGE={os.environ.get('IMAGE', 'unknown')})"
         )
+        return
+    # Temporary: drop @skip_utah once #1076 replaces the scenarios it gates.
+    if "skip_utah" in scenario_tags and getattr(context, "is_utah_image", False):
+        scenario.skip("Skipping @skip_utah scenario: Utah's common pin no longer ships it")
         return
     if "requires_brew" in scenario_tags and not _has_brew(context):
         scenario.skip("Homebrew not present on this image")

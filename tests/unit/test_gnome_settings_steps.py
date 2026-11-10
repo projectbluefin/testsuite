@@ -129,6 +129,18 @@ class TestSettingsApp:
         assert result is app
 
 
+    def test_missing_app_fails_within_nominal_budget(self, monkeypatch):
+        clock = SimpleNamespace(now=0.0)
+        root = _RetryingRoot(clock)
+        monkeypatch.setattr(self.mod, "tree", SimpleNamespace(root=root))
+        monkeypatch.setattr(self.mod, "sleep", lambda s: setattr(clock, "now", clock.now + s))
+        monkeypatch.setattr("time.monotonic", lambda: clock.now)
+        with pytest.raises(AssertionError, match="GNOME Settings application was not found"):
+            self.mod._settings_app(timeout=2)
+        assert clock.now == 2.0  # deadline holds; no per-alias retry waits
+        assert root.application_calls == []
+
+
 class _RetryingRoot:
     """``tree.root`` whose per-name lookup costs dogtail's default retry wait."""
 

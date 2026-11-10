@@ -76,10 +76,11 @@ def test_shared_kde_and_extension_helpers_route_to_their_suites():
     assert suites_for_path("tests/shared/extension_session.py") == ("extensions",)
 
 
-def test_verdict_gate_script_routes_to_kde_and_gnome_gui_lanes():
-    # The gate guards kde-smoke and the GNOME GUI lanes, so an edit to it must
-    # not fall through to scripts/* and lose kde-smoke.
-    assert suites_for_path("scripts/assert_passed.py") == ("kde-smoke", "smoke")
+def test_verdict_gate_script_routes_to_kde_gnome_gui_and_action_lanes():
+    # The gate guards kde-smoke, the GNOME GUI lanes, and the gnome-e2e
+    # composite action, so an edit to it must not fall through to scripts/*
+    # and lose kde-smoke or the action lane.
+    assert suites_for_path("scripts/assert_passed.py") == ("kde-smoke", "smoke", ACTION)
 
 
 def test_reusable_workflow_change_requires_full_representative_set():

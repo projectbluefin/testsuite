@@ -5,6 +5,8 @@ import time
 
 from behave import step
 
+from tests.shared.app_support import detached_launch_command
+
 try:
     from qecore.common_steps import *  # noqa: F401,F403
 except Exception:  # noqa: BLE001
@@ -146,10 +148,7 @@ def _start_socket_listener(port: int) -> None:
         "    pass\n"
     )
     _run_host(f"cat > {_LISTENER_SCRIPT} <<'PYEOF'\n{script}PYEOF")
-    _run_host(
-        f"nohup python3 {_LISTENER_SCRIPT} </dev/null &>/dev/null & disown",
-        timeout=5,
-    )
+    _run_host(detached_launch_command(f"python3 {_LISTENER_SCRIPT}"), timeout=10)
     # Wait for the ready marker.
     deadline = time.monotonic() + 10
     while time.monotonic() < deadline:

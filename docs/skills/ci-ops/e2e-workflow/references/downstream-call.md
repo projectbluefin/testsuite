@@ -67,7 +67,7 @@ coverage xml
 coverage report --fail-under=75
 ```
 
-`.coveragerc` must keep `parallel = True` and `patch = subprocess` so worker coverage files are written and merged correctly.
+`.coveragerc` must keep `parallel = True` and `patch = subprocess` so worker coverage files are written and merged correctly. It must also keep `include_namespace_packages = True` under `[report]`: suite directories such as `tests/kde-smoke/` have no `__init__.py`, and without it step files no unit test imports are left out of the report instead of counting as 0%. `tests/unit/test_coverage_config.py` pins these options.
 
 ### Lifecycle suite — special execution model
 

@@ -19,6 +19,12 @@ _SKIP_REASONS = {
 _SKIP_TAGS = ("quarantine", "hardware_blocked", "future", "pending")
 
 
+def is_non_runnable(scenario) -> bool:
+    """True when a skip tag parks the scenario, so it never runs."""
+    scenario_tags = set(getattr(scenario, "effective_tags", getattr(scenario, "tags", ())))
+    return any(tag in scenario_tags for tag in _SKIP_TAGS)
+
+
 def skip_quarantine(scenario) -> bool:
     scenario_tags = set(getattr(scenario, "effective_tags", scenario.tags))
     for tag in _SKIP_TAGS:

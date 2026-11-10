@@ -83,3 +83,125 @@ def test_actual_gate_requires_process_and_scenarios(tmp_path, process_rc, scenar
                             env={**os.environ, "GNOME_E2E_BEHAVE_RC": process_rc},
                             capture_output=True, text=True)
     assert result.returncode == expected_rc, result.stdout + result.stderr
+
+
+class FakePonytail:
+    fail_at = None
+    instances = []
+
+    def __init__(self):
+        if self.fail_at == "init":
+            raise RuntimeError("no ponytail daemon")
+        self.connected = None
+        self.disconnected = False
+        self.keysyms = []
+        FakePonytail.instances.append(self)
+
+    def waitFor(self, title, timeout):
+        if self.fail_at == "wait":
+            raise RuntimeError("window never appeared")
+        return 7
+
+    def connectWindow(self, window_id):
+        self.connected = window_id
+
+    def generateKeysymEvent(self, keysym):
+        self.keysyms.append(keysym)
+
+    def disconnect(self):
+        self.disconnected = True
+
+
+class FakeChild:
+    def __init__(self, *args, **kwargs):
+        self.terminated = self.waited = False
+        FakeChild.last = self
+
+    def terminate(self):
+        self.terminated = True
+
+    def wait(self, timeout):
+        self.waited = True
+
+
+@pytest.fixture
+def probe_env(tmp_path, monkeypatch):
+    """Run probe() with the desktop, Ponytail and AT-SPI replaced by fakes."""
+    import sys
+    import types
+    from tests.shared import gnomeos_canary
+
+    FakePonytail.fail_at = None
+    FakePonytail.instances = []
+    state = {"readback": lambda expected: expected, "commands": []}
+    node = types.SimpleNamespace(name=gnomeos_canary.ENTRY_NAME, text="")
+
+    def find_children(predicate):
+        keysyms = FakePonytail.instances[-1].keysyms
+        node.text = state["readback"]("".join(map(chr, keysyms)))
+        return [n for n in (node,) if predicate(n)]
+
+    dogtail = types.ModuleType("dogtail")
+    dogtail.tree = types.SimpleNamespace(root=types.SimpleNamespace(findChildren=find_children))
+    ponytail_pkg = types.ModuleType("ponytail")
+    ponytail_mod = types.ModuleType("ponytail.ponytail")
+    ponytail_mod.Ponytail = FakePonytail
+    ponytail_pkg.ponytail = ponytail_mod
+    monkeypatch.setitem(sys.modules, "dogtail", dogtail)
+    monkeypatch.setitem(sys.modules, "ponytail", ponytail_pkg)
+    monkeypatch.setitem(sys.modules, "ponytail.ponytail", ponytail_mod)
+
+    (tmp_path / "os-release").write_text(IDENTITY)
+    (tmp_path / "mutter-version.txt").write_text("49.0\n")
+    redirects = {"/usr/lib/os-release": tmp_path / "os-release",
+                 "/opt/gnomeos-harness/mutter-version.txt": tmp_path / "mutter-version.txt"}
+    monkeypatch.setattr(gnomeos_canary, "Path", lambda p: Path(redirects.get(str(p), p)))
+    monkeypatch.setattr(gnomeos_canary, "RESULTS", tmp_path / "results")
+    for name, value in ENV.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setattr(gnomeos_canary.subprocess, "Popen", FakeChild)
+    clock = iter(range(0, 10_000))
+    monkeypatch.setattr(gnomeos_canary.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(gnomeos_canary.time, "sleep", lambda _: None)
+
+    def command(*args):
+        state["commands"].append(args)
+        if "org.gnome.Shell.Screenshot.Screenshot" in args:
+            Path(args[-1]).write_bytes(b"png")
+        return "GNOME Shell 49.0" if args[0] == "gnome-shell" else "gjs 1.86"
+
+    monkeypatch.setattr(gnomeos_canary, "command", command)
+    state["evidence"] = lambda: json.loads((tmp_path / "results/desktop-canary.json").read_text())
+    state["probe"] = gnomeos_canary.probe
+    return state
+
+
+def test_probe_records_typed_value_and_screenshot(probe_env):
+    probe_env["probe"]()
+    evidence = probe_env["evidence"]()
+    assert evidence["observed"] == evidence["expected"] and len(evidence["expected"]) == 16
+    assert evidence["mutter_build_version"] == "49.0"
+    assert any("org.gnome.Shell.Screenshot.Screenshot" in c for c in probe_env["commands"])
+    assert FakeChild.last.terminated and FakeChild.last.waited
+    assert FakePonytail.instances[-1].disconnected
+
+
+def test_probe_writes_evidence_when_readback_never_matches(probe_env):
+    probe_env["readback"] = lambda expected: expected[:-1]
+    with pytest.raises(AssertionError, match="not observed over AT-SPI"):
+        probe_env["probe"]()
+    evidence = probe_env["evidence"]()
+    assert evidence["observed"] == evidence["expected"][:-1]
+    assert not any("org.gnome.Shell.Screenshot.Screenshot" in c for c in probe_env["commands"])
+    assert FakeChild.last.terminated and FakeChild.last.waited
+    assert FakePonytail.instances[-1].disconnected
+
+
+@pytest.mark.parametrize("fail_at", ["init", "wait"])
+def test_probe_only_disconnects_after_connecting(probe_env, fail_at):
+    FakePonytail.fail_at = fail_at
+    with pytest.raises(RuntimeError):
+        probe_env["probe"]()
+    assert probe_env["evidence"]()["observed"] == ""
+    assert FakeChild.last.terminated and FakeChild.last.waited
+    assert all(not p.disconnected for p in FakePonytail.instances)
