@@ -212,7 +212,10 @@ jobs:
     # Run whenever the matrix resolved, even if compose was skipped (toggle
     # off) or failed (fallback to the raw image + runtime installs).
     if: ${{ !cancelled() && needs.matrix.result == 'success' }}
-    runs-on: ubuntu-latest
+    # Pinned: on ubuntu-26.04 (ubuntu-latest since 2026-11-09) bootc's
+    # loopback install stops with "root partition 3 has type <none>"; the
+    # same image installs on 24.04 (#1123). Lift once it works on 26.04.
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     permissions:
       contents: read

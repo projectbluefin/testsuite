@@ -76,11 +76,14 @@ still belong only in a fresh disposable guest without publishing credentials.
 
 ### Install OCI image fails: "root partition 3 has type <none>"
 
-**Root cause:** bootc 1.17+ (Dakota since 2026-11-01) checks the new root partition's DPS type through `lsblk`/udev about 200 ms after `sfdisk` re-reads the partition table. On GitHub-hosted runners udev has not always processed `loopNp3` by then, so `lsblk` reports no type and bootc aborts before writing anything. It is a race, not a property of the image: runs of the same Dakota image before and after got past it.
+**Root cause:** the runner's Ubuntu release, not the image and not a timing race (#1123). bootc 1.17+ (Dakota since 2026-11-01) reads the new root partition's DPS type through `lsblk` after `sfdisk`. On `ubuntu-26.04` runners, which `ubuntu-latest` became on 2026-11-09, it gets no type every time and bootc aborts before writing anything. On `ubuntu-24.04` the same image installs.
 
-**Evidence:** run 42611596358 — `error: Installing to disk: Creating rootfs: root partition 3 has type <none>; expected 4f68bce3-e8cd-4db1-96e7-fbcaf984b709`, about 0.2 s after `Calling ioctl() to re-read partition table`.
+**Evidence:**
+- Image `sha256:c10a8b18…` installed on `ubuntu-24.04` (gate run 42479593163, 2026-11-08) and failed on `ubuntu-26.04` (run 42908422162, 2026-11-10).
+- Every `v1` gate boot since the switch failed all 3 install attempts identically (for example run 42807521428).
+- Mounting the host's `/run/udev` into the install container did not help (run 42905999048).
 
-**Fix:** the "Install OCI image and configure disk" step in `e2e.yml` retries `bootc install to-disk` (3 attempts) whenever no ostree deployment was written, and fails with a `bootc install wrote no deployment` annotation naming the image and bootc's `error:` line if every attempt fails. Do not retry when the deployment *was* written: `bootupd is required for ostree-based installs` (bootc 1.17+ with `--bootloader systemd`) is the expected late bootloader failure, and direct kernel boot continues past it.
+**Fix:** the VM jobs (`e2e.yml` test job, `startup-qualification.yml`) run on `ubuntu-24.04` instead of `ubuntu-latest`, as `iso-validation.yml` already does. Lift the pin once the install works on 26.04. Separately, the "Install OCI image and configure disk" step in `e2e.yml` retries `bootc install to-disk` (3 attempts) whenever no ostree deployment was written, and fails with a `bootc install wrote no deployment` annotation naming the image and bootc's `error:` line if every attempt fails. Do not retry when the deployment *was* written: `bootupd is required for ostree-based installs` (bootc 1.17+ with `--bootloader systemd`) is the expected late bootloader failure, and direct kernel boot continues past it.
 
 ### SSH never became ready
 
