@@ -34,17 +34,17 @@ Use `.github/workflows/manual.yml` for ad hoc image and suite runs on GitHub Act
 ```bash
 # Smoke suite (auto-shards into smoke-a + smoke-b)
 gh workflow run manual.yml --repo projectbluefin/testsuite --ref main \
-  -f image=ghcr.io/projectbluefin/bluefin:testing \
+  -f image=ghcr.io/projectbluefin/dakota:testing \
   -f suites=smoke
 
 # Common suite (auto-shards into common-a + common-b)
 gh workflow run manual.yml --repo projectbluefin/testsuite --ref main \
-  -f image=ghcr.io/projectbluefin/bluefin:testing \
+  -f image=ghcr.io/projectbluefin/dakota:testing \
   -f suites=common
 
 # Multiple suites
 gh workflow run manual.yml --repo projectbluefin/testsuite --ref main \
-  -f image=ghcr.io/projectbluefin/bluefin:testing \
+  -f image=ghcr.io/projectbluefin/dakota:testing \
   -f suites=smoke,common,vanilla-gnome
 
 # Installer post-boot assertions (SSH-mode, like common/lifecycle)
@@ -94,7 +94,7 @@ The `vanilla-gnome` suite runs against an unmodified GNOME OS disk to establish 
 Procedure:
 
 1. Dispatch two manual runs and wait for completion:
-   - Downstream baseline: `image=ghcr.io/projectbluefin/bluefin:testing`, `suites=smoke`
+   - Downstream baseline: `image=ghcr.io/projectbluefin/dakota:testing`, `suites=smoke`
    - GNOME OS baseline: `image=quay.io/gnome_infrastructure/gnome-build-meta:gnomeos-latest`, `suites=vanilla-gnome`
 2. Compare overlapping scenarios between `smoke` and `vanilla-gnome`.
 3. Flag regressions that fail on the downstream image but pass on vanilla.

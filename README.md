@@ -11,9 +11,9 @@ Coverage metrics and screenshots are published to the [Live Build Health Dashboa
 ## Where this repo fits
 
 ```
-projectbluefin/bluefin      ──┐
-projectbluefin/bluefin-lts  ┼──▶ images ──▶ testsuite (e2e gate) ──▶ promotion
-projectbluefin/dakota       ──┘
+projectbluefin/utah    ──┐
+projectbluefin/dakota  ┼──▶ images ──▶ testsuite (e2e gate) ──▶ promotion
+projectbluefin/common  ──┘
 
 Any GNOME bootc image ──────────────────▶ testsuite (smoke + common)
 ```
