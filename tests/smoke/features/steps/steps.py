@@ -892,3 +892,168 @@ def flatpak_no_excessive_permissions(context, app_id: str) -> None:
     assert not re.search(r"filesystems=(host|home)", perms_out), (
         f"{app_id} has excessive filesystem access:\n{perms_out}"
     )
+
+
+# ── Compass launcher (org.tunaos.compass Flatpak, Super+Space) ──
+
+_COMPASS_VISIBLE_JS = (
+    "global.get_window_actors().some(a => { const w = a.meta_window; "
+    "const ids = [w.get_wm_class(), w.get_wm_class_instance(), "
+    "w.get_gtk_application_id(), w.get_sandboxed_app_id(), w.get_title()]"
+    ".join(' ').toLowerCase(); "
+    "return ids.includes('compass') && a.visible && !w.minimized "
+    "&& w.showing_on_its_workspace(); })"
+)
+_WINDOWS_JS = (
+    "JSON.stringify(global.get_window_actors().map(a => { const w = a.meta_window; "
+    "return [w.get_wm_class(), w.get_gtk_application_id(), "
+    "w.get_sandboxed_app_id(), w.get_title(), a.visible, w.minimized]; }))"
+)
+
+
+@step("Compass Flatpak is installed system-wide within {timeout:d} seconds")
+def compass_flatpak_installed_within(context, timeout: int) -> None:
+    # flatpak-preinstall downloads a ~71 MB extra-data AppImage at boot.
+    # The VM e2e lane masks flatpak-preinstall.service (no first-boot network
+    # pulls), so Compass can never appear there: skip instead of timing out.
+    state, _, _ = _run_host("systemctl is-enabled flatpak-preinstall.service")
+    if state == "masked":
+        context.scenario.skip("flatpak-preinstall.service is masked in this lane")
+        return
+    deadline = time.monotonic() + timeout
+    while True:
+        out, rc, err = _run_host("flatpak info --system org.tunaos.compass")
+        if rc == 0:
+            return
+        assert time.monotonic() < deadline, (
+            f"org.tunaos.compass not installed after {timeout}s: {err or out}"
+        )
+        sleep(10)
+
+
+_SESSION = "source /tmp/session.env 2>/dev/null; "
+
+
+@step("Compass user service is wanted by graphical-session.target")
+def compass_service_wanted_by_session(context) -> None:
+    enabled, _, _ = _run_host(_SESSION + "systemctl --user is-enabled compass.service")
+    exec_start, _, _ = _run_host(_SESSION + "systemctl --user show -p ExecStart compass.service")
+    print(f"compass.service is-enabled={enabled!r} {exec_start}", flush=True)
+    wanted_by, rc, err = _run_host(_SESSION + "systemctl --user show -p WantedBy compass.service")
+    assert rc == 0 and "graphical-session.target" in wanted_by, (
+        f"compass.service not wanted by graphical-session.target: {wanted_by!r} {err}"
+    )
+
+
+def _compass_engine_ps() -> tuple[list[str], str]:
+    """Return (engine lines, full compass ps listing).
+
+    An engine is the sandboxed binary itself (argv[0] basename ``compass``,
+    e.g. /app/extra/compass/usr/bin/compass) running ``serve --no-hotkey``;
+    the bwrap and ``flatpak run`` wrappers carry other argv[0]s.
+    """
+    out, _, _ = _run_host("ps -eo pid=,ppid=,user=,args=")
+    listing = [line for line in out.splitlines() if "compass" in line.lower()]
+    engines = []
+    for line in listing:
+        argv = line.split()[3:]
+        if (argv and os.path.basename(argv[0]) == "compass"
+                and "serve" in argv and "--no-hotkey" in argv):
+            engines.append(line)
+    return engines, "\n".join(listing)
+
+
+def _compass_ping_rc() -> tuple[int, str]:
+    out, rc, err = _run_host(_SESSION + "timeout 15 flatpak run org.tunaos.compass ping")
+    return rc, (err or out)
+
+
+def _systemctl_user(verb: str) -> None:
+    _, rc, err = _run_host(_SESSION + f"systemctl --user {verb} compass.service", timeout=60)
+    assert rc == 0, f"systemctl --user {verb} compass.service failed: {err}"
+
+
+@step("Compass user service is stopped and its engine is gone within {timeout:d} seconds")
+def compass_service_stopped(context, timeout: int) -> None:
+    _systemctl_user("stop")
+    deadline = time.monotonic() + timeout
+    while True:
+        ping_rc, ping_out = _compass_ping_rc()
+        engines, listing = _compass_engine_ps()
+        if ping_rc != 0 and not engines:
+            return
+        if time.monotonic() >= deadline:
+            raise AssertionError(
+                f"Compass engine survived 'systemctl --user stop' for {timeout}s: "
+                f"ping rc={ping_rc} {ping_out}; engines={len(engines)}\n{listing}"
+            )
+        sleep(2)
+
+
+@step("Compass user service is {verb} with one serving engine within {timeout:d} seconds")
+def compass_service_serves_one_engine(context, verb: str, timeout: int) -> None:
+    action = {"started": "start", "restarted": "restart"}[verb]
+    _systemctl_user(action)
+    deadline = time.monotonic() + timeout
+    while True:
+        active, _, _ = _run_host(_SESSION + "systemctl --user is-active compass.service")
+        ping_rc, ping_out = _compass_ping_rc()
+        engines, listing = _compass_engine_ps()
+        if active == "active" and ping_rc == 0 and len(engines) == 1:
+            break
+        if time.monotonic() >= deadline:
+            status, _, _ = _run_host(
+                _SESSION + "systemctl --user status --no-pager -l compass.service 2>&1"
+            )
+            raise AssertionError(
+                f"compass.service not serving one engine {timeout}s after {action}: "
+                f"is-active={active!r} ping rc={ping_rc} {ping_out}; "
+                f"engines={len(engines)}\n{listing}\n{status}"
+            )
+        sleep(2)
+    if action == "restart":
+        restarts, _, _ = _run_host(_SESSION + "systemctl --user show -p NRestarts compass.service")
+        assert restarts == "NRestarts=0", (
+            f"compass.service crash-looped after restart: {restarts!r}\n{listing}"
+        )
+
+
+_COMPASS_DIAG_CMDS = (
+    "ps -eo pid,ppid,user,args | grep -i [c]ompass",
+    "systemctl --user status compass.service --no-pager -l 2>&1 | tail -30",
+    "journalctl --user -b --no-pager 2>&1 | grep -i -E 'compass|media-keys|custom' | tail -80",
+    "systemctl --user show-environment | grep -E 'WAYLAND|DISPLAY|XDG_SESSION|DBUS'",
+    "timeout 20 flatpak run org.tunaos.compass doctor 2>&1 | tail -60",
+    "timeout 10 flatpak run org.tunaos.compass logs 2>&1 | tail -80",
+)
+
+
+def _compass_diagnostics(include_toggle: bool) -> str:
+    cmds = list(_COMPASS_DIAG_CMDS)
+    if include_toggle:
+        # Mutates launcher state, so only run once the assertion has failed.
+        cmds.append("timeout 15 flatpak run org.tunaos.compass toggle 2>&1; echo rc=$?")
+    parts = []
+    for cmd in cmds:
+        out, rc, err = _run_host(_SESSION + cmd, timeout=40)
+        parts.append(f"$ {cmd}  [rc={rc}]\n{out}\n{err}".rstrip())
+    report = "\n".join(parts)
+    print(f"── Compass diagnostics ──\n{report}", flush=True)
+    return report
+
+
+@step("Compass diagnostics are logged")
+def compass_diagnostics_are_logged(context) -> None:
+    _compass_diagnostics(include_toggle=False)
+
+
+@step("Compass launcher window is {state} within {timeout:d} seconds")
+def compass_window_state_within(context, state: str, timeout: int) -> None:
+    assert state in ("visible", "hidden"), f"unknown state {state!r}"
+    if _wait_eval_bool(_COMPASS_VISIBLE_JS, state == "visible", retries=timeout, delay=1):
+        return
+    windows = _shell_eval(_WINDOWS_JS)
+    raise AssertionError(
+        f"Compass window not {state} after {timeout}s; windows: {windows}\n"
+        + _compass_diagnostics(include_toggle=True)
+    )
