@@ -21,9 +21,9 @@ on:
         required: false
         default: "false"
       selinux_enforcing:
-        description: "Boot the guest SELinux enforcing and run the AVC denial gate (#1024)"
+        description: "Boot the guest SELinux enforcing and run the AVC denial gate (#1024); set false for legacy selinux=0"
         required: false
-        default: "false"
+        default: "true"
       test_ref:
         description: "Git ref for tests/ checkout (default: dispatched branch; set to override)"
         required: false

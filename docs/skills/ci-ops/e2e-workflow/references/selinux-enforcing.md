@@ -8,10 +8,11 @@ metadata:
 ---
 # SELinux enforcing in the e2e guest
 
-The lane is opt-in: callers pass `selinux_enforcing: true` (`manual.yml`
-exposes the same input). With the default `false` the guest keeps
-`selinux=0` and every step below is skipped, until a hosted run qualifies the
-lane and the rollout plan in #1021 flips the default.
+The lane is on by default: `selinux_enforcing` defaults to `true` in both
+`e2e.yml` and `manual.yml` (#1024, rollout in #1021). Callers may pass
+`selinux_enforcing: false` to fall back to the legacy `selinux=0` boot, in
+which case every step below is skipped; use that only to triage, not to make
+a candidate pass.
 
 When enabled, `e2e.yml` boots the candidate with its own SELinux mode. There
 is no `selinux=0`, `enforcing=0` or `enforcing=1` on the kernel command line:
