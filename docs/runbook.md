@@ -70,15 +70,19 @@ gh run view --job=<JOB_ID> --log-failed --repo projectbluefin/testsuite
 
 **Diagnosing failures** — load `docs/skills/ci-ops/ops/SKILL.md` first; the on-demand references cover the most common signatures.
 
-## Merge queue
+## Merging
 
-This repo uses a merge queue (ruleset `main — merge queue`). Enqueue with:
+There is no merge queue. The ruleset is still named `main — merge queue`, but its queue rule was removed on 2026-10-24, and branches don't need to be up to date with `main`.
+
+Required checks: `Lint & syntax`, `Behave dry-run`, `pytest`, `docs-validate`.
+
+The hive merges a PR once its reviewer approves and the required checks pass. A change to `e2e.yml`, `build-runner.yml` or `build-kde-runner.yml` waits for a maintainer, who merges it by hand:
 
 ```bash
-gh pr merge <NUMBER> --repo projectbluefin/testsuite --squash --auto
+gh pr merge <NUMBER> --repo projectbluefin/testsuite --squash
 ```
 
-Required checks: `Lint & syntax`, `Behave dry-run`, `pytest` — all must be green before enqueueing.
+`v1` moves later, after the post-merge VM gate (`update-v1-tag.yml`); see `docs/skills/ci-ops/ops/references/candidate-vm-validation.md`.
 
 ## Vanilla GNOME baseline comparison
 

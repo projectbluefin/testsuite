@@ -54,7 +54,7 @@ Full router: [`docs/SKILL.md`](docs/SKILL.md). Most-used entries:
 | Coverage matrix and @future gaps | `docs/skills/test-authoring/suite-map/SKILL.md` |
 | Writing or updating a skill file | `docs/skills/meta/writing-skills/SKILL.md` |
 | Knowing when to stop and ask a human | `docs/skills/meta/human-gates/SKILL.md` |
-| Operational commands (manual runs, merge queue, diagnostics) | `docs/runbook.md` |
+| Operational commands (manual runs, merging, diagnostics) | `docs/runbook.md` |
 | Release-trust / audit posture | `docs/qa-review.md` |
 | Update cadence / promotion-gate design (research #431) | `docs/update-cadence-research.md` |
 
@@ -131,9 +131,9 @@ files there. Never write to `ublue-os/*` or any KDE property at all.
 
   If your file set overlaps an open PR, either fold your change into that PR or
   wait for it to land. Overlapping PRs are the thing that actually costs review
-  time and creates merge-queue churn.
+  time and creates merge churn.
 - **All isolated work happens in `.worktrees/<short-desc>` at the repo root**, branched from `origin/main` — never in `/tmp`, `/var/tmp`, or sibling directories. Every agent that commits gets its own worktree, and must not touch another worktree's branch or working tree. Remove the worktree and prune after the PR merges. See [`docs/skills/ci-ops/contributing/references/branch-and-worktree.md`](docs/skills/ci-ops/contributing/references/branch-and-worktree.md).
-- **Merge through the merge queue with green CI.** Never `--admin`, never self-merge.
+- **Don't merge your own PR; it merges once CI is green and it's approved.** There is no merge queue. The hive merges a PR after its reviewer approves and the required checks pass; a change to `e2e.yml`, `build-runner.yml` or `build-kde-runner.yml` is merged by a maintainer. Never `--admin`, never self-merge.
 
 ## Mandatory gates before enqueuing any PR
 
@@ -160,7 +160,7 @@ Stop and request human input when you are:
 - Creating a new suite or changing CI interfaces/inputs.
 - Touching secrets in CI, cosign, new third-party actions, or expanded `permissions:`.
 - Removing or renaming `e2e.yml` inputs that downstream repos depend on.
-- Ready to merge (always use merge queue + green CI).
+- Ready to merge (green CI; the hive or a maintainer merges).
 - Changing repository labels, `CODEOWNERS`, branch protection, or CI `permissions:`.
 - Anything that would require a change in `projectbluefin/common` — report it, do not make it.
 

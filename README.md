@@ -70,7 +70,7 @@ jobs:
       suites: smoke,common
 ```
 
-Pin to `@v1`; testsuite updates the `v1` tag automatically on each merge.
+Pin to `@v1`. After each merge, testsuite moves the `v1` tag only once the merged tests boot in a VM (the post-merge gate in `update-v1-tag.yml`), so `v1` can lag `main`.
 
 ### Inputs
 
