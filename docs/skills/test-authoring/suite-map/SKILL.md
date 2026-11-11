@@ -163,7 +163,7 @@ Set `image` (e.g. `ghcr.io/projectbluefin/dakota:latest`), `suites: lifecycle`, 
 
 <!-- coverage-snapshot:start -->
 
-555 scenarios across 81 feature files: 439 active, 0 quarantined, 116 `@future`/`@pending`/`@hardware_blocked`
+554 scenarios across 81 feature files: 439 active, 0 quarantined, 115 `@future`/`@pending`/`@hardware_blocked`
 
 | Suite | Scenarios | Active | Quarantined | Pending/Future | Notes |
 |---|---|---|---|---|---|
@@ -177,7 +177,7 @@ Set `image` (e.g. `ghcr.io/projectbluefin/dakota:latest`), `suites: lifecycle`, 
 | hardware | 13 | 13 | 0 | 0 | udev rules syntax validation (ZSA, Apple SuperDrive, Framework 16, AMD s2idle, Wooting, VIIA); emulated peripherals driven by shared SSH steps |
 | installer | 3 | 3 | 0 | 0 | post-boot assertions for installer-driven installs (UEFI, Flatpak exclusion, LUKS cmdline) |
 | kde-smoke | 13 | 13 | 0 | 0 | Plasma session, D-Bus services, AT-SPI tree, KWin output, one KCM, Dolphin, Konsole, Kickoff; all `@informational` |
-| lifecycle | 25 | 22 | 0 | 3 | bootc upgrade / rollback / migration; switch is `@future` (needs a valid alternate image ref; pin activated with settled-deployment barrier) |
+| lifecycle | 24 | 22 | 0 | 2 | bootc upgrade / rollback / migration; switch is `@future` (needs a valid alternate image ref; pin activated with settled-deployment barrier) |
 | nvidia | 12 | 0 | 0 | 12 | `@future` / `@hardware_blocked` until GPU passthrough exists in the lab |
 | security | 7 | 7 | 0 | 0 | cosign verify: projectbluefin (bluefin, lts, dakota) + ublue-os (latest, LTS, DX, nvidia, GTS, DX-nvidia, negative) |
 | smoke | 221 | 175 | 0 | 46 | 39 `@pending` flatpak-permission audits blocked on CI never seeding system Flatpaks; MIME handler coverage (Firefox/Papers/Loupe/Text Editor/video); GNOME accessibility (AT-SPI daemon, high-contrast toggle, a11y panel); display fractional/integer scaling via Mutter DisplayConfig; Bluefin desktop identity (Wayland, hardware accel, Dash to Dock); GNOME regression guards in gnome_regression.feature; Dakota sudo-rs privilege and PAM checks |

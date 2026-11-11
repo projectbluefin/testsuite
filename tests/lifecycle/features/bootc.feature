@@ -74,17 +74,6 @@ Feature: bootc upgrade and rollback lifecycle
     * Run SSH command: "sudo bootc status --format=json"
     * Active deployment matches original image digest
 
-  @lifecycle @switch @future
-  Scenario: bootc switch transitions to a different variant
-    # Future: mutates VM image variant (bluefin → bluefin-dx), corrupting
-    # later scenarios that expect the original image as the starting point.
-    # Run as a standalone suite once cross-variant golden-disk testing is set up.
-    * Run long SSH command: "sudo bootc switch ghcr.io/ublue-os/bluefin-dx:latest"
-    * SSH command return code is "0"
-    * Reboot VM and wait for SSH
-    * Run SSH command: "sudo bootc status --format=json"
-    * Active image reference contains "bluefin-dx"
-
   @lifecycle @etc_merge
   Scenario: /etc customizations survive upgrade
     # Write a sentinel, upgrade, reboot, verify file survives AND digest changed.

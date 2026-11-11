@@ -299,7 +299,7 @@ The serial log is always uploaded (even on failure) — it's the primary debug t
 
 ## Retired migration lane
 
-The `@migration` and `@zstd_chunked` lifecycle scenarios are gone: testsuite no longer tests the archived Bluefin images. `e2e.yml` keeps its `chunked_enabled`, `migration-target` and `extra-tags` inputs because downstream callers may still pass them; they have no effect on any scenario now.
+The `@migration` and `@zstd_chunked` lifecycle scenarios are gone: testsuite no longer tests the archived Bluefin images. `e2e.yml` keeps its `chunked_enabled` input only for downstream callers that may still pass it; it no longer affects any scenario. `migration-target` and `extra-tags` remain active: `extra-tags` is still appended to the behave tag filter, and `migration-target` is still forwarded as `MIGRATION_TARGET` to the lifecycle steps that drive the image switch.
 
 ---
 
