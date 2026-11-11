@@ -112,7 +112,10 @@ jobs:
           fi
 
           if [ -n "${PREVIOUS}" ] && git merge-base --is-ancestor "${PREVIOUS}" "${SHA}"; then
-            git diff --name-only "${PREVIOUS}" "${SHA}" > changed.txt
+            # A file in the gnome-e2e action whose only change is pinned-SHA
+            # swaps in `uses:` lines (Renovate digest bumps) needs no VM.
+            git diff --name-only "${PREVIOUS}" "${SHA}" \
+              | python3 scripts/v1_gate_pins.py "${PREVIOUS}" "${SHA}" 2> pins.txt > changed.txt
           else
             # No v1 yet, or v1 is not behind main: plan the full set (fail-closed).
             echo "unknown-base" > changed.txt
@@ -128,6 +131,10 @@ jobs:
             echo '```json'
             cat plan.json
             echo '```'
+            if [ -s pins.txt ]; then
+              echo
+              sed 's/^/- /' pins.txt
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Pin the gate image by digest
@@ -282,17 +289,23 @@ jobs:
           else
             WHY="${REASON}"
           fi
-          # A hold that no test change explains, or one that has lasted a day,
-          # is a maintainer's problem, not contributor work: say so first and
-          # label the issue so it is parked for a person (#1123 sat 36 hours as
-          # a "good first issue" while the runner could not boot any VM).
+          # A hold that no test change explains, one only a hand check can
+          # release, or one that has lasted a day is a maintainer's problem,
+          # not contributor work: say so first and label the issue so it is
+          # parked for a person (#1123 sat 36 hours as a "good first issue"
+          # while the runner could not boot any VM; #1149 waited on a force).
           ESCALATE=""
+          URGENT=""
           if [ "${INFRA:-false}" = "true" ]; then
             ESCALATE="no failed suite produced test results on either side, so the test machines most likely never booted (a runner or install problem). This is not a test regression."
+            URGENT=yes
+          elif [ "${ACTION}" = "hold" ]; then
+            ESCALATE="the change needs a lane the gate cannot boot, so only a maintainer's hand check and a forced run can release it. No contributor change clears this hold."
           elif [ -n "${HELD}" ]; then
             OPENED=$(gh issue view "${HELD}" --json createdAt --jq .createdAt)
             if [ $(( $(date +%s) - $(date -d "${OPENED}" +%s) )) -gt 86400 ]; then
               ESCALATE="v1 has been held for more than 24 hours."
+              URGENT=yes
             fi
           fi
           HEADLINE=""
@@ -309,8 +322,12 @@ jobs:
             HELD=$(gh issue create --title "${HELD_TITLE}" --body "${BODY}" | grep -oE '[0-9]+$')
           fi
           if [ -n "${ESCALATE}" ] && [ -n "${HELD}" ]; then
-            gh issue edit "${HELD}" --add-label needs-human --add-label priority/critical-urgent \
+            gh issue edit "${HELD}" --add-label needs-human \
               || echo "::warning::could not label #${HELD} for a maintainer"
+            if [ -n "${URGENT}" ]; then
+              gh issue edit "${HELD}" --add-label priority/critical-urgent \
+                || echo "::warning::could not label #${HELD} as urgent"
+            fi
             for LABEL in "good first issue" "help wanted"; do
               gh issue edit "${HELD}" --remove-label "${LABEL}" > /dev/null 2>&1 || true
             done
