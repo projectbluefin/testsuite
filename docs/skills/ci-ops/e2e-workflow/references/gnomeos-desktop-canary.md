@@ -32,10 +32,11 @@ gh workflow run gnomeos-canary.yml -R projectbluefin/testsuite --ref main -f tes
 An empty `test_ref` (the default) tests the commit the workflow was dispatched
 from, exactly as before.
 
-The workflow must first exist on the repository's default branch for GitHub
-to register manual dispatch. It also supports `workflow_call` from an existing
-workflow for fork experiments. It requests only `contents: read`, publishes no
-image, and uses no registry credentials. It is never scheduled automatically.
+The workflow already exists on the repository's default branch, so GitHub
+offers manual dispatch directly from any ref (including a fork PR branch).
+It also supports `workflow_call` from an existing workflow for fork
+experiments. It requests only `contents: read`, publishes no image, and uses
+no registry credentials. It is never scheduled automatically.
 
 Because the canary runs the pull request's own scripts and its `gnome-e2e`
 action on the runner, read the pull request's diff first. The workflow keeps
