@@ -121,8 +121,16 @@ and `.../check-runs`.
      scenario also fails at `v1`. A new failing scenario, a suite that
      failed without a failing scenario recorded, or a missing baseline
      holds `v1`. The gate catches testsuite regressions, not image bugs.
-   - `hold`: the plan needs a lane `e2e.yml` cannot boot (`composite_action`
-     or `no_hosted_lane`).
+   - `canary`: the only lane `e2e.yml` cannot boot is a change to the
+     `gnome-e2e` action itself (`.github/actions/gnome-e2e/`). The gate calls
+     `gnomeos-canary.yml`, which drives that action end to end, and moves `v1`
+     only if it passes. With suites to boot as well, the action is `gate` with
+     `canary=true` and both must pass. Every `projectbluefin/actions` bump
+     touches that action, so without this each one held `v1` for a person
+     (#1140).
+   - `hold`: the plan needs a lane neither can cover (an action-lane script
+     the canary does not run, such as `scripts/extension_validation.py`, or a
+     `no_hosted_lane` suite). The hold is flagged for a maintainer at once.
 3. On a hold or a failed gate, fails the run and opens (or comments on) the
    issue **"v1 tag held by the post-merge VM gate"** naming the held SHA. The
    next successful move closes it. Three holds are a maintainer's problem

@@ -48,13 +48,39 @@ def test_lifecycle_only_change_moves_and_says_why():
     assert "#706" in d["reason"]
 
 
-def test_composite_action_change_holds_v1():
+def test_composite_action_change_runs_the_canary_instead_of_holding():
+    d = decide(plan([".github/actions/gnome-e2e/action.yml"]))
+    assert d["action"] == "canary"
+    assert d["canary"] == "true"
+    assert d["suites"] == ""
+    assert "canary" in d["reason"]
+
+
+def test_composite_action_and_suite_change_boots_and_runs_the_canary():
     d = decide(
         plan([".github/actions/gnome-e2e/action.yml", "tests/smoke/features/x.feature"])
     )
-    assert d["action"] == "hold"
-    assert d["suites"] == ""
-    assert "gnome-e2e-action" in d["reason"]
+    assert d["action"] == "gate"
+    assert d["suites"] == "smoke"
+    assert d["canary"] == "true"
+
+
+def test_action_lane_script_the_canary_does_not_run_still_holds():
+    # extension_validation.py only runs in the extensions lane, which the
+    # GNOME OS canary does not exercise.
+    for paths in (
+        ["scripts/extension_validation.py"],
+        [".github/actions/gnome-e2e/action.yml", "scripts/extension_validation.py"],
+    ):
+        d = decide(plan(paths))
+        assert d["action"] == "hold"
+        assert d["canary"] == "false"
+        assert "gnome-e2e-action" in d["reason"]
+
+
+def test_no_canary_without_an_action_change():
+    for paths in (["README.md"], ["tests/common/features/steps/ssh.py"]):
+        assert decide(plan(paths))["canary"] == "false"
 
 
 def test_suite_without_hosted_lane_holds_v1():
@@ -82,4 +108,5 @@ def test_cli_prints_github_output_lines():
     ).stdout.splitlines()
     assert out[0] == "action=gate"
     assert "suites=common" in out
+    assert "canary=false" in out
     assert all("=" in line for line in out)
