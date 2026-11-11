@@ -20,9 +20,11 @@ helpers keep that honest:
 ``gate LOG --allowlist YAML --json OUT``
     Fail on enforced AVC denials that the allowlist does not name.
 
-``canary BEFORE AFTER --allowlist YAML --json OUT``
+``canary BEFORE AFTER --allowlist YAML [--diagnostics FILE] --json OUT``
     Prove a deliberately denied operation shows up in the collected log
-    and makes ``gate`` fail.
+    and makes ``gate`` fail. ``--diagnostics`` takes the ``key=value``
+    output of ``scripts/selinux_canary.sh``; on failure it says whether the
+    canary could not run or ran but was not collected.
 """
 from __future__ import annotations
 
@@ -35,6 +37,10 @@ from pathlib import Path
 
 SELINUX_XATTR = "security.selinux"
 CANARY_TYPE = "httpd_t"
+# systemd's EXIT_EXEC: execve failed, here because the policy denied it.
+EXIT_EXEC = "203"
+# systemd exit codes where the unit never reached execve (e.g. 229/SELINUX_CONTEXT).
+CONTEXT_FAILURES = frozenset(range(200, 243)) - {int(EXIT_EXEC)}
 
 _AUDIT_ID = re.compile(r"audit\((\d+\.\d+:\d+)\)")
 _DENIED = re.compile(r"avc:\s+denied\s+\{\s*([^}]*?)\s*\}")
@@ -203,17 +209,144 @@ def describe(denial: dict) -> str:
     )
 
 
-def canary_result(before: str, after: str, entries: list[dict]) -> dict:
+def canary_result(
+    before: str, after: str, entries: list[dict], types: tuple[str, ...] = (CANARY_TYPE,)
+) -> dict:
     seen = {d["key"] for d in parse_denials(before)}
     new = [
         d
         for d in parse_denials(after)
         if d["key"] not in seen
-        and CANARY_TYPE in (selinux_type(d["scontext"]), selinux_type(d["tcontext"]))
+        and {selinux_type(d["scontext"]), selinux_type(d["tcontext"])} & set(types)
     ]
     verdict = evaluate(after, entries)
     detected = bool(new) and any(d in verdict["unexpected"] for d in new)
     return {"detected": detected, "canary_denials": new, "gate_failed": not verdict["passed"]}
+
+
+def parse_diagnostics(text: str) -> dict[str, str]:
+    """Read the ``key=value`` lines printed by ``selinux_canary.sh``."""
+    values: dict[str, str] = {}
+    for line in text.splitlines():
+        key, sep, value = line.partition("=")
+        if sep and re.fullmatch(r"[a-z][a-z0-9_]*", key):
+            values[key] = value.strip()
+    return values
+
+
+def canary_types(diagnostics: dict[str, str]) -> tuple[str, ...]:
+    """Every domain the canary tried, so a denial in any of them counts."""
+    types = [key[len("attempt_"):] for key in diagnostics if key.startswith("attempt_")]
+    chosen = diagnostics.get("canary_type", "")
+    if chosen and chosen != "none" and chosen not in types:
+        types.append(chosen)
+    return tuple(types) or (CANARY_TYPE,)
+
+
+def _collection_evidence(diagnostics: dict[str, str]) -> str:
+    keys = ("audit_log", "auditd", "journal_kernel_avc", "journal_avc", "dmesg_avc",
+            "collector_context")
+    return ", ".join(f"{key}={diagnostics.get(key) or '?'}" for key in keys)
+
+
+def _attempt_outputs(diagnostics: dict[str, str]) -> str:
+    outputs = [
+        f"{key[len('canary_output_'):]}: {value or 'no output'}"
+        for key, value in diagnostics.items()
+        if key.startswith("canary_output_")
+    ]
+    if not outputs:
+        return f"Output: {diagnostics.get('canary_stderr') or 'no output'}"
+    return "Output per attempt: " + "; ".join(outputs)
+
+
+def _attempt_outcomes(diagnostics: dict[str, str], status: str) -> tuple[list[str], list[str]]:
+    """Return (types where cat succeeded, "type (status N)" where cat failed after execve)."""
+    executed: list[str] = []
+    read_failed: list[str] = []
+    attempts = {
+        key[len("attempt_"):]: (re.search(r"status=(\d+)", value) or [None, None])[1]
+        for key, value in diagnostics.items()
+        if key.startswith("attempt_")
+    }
+    if not attempts:
+        attempts = {diagnostics.get("canary_type", "?"): status if status.isdigit() else None}
+    for kind, code in attempts.items():
+        if code == "0":
+            executed.append(kind)
+        elif code and code != EXIT_EXEC and int(code) not in CONTEXT_FAILURES:
+            read_failed.append(f"{kind} (status {code})")
+    return executed, read_failed
+
+
+def canary_failure(result: dict, diagnostics: dict[str, str] | None) -> tuple[str, str]:
+    """Return (reason, message) for a canary that did not reach the gate.
+
+    reason is ``not-run`` (every attempt failed before execve), ``not-collected`` (the
+    collector itself failed),
+    ``permissive`` or ``allowlisted`` (collected but did not fail the gate),
+    or ``unknown`` when the evidence cannot say why (no diagnostics, a probe that ran
+    without a denial, execve
+    or the read failed without a collected denial).
+    """
+    denials = result["canary_denials"]
+    if denials:
+        if all(d["permissive"] for d in denials):
+            return "permissive", (
+                f"its denial was collected but the domain is permissive "
+                f"({describe(denials[0])}), so the operation was not blocked"
+            )
+        return "allowlisted", (
+            f"its denial was collected but selinux_allowlist.yaml matches it "
+            f"({describe(denials[0])}); an entry that broad hides real denials"
+        )
+    if diagnostics is None:
+        return "unknown", (
+            "no canary diagnostics were supplied, so it is unknown whether the canary "
+            "ran or its denial was not collected"
+        )
+    if "canary_type" not in diagnostics:
+        return "not-run", (
+            "the canary could not run: the guest returned no canary diagnostics "
+            f"(ssh/sudo exit {diagnostics.get('canary_ssh_rc') or '?'})"
+        )
+    if diagnostics.get("collect_rc", "0") != "0":
+        return "not-collected", (
+            f"the canary ran but the AVC collector failed (exit {diagnostics['collect_rc']})"
+        )
+    status = diagnostics.get("canary_status", "none")
+    rc = diagnostics.get("canary_rc", "none")
+    exec_failed = status == EXIT_EXEC or (status == "none" and rc == EXIT_EXEC)
+    if exec_failed:
+        return "unknown", (
+            f"the canary's execve failed in {diagnostics.get('canary_type')} (status "
+            f"{EXIT_EXEC}/EXEC) but no denial was collected, and the exit code does not "
+            "show whether SELinux caused it. Either the policy blocked it and the denial "
+            f"was not collected ({_collection_evidence(diagnostics)}; dontaudit: "
+            f"{diagnostics.get('sesearch_dontaudit') or 'sesearch unavailable'}) or "
+            f"something else failed execve. {_attempt_outputs(diagnostics)}"
+        )
+    executed, read_failed = _attempt_outcomes(diagnostics, status)
+    if read_failed:
+        return "unknown", (
+            f"the canary executed ({', '.join(read_failed)}) but cat failed, so reading "
+            "the protected file failed after execve succeeded; the cause is unknown and "
+            f"no denial was collected ({_collection_evidence(diagnostics)}). "
+            f"{_attempt_outputs(diagnostics)}"
+        )
+    if executed:
+        return "unknown", (
+            f"the canary executed in {', '.join(executed)} and cat read /etc/shadow "
+            "(status 0), so SELinux did not block it and no denial was produced; "
+            f"the domain may be permissive or unconfined. {_attempt_outputs(diagnostics)}"
+        )
+    tried = ", ".join(canary_types(diagnostics))
+    return "not-run", (
+        f"the canary could not run: no candidate domain ({tried}) reached execve, "
+        f"so no denial was produced. Last attempt {diagnostics.get('canary_type')}: "
+        f"systemd-run exit {rc}, unit status {status}. {_attempt_outputs(diagnostics)} "
+        f"seinfo: {diagnostics.get('seinfo_httpd_t') or '?'}"
+    )
 
 
 # ── CLI ──────────────────────────────────────────────────────────────────────
@@ -250,6 +383,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("before", type=Path)
     p.add_argument("after", type=Path)
     p.add_argument("--allowlist", type=Path, required=True)
+    p.add_argument("--diagnostics", type=Path)
     p.add_argument("--json")
 
     args = parser.parse_args(argv)
@@ -310,18 +444,34 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0 if verdict["passed"] else 1
 
+    diagnostics = None
+    if args.diagnostics is not None:
+        diagnostics = {}
+        if args.diagnostics.is_file():
+            diagnostics = parse_diagnostics(
+                args.diagnostics.read_text(encoding="utf-8", errors="replace")
+            )
+    types = canary_types(diagnostics or {})
     result = canary_result(
         args.before.read_text(encoding="utf-8", errors="replace"),
         args.after.read_text(encoding="utf-8", errors="replace"),
         entries,
+        types,
     )
-    _write_json(args.json, result)
+    result["canary_types"] = list(types)
+    if diagnostics is not None:
+        result["diagnostics"] = diagnostics
     if not result["detected"]:
+        reason, message = canary_failure(result, diagnostics)
+        result["reason"] = reason
+        _write_json(args.json, result)
         print(
-            f"::error::SELinux canary: a deliberately denied {CANARY_TYPE} operation did not "
-            "reach the AVC gate. Denial collection is broken, so a clean gate proves nothing."
+            f"::error::SELinux canary did not reach the AVC gate ({reason}): {message}. "
+            "A clean gate proves nothing until the canary is seen."
         )
         return 1
+    result["reason"] = "detected"
+    _write_json(args.json, result)
     for denial in result["canary_denials"]:
         print(f"canary denial detected: {describe(denial)}")
     return 0
