@@ -301,10 +301,13 @@ jobs:
             URGENT=yes
           elif [ "${ACTION}" = "hold" ]; then
             ESCALATE="the change needs a lane the gate cannot boot, so only a maintainer's hand check and a forced run can release it. No contributor change clears this hold."
-          elif [ -n "${HELD}" ]; then
+          fi
+          # Age is checked on its own so a hand-check hold still turns urgent
+          # after a day; the more specific explanation above is kept.
+          if [ -z "${URGENT}" ] && [ -n "${HELD}" ]; then
             OPENED=$(gh issue view "${HELD}" --json createdAt --jq .createdAt)
             if [ $(( $(date +%s) - $(date -d "${OPENED}" +%s) )) -gt 86400 ]; then
-              ESCALATE="v1 has been held for more than 24 hours."
+              ESCALATE="${ESCALATE:-v1 has been held for more than 24 hours.}"
               URGENT=yes
             fi
           fi
