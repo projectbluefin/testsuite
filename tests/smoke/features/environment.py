@@ -588,7 +588,7 @@ def before_scenario(context, scenario) -> None:
         # Probe the DUT, not the Fedora runner's /sys or virtualization type.
         from steps.steps import _run_host
 
-        result = _run_host(
+        stdout, rc, stderr = _run_host(
             'if systemd-detect-virt --vm --quiet; then '
             'test -d /sys/class/power_supply || exit 2; '
             'for supply in /sys/class/power_supply/*; do '
@@ -597,10 +597,10 @@ def before_scenario(context, scenario) -> None:
             'else rc=$?; test "$rc" -eq 1 || exit "$rc"; echo applicable; fi',
             timeout=10,
         )
-        assert result.returncode == 0, (
-            f"Power hardware probe failed (rc={result.returncode}): {result.stderr}"
+        assert rc == 0, (
+            f"Power hardware probe failed (rc={rc}): {stderr}"
         )
-        state = result.stdout.strip()
+        state = stdout.strip()
         assert state in {"applicable", "vm-without-power-supply"}, (
             f"Unexpected power hardware probe output: {state!r}"
         )

@@ -109,10 +109,11 @@ def test_power_hardware_gate_probes_guest_before_sandbox(
         assert "systemd-detect-virt --vm --quiet" in command
         assert timeout == 10
         command = command.replace("/sys/class/power_supply", str(supply_dir))
-        return subprocess.run(
+        result = subprocess.run(
             ["bash", "-c", f"systemd-detect-virt() {{ return {virt_rc}; }}; {command}"],
             capture_output=True, text=True, timeout=timeout,
         )
+        return result.stdout, result.returncode, result.stderr
 
     guest_probe = MagicMock(side_effect=run_guest_probe)
     sys.modules["steps.steps"]._run_host = guest_probe
@@ -135,7 +136,7 @@ def test_power_probe_errors_fail_instead_of_skipping(rc, stdout):
     _setup_stubs()
     env = importlib.import_module("tests.smoke.features.environment")
     sys.modules["steps.steps"]._run_host = MagicMock(
-        return_value=subprocess.CompletedProcess([], rc, stdout, "probe failed")
+        return_value=(stdout, rc, "probe failed")
     )
     scenario = MagicMock(tags=["requires_vm_power_supply"],
                          effective_tags=["requires_vm_power_supply"])
