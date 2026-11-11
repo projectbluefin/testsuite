@@ -52,7 +52,10 @@ jobs:
               'cat /opt/gnomeos-harness/packages.txt' > results/harness-packages.txt 2>&1 || true
           fi
           if [[ -f /tmp/gnome_e2e_qemu.pid ]]; then
-            sudo kill "$(cat /tmp/gnome_e2e_qemu.pid)" || true
+            # QEMU runs as root, so the pidfile is root-owned; read it with
+            # sudo (as the boot message does) or cleanup aborts on "Permission
+            # denied" before the process is signalled (#1144).
+            sudo kill "$(sudo cat /tmp/gnome_e2e_qemu.pid)" || true
           fi
           sudo chown -R "$(id -u):$(id -g)" results
 

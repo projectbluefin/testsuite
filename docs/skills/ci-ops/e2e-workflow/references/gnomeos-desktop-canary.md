@@ -21,10 +21,11 @@ Use the Actions UI for `GNOME OS desktop canary` on the desired ref, or:
 gh workflow run gnomeos-canary.yml --repo YOUR_FORK/testsuite --ref YOUR_BRANCH
 ```
 
-The workflow must first exist on the repository's default branch for GitHub
-to register manual dispatch. It also supports `workflow_call` from an existing
-workflow for fork experiments. It requests only `contents: read`, publishes no
-image, and uses no registry credentials. It is never scheduled automatically.
+The workflow already exists on the repository's default branch, so GitHub
+offers manual dispatch directly from any ref (including a fork PR branch).
+It also supports `workflow_call` from an existing workflow for fork
+experiments. It requests only `contents: read`, publishes no image, and uses
+no registry credentials. It is never scheduled automatically.
 
 It runs on `ubuntu-24.04`, not `ubuntu-latest`: on 26.04 runners bootc's
 loopback install fails with "root partition 3 has type <none>" (#1123). The
