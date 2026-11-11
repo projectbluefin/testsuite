@@ -60,9 +60,19 @@ parent, runs `vm_validation_plan.py` and `v1_gate.py`, and when the decision is
 `gate` boots those suites through `e2e.yml` on `dakota:testing` pinned by
 digest, with `test_ref` set to the merge commit. `move` boots nothing; `hold`
 (a lane `e2e.yml` cannot boot, such as the `gnome-e2e` composite action) posts
-a notice and boots nothing. It is advisory, not a required check. A fork PR's
-token is read-only, so `e2e.yml`'s screenshot push (continue-on-error) is
-skipped there. Use a manual run (below) for another image, or for a `hold`.
+a notice and boots nothing. It is not a required check, but the hive merges no
+PR while any check is red. A fork PR's token is read-only, so `e2e.yml`'s
+screenshot push (continue-on-error) is skipped there. Use a manual run (below)
+for another image. The manual run calls `e2e.yml` too, so it cannot cover a
+`hold`:
+
+- a `composite_action` lane (the `gnome-e2e` action, or
+  `scripts/extension_validation.py`, which only the action runs): dispatch
+  `gnomeos-canary.yml` on a branch at the PR's head. It calls the action and its
+  extension-validation gate at its own ref. A fork PR's head is pushed to a repo
+  branch such as `canary/pr-N` first;
+- a suite without a hosted lane (`no_hosted_lane`, such as `security`): it needs
+  its own hardware, or a hand check of the change.
 
 Dispatch `manual.yml` **on the PR branch in the fork**. It calls the fork's
 `e2e.yml` revision and passes `test_repository: ${{ github.repository }}` and
