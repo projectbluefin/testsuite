@@ -54,6 +54,16 @@ silently costs the full set, and a wrong empty rule silently skips validation.
 
 ## Running the plan against the PR's own code
 
+Every pull request runs this plan automatically (`pr-vm-check.yml`, "PR VM
+check"): it diffs GitHub's merge commit against its first
+parent, runs `vm_validation_plan.py` and `v1_gate.py`, and when the decision is
+`gate` boots those suites through `e2e.yml` on `dakota:testing` pinned by
+digest, with `test_ref` set to the merge commit. `move` boots nothing; `hold`
+(a lane `e2e.yml` cannot boot, such as the `gnome-e2e` composite action) posts
+a notice and boots nothing. It is advisory, not a required check. A fork PR's
+token is read-only, so `e2e.yml`'s screenshot push (continue-on-error) is
+skipped there. Use a manual run (below) for another image, or for a `hold`.
+
 Dispatch `manual.yml` **on the PR branch in the fork**. It calls the fork's
 `e2e.yml` revision and passes `test_repository: ${{ github.repository }}` and
 `test_ref` = the dispatched branch, so the modified workflow and tests execute,
