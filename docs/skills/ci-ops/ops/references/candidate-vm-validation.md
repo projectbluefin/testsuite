@@ -80,7 +80,14 @@ and `.../check-runs`.
 `update-v1-tag.yml` no longer moves `v1` on every push. On a push to `main` it:
 
 1. Plans the range `v1..main` (not just the last push, so a cancelled run's
-   change is still covered) with `scripts/vm_validation_plan.py`.
+   change is still covered) with `scripts/vm_validation_plan.py`. First,
+   `scripts/v1_gate_pins.py` drops any file under `.github/actions/gnome-e2e/`
+   whose whole diff in the range only swaps one pinned commit SHA for another
+   in `uses:` lines (Renovate's `projectbluefin/actions` digest bumps). Those
+   used to hold `v1` every time (#1127, #1140). Any other change in the file,
+   or a ref that is not a full SHA on both sides, keeps it in the plan. The run
+   summary lists the dropped files. This is the gate's version of the hive's
+   pin-only rule; it goes once the gate boots the canary itself (#1144).
 2. Turns the plan into an action with `scripts/v1_gate.py`:
    - `move`: nothing reaches a VM (docs, unit tests, repo tooling).
    - `gate`: boot the planned suites through `e2e.yml` at the merged SHA,
@@ -97,14 +104,18 @@ and `.../check-runs`.
      or `no_hosted_lane`).
 3. On a hold or a failed gate, fails the run and opens (or comments on) the
    issue **"v1 tag held by the post-merge VM gate"** naming the held SHA. The
-   next successful move closes it. Two holds are a maintainer's problem rather
-   than contributor work, so the comment starts with **Needs a maintainer** and
-   the issue gets `needs-human` and `priority/critical-urgent` (and loses
+   next successful move closes it. Three holds are a maintainer's problem
+   rather than contributor work, so the comment starts with **Needs a
+   maintainer**, and the issue gets `needs-human` (and loses
    `good first issue` / `help wanted`):
+   - a `hold` action: only a hand check and a forced run can release it, and
+     it repeats on every push until then (#1149);
    - no failed suite produced test results on either side
      (`v1_gate_compare.py` prints `infrastructure=true`): the test machines
-     most likely never booted, as when `ubuntu-latest` moved to 26.04 (#1123);
-   - the issue has been open for more than 24 hours.
+     most likely never booted, as when `ubuntu-latest` moved to 26.04 (#1123).
+     Also `priority/critical-urgent`;
+   - the issue has been open for more than 24 hours. Also
+     `priority/critical-urgent`.
 
 `lifecycle` is planned but not booted (`UNGATED_SUITES`): its upgrade
 scenarios need a second, newer image to upgrade to (#706, #1023), and on one
