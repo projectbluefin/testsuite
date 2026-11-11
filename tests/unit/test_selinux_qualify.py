@@ -382,9 +382,29 @@ def test_canary_failure_not_run_when_no_domain_was_blocked():
     assert "229/SELINUX_CONTEXT" in message
 
 
-def test_canary_failure_not_run_when_policy_allows_it():
+def test_canary_failure_unknown_when_probe_executed_without_denial():
     diag = sq.parse_diagnostics(DIAG_NOT_RUN.replace("229", "0"))
-    assert sq.canary_failure(sq.canary_result("", "", []), diag)[0] == "not-run"
+    reason, message = sq.canary_failure(sq.canary_result("", "", []), diag)
+    assert reason == "unknown"
+    assert "executed" in message
+    assert "no candidate" not in message
+
+
+def test_canary_failure_unknown_when_early_read_failure_precedes_context_failure():
+    diag = sq.parse_diagnostics(DIAG_NOT_RUN.replace(
+        "attempt_httpd_t=rc=229 status=229", "attempt_httpd_t=rc=1 status=1"))
+    reason, message = sq.canary_failure(sq.canary_result("", "", []), diag)
+    assert reason == "unknown"
+    assert "httpd_t (status 1)" in message
+    assert "no candidate" not in message
+
+
+def test_canary_failure_unknown_when_early_success_precedes_context_failure():
+    diag = sq.parse_diagnostics(DIAG_NOT_RUN.replace(
+        "attempt_httpd_t=rc=229 status=229", "attempt_httpd_t=rc=0 status=0"))
+    reason, message = sq.canary_failure(sq.canary_result("", "", []), diag)
+    assert reason == "unknown"
+    assert "httpd_t" in message
 
 
 def test_canary_failure_not_run_without_guest_output():
@@ -413,7 +433,7 @@ def test_canary_failure_unknown_when_read_failed_after_exec():
     )
     reason, message = sq.canary_failure(sq.canary_result("", "", []), diag)
     assert reason == "unknown"
-    assert "cat exited 1" in message
+    assert "(status 1)" in message
     assert "reading the protected file failed" in message
     assert "no denial was produced" not in message
 

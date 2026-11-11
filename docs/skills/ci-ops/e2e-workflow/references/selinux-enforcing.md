@@ -90,9 +90,9 @@ and `selinux_qualify.py canary --diagnostics` names the failure (#1141):
 
 | Reason | Meaning |
 |--------|---------|
-| `not-run` | No candidate domain reached execve (e.g. 229/SELINUX_CONTEXT), or the guest returned no diagnostics. |
+| `not-run` | Every attempt failed before execve (e.g. 229/SELINUX_CONTEXT), or the guest returned no diagnostics. |
 | `not-collected` | The AVC collector itself failed. |
-| `unknown` | execve failed (203/EXEC) or `cat` exited non-zero after execve, but no denial was collected; the exit code does not show SELinux caused it. Read the per-attempt output and evidence fields, and check for a `dontaudit` rule. |
+| `unknown` | execve failed (203/EXEC), `cat` exited non-zero after execve in any attempt, or a probe read the file (status 0), but no denial was collected; the exit code does not show SELinux caused it. Read the per-attempt output and evidence fields, and check for a `dontaudit` rule. |
 | `permissive` / `allowlisted` | The denial was collected but did not fail the gate. |
 
 Any of these fails the step: a clean gate would prove nothing.

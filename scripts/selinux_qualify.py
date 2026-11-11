@@ -260,13 +260,33 @@ def _attempt_outputs(diagnostics: dict[str, str]) -> str:
     return "Output per attempt: " + "; ".join(outputs)
 
 
+def _attempt_outcomes(diagnostics: dict[str, str], status: str) -> tuple[list[str], list[str]]:
+    """Return (types where cat succeeded, "type (status N)" where cat failed after execve)."""
+    executed: list[str] = []
+    read_failed: list[str] = []
+    attempts = {
+        key[len("attempt_"):]: (re.search(r"status=(\d+)", value) or [None, None])[1]
+        for key, value in diagnostics.items()
+        if key.startswith("attempt_")
+    }
+    if not attempts:
+        attempts = {diagnostics.get("canary_type", "?"): status if status.isdigit() else None}
+    for kind, code in attempts.items():
+        if code == "0":
+            executed.append(kind)
+        elif code and code != EXIT_EXEC and int(code) not in CONTEXT_FAILURES:
+            read_failed.append(f"{kind} (status {code})")
+    return executed, read_failed
+
+
 def canary_failure(result: dict, diagnostics: dict[str, str] | None) -> tuple[str, str]:
     """Return (reason, message) for a canary that did not reach the gate.
 
-    reason is ``not-run`` (the probe never reached execve), ``not-collected`` (the
+    reason is ``not-run`` (every attempt failed before execve), ``not-collected`` (the
     collector itself failed),
     ``permissive`` or ``allowlisted`` (collected but did not fail the gate),
-    or ``unknown`` when the evidence cannot say why (no diagnostics, execve
+    or ``unknown`` when the evidence cannot say why (no diagnostics, a probe that ran
+    without a denial, execve
     or the read failed without a collected denial).
     """
     denials = result["canary_denials"]
@@ -306,12 +326,19 @@ def canary_failure(result: dict, diagnostics: dict[str, str] | None) -> tuple[st
             f"{diagnostics.get('sesearch_dontaudit') or 'sesearch unavailable'}) or "
             f"something else failed execve. {_attempt_outputs(diagnostics)}"
         )
-    if status.isdigit() and status != "0" and int(status) not in CONTEXT_FAILURES:
+    executed, read_failed = _attempt_outcomes(diagnostics, status)
+    if read_failed:
         return "unknown", (
-            f"the canary executed in {diagnostics.get('canary_type')} but cat exited "
-            f"{status}, so reading the protected file failed after execve succeeded; "
-            "the cause is unknown and no denial was collected "
-            f"({_collection_evidence(diagnostics)}). {_attempt_outputs(diagnostics)}"
+            f"the canary executed ({', '.join(read_failed)}) but cat failed, so reading "
+            "the protected file failed after execve succeeded; the cause is unknown and "
+            f"no denial was collected ({_collection_evidence(diagnostics)}). "
+            f"{_attempt_outputs(diagnostics)}"
+        )
+    if executed:
+        return "unknown", (
+            f"the canary executed in {', '.join(executed)} and cat read /etc/shadow "
+            "(status 0), so SELinux did not block it and no denial was produced; "
+            f"the domain may be permissive or unconfined. {_attempt_outputs(diagnostics)}"
         )
     tried = ", ".join(canary_types(diagnostics))
     return "not-run", (
