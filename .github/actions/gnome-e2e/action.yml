@@ -227,7 +227,11 @@ runs:
         EFI_PART="${LOOP}p2"
         sudo mkdir -p /mnt/efi
         sudo mount "${EFI_PART}" /mnt/efi
-        BLS_FILE=$(sudo find /mnt/efi/loader/entries -name '*.conf' 2>/dev/null | head -1)
+        # When bootc's bootloader step failed (bootupd, the expected late
+        # failure above) there is no loader/entries directory: find exits
+        # non-zero, which under pipefail ended this step silently before the
+        # fallback below could run (canary run 42929881520).
+        BLS_FILE=$(sudo find /mnt/efi/loader/entries -name '*.conf' 2>/dev/null | head -1 || true)
         if [[ -n "${BLS_FILE}" ]]; then
           BLS_OPTS=$(sudo grep '^options' "${BLS_FILE}" | sed 's/^options //')
         else
