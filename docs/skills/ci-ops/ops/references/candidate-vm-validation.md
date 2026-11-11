@@ -34,7 +34,7 @@ git diff --name-only upstream/main...HEAD | python3 scripts/vm_validation_plan.p
 | other `tests/shared/*`, `container/` runner, `scripts/*` that `e2e.yml` runs | `smoke`, `common` |
 | `.github/actions/gnome-e2e/**`, `scripts/extension_validation.py` | `gnome-e2e-action` (reported under `composite_action`, not `suites`) |
 | `.github/workflows/e2e.yml`, `manual.yml` | `smoke`, `common`, `lifecycle` |
-| `migration-test.yml` / `iso-*.yml` | `lifecycle` / `installer` |
+| `iso-*.yml` | `lifecycle` / `installer` |
 | anything else | `smoke`, `common`, `lifecycle` (fail-closed) |
 
 `smoke` is the GUI lane, `common` the SSH lane and `lifecycle` the bootc reboot

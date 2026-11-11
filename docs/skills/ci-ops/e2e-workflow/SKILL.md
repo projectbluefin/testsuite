@@ -297,48 +297,9 @@ The serial log is always uploaded (even on failure) — it's the primary debug t
 
 ---
 
-## zstd:chunked migration toggle
+## Retired migration lane
 
-
-The `@zstd_chunked` tag gates the final-state migration scenario. It is **skipped** (not failed) when disabled.
-
-| Workflow input | Effect |
-|---|---|
-| `chunked_enabled: false` (default) | `@zstd_chunked` scenarios skip |
-| `chunked_enabled: true` | `@zstd_chunked` scenarios run |
-
-Enable once `ghcr.io/<image-org>/bluefin:latest` ships `tar+zstd` OCI layers. Verify:
-```bash
-skopeo inspect --raw docker://ghcr.io/<image-org>/bluefin:latest \
-  | jq '.layers[0].mediaType'
-```
-
----
-
-## Running migration tests manually
-
-
-Use `migration-test.yml` in `<image-org>/actions` to run only the `@migration` scenario group.
-
-**Go to:** [<image-org>/actions → Actions → bootc Migration Test → Run workflow](https://github.com/<image-org>/actions/actions/workflows/migration-test.yml)
-
-| Field | Non-LTS | LTS |
-|---|---|---|
-| `source_image` | `ghcr.io/<readonly-upstream>/bluefin:latest` | `ghcr.io/<readonly-upstream>/bluefin-lts:lts` |
-| `migration_target` | _(leave blank)_ | `ghcr.io/<image-org>/bluefin-lts:stable` |
-| `chunked_enabled` | `false` (default) | `false` (default) |
-
-Wire as a consumer post-build gate:
-```yaml
-migration-test:
-  needs: build
-  uses: <image-org>/actions/.github/workflows/migration-test.yml@<ref>
-  with:
-    source_image: ghcr.io/<readonly-upstream>/bluefin-lts:lts
-    migration_target: ghcr.io/<image-org>/bluefin-lts@${{ needs.build.outputs.digest }}
-```
-
-For non-migration lifecycle runs: dispatch `upgrade-test.yml` in `<image-org>/actions`. `migration-test.yml` passes `migration-target` and `extra-tags` into `e2e.yml`, and both must stay declared there or the `workflow_call` is rejected at startup — wiring, the input table, and the red flag are in [`references/migration-inputs.md`](references/migration-inputs.md).
+The `@migration` and `@zstd_chunked` lifecycle scenarios are gone: testsuite no longer tests the archived Bluefin images. `e2e.yml` keeps its `chunked_enabled` input only for downstream callers that may still pass it; it no longer affects any scenario. `migration-target` and `extra-tags` remain active: `extra-tags` is still appended to the behave tag filter, and `migration-target` is still forwarded as `MIGRATION_TARGET` to the lifecycle steps that drive the image switch.
 
 ---
 
@@ -493,7 +454,6 @@ Load these when you hit the specific topic:
 - [KDE suite wiring, gating, and runner-image split.](references/kde-suites.md)
 - [Hardware-oriented suite groups, the all-blocked backstop, and why it fails loud.](references/hardware-suite-blocked.md)
 - [Installer suite assertions, and why an env-var gate made one unreachable.](references/installer-suite.md)
-- [Migration inputs `migration-target` / `extra-tags` and the startup_failure they cause when missing.](references/migration-inputs.md)
 - [GNOME OS guest lane for the developer extension-validation service and its mandatory gate.](references/gnome-extensions-validation.md)
 - [SELinux enforcing in the e2e guest (default on): labeling, mode checks, AVC gate, canary.](references/selinux-enforcing.md)
 - [GNOME OS image provenance (2-week tag expiry), verified guest inventory, and the extensions pre-boot preflight](references/gnomeos-guest-provenance.md)

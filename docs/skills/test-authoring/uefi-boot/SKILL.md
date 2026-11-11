@@ -126,9 +126,4 @@ For migration-only QEMU experiments, use loopback installation with
 
 ## Spike workflow
 
-The spike is implemented in `.github/workflows/spike-uefi-boot.yml`. Run it via Actions → "Spike: UEFI Boot" → Run workflow. It:
-1. Installs `ublue-os/bluefin:stable` to disk with `--bootloader systemd`
-2. Inspects the ESP and BLS entries (answers spike questions #1-2)
-3. Boots via OVMF pflash (answers questions #3-4)
-4. SSHs in, runs `bootc switch` to `projectbluefin/bluefin:stable`
-5. Reboots and confirms the new deployment is active (answers question #5)
+The throw-away spike workflow for issue #229 has been removed along with the archived-Bluefin migration lane. Its findings are in [`docs/archive/spikes/uefi-ovmf-boot.md`](../../../archive/spikes/uefi-ovmf-boot.md).

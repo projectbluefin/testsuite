@@ -457,14 +457,12 @@ def reboot_and_wait(context):
 def _migration_target():
     """Return the migration target image ref from MIGRATION_TARGET env var."""
     return os.environ.get(
-        "MIGRATION_TARGET", "ghcr.io/projectbluefin/bluefin:stable"
+        "MIGRATION_TARGET", "ghcr.io/projectbluefin/dakota:next"
     )
 
 
 MIGRATION_SWITCH_TIMEOUT_S = 900
 MIGRATION_REBOOT_DEADLINE_S = 300
-PODMAN_PULL_TIMEOUT_S = 900
-CONTAINERS_STORAGE_SWITCH_TIMEOUT_S = 120
 
 
 @step("Switch to migration target")
@@ -472,46 +470,6 @@ def switch_to_migration_target(context):
     """Run bootc switch to the parameterized migration target image."""
     target = _migration_target()
     run_ssh(context, f"sudo bootc switch {shlex.quote(target)}", timeout=MIGRATION_SWITCH_TIMEOUT_S)
-
-
-@step("Switch to migration target with unified storage")
-def switch_to_migration_target_unified(context):
-    """Run bootc switch --experimental-unified-storage to the migration target."""
-    target = _migration_target()
-    run_ssh(
-        context,
-        f"sudo bootc switch --experimental-unified-storage {shlex.quote(target)}",
-        timeout=MIGRATION_SWITCH_TIMEOUT_S,
-    )
-
-
-@step("Check unified storage support and skip if unavailable")
-def check_unified_storage_support(context):
-    """Probe bootc switch --help for --experimental-unified-storage; skip if absent."""
-    stdout, rc = run_ssh(context, "sudo bootc switch --help", timeout=30)
-    if "--experimental-unified-storage" not in stdout:
-        context.scenario.skip(
-            "bootc on this image does not support --experimental-unified-storage "
-            "(requires bootc >= 1.16). Skipping unified storage scenario."
-        )
-
-
-@step("Pull migration target via podman for zstd:chunked transport")
-def pull_migration_target_podman(context):
-    """Pull the migration target into root containers-storage via podman."""
-    target = _migration_target()
-    run_ssh(context, f"sudo podman pull {shlex.quote(target)}", timeout=PODMAN_PULL_TIMEOUT_S)
-
-
-@step("Switch to migration target via containers-storage transport")
-def switch_to_migration_target_containers_storage(context):
-    """Switch to the migration target using the local containers-storage copy."""
-    target = _migration_target()
-    run_ssh(
-        context,
-        f"sudo bootc switch --transport containers-storage {shlex.quote(target)}",
-        timeout=CONTAINERS_STORAGE_SWITCH_TIMEOUT_S,
-    )
 
 
 @step("Reboot VM and wait for SSH after migration")
@@ -541,99 +499,6 @@ def reboot_and_wait_migration(context):
     )
 
 
-@step("Capture booted image reference as migration source")
-def capture_migration_source_ref(context):
-    """Store the currently booted image reference (expected: ublue-os/bluefin) so
-    post-rollback steps can verify the switch was fully reversed."""
-    run_ssh(context, "sudo bootc status --format=json")
-    status = _parse_bootc_status(context)
-    booted = status.get("booted", {})
-    image_ref = booted.get("image", {}).get("image", {}).get("image", "")
-    assert image_ref, f"Could not read booted image reference from bootc status: {booted}"
-    context.migration_source_ref = image_ref
-    print(f"Captured migration source ref: {image_ref}", flush=True)
-
-
-@step('Booted image is from the "{registry}" registry')
-def booted_image_from_registry(context, registry):
-    """Assert the active image reference contains the expected registry prefix.
-
-    Used as a pre-condition guard before cross-registry migration to confirm the
-    VM started on the intended source image and the switch will be a real migration,
-    not a no-op against the same registry.
-    """
-    run_ssh(context, "sudo bootc status --format=json")
-    status = _parse_bootc_status(context)
-    active_ref = (
-        status.get("booted", {}).get("image", {}).get("image", {}).get("image", "")
-    )
-    if registry not in active_ref:
-        context.scenario.skip(
-            f"Pre-condition not met: booted image {active_ref!r} is not from "
-            f"registry {registry!r}. Migration scenarios require the legacy "
-            f"source image — skipping on non-migration boot."
-        )
-        return
-    print(f"Confirmed: booted image {active_ref!r} is from {registry!r}", flush=True)
-
-
-@step("Migration source image reference is restored after rollback")
-def migration_source_restored(context):
-    """After rollback, verify the active image digest matches the pre-migration original.
-
-    bootc rollback reorders existing ostree deployments; the digest is the reliable
-    identity. Exact ref-string equality is a weaker check — include it only as
-    informational output, not as the assertion.
-    """
-    source_ref = getattr(context, "migration_source_ref", None)
-    original_digest = getattr(context, "original_digest", None)
-    if not original_digest:
-        _skip_current_scenario(
-            context,
-            "original_digest is not set — add "
-            "'Capture booted image digest for rollback verification' before the switch",
-        )
-        return
-    status = _parse_bootc_status(context)
-    active_digest = status.get("booted", {}).get("image", {}).get("imageDigest", "")
-    active_ref = (
-        status.get("booted", {}).get("image", {}).get("image", {}).get("image", "")
-    )
-    assert active_digest == original_digest, (
-        f"Expected rollback digest {original_digest!r}, got {active_digest!r}"
-    )
-    if source_ref:
-        print(
-            f"Rollback restored digest {active_digest!r} "
-            f"(ref: {active_ref!r}, expected: {source_ref!r})",
-            flush=True,
-        )
-
-
-@step("bootc status shows deployment is compatible")
-def bootc_status_compatible(context):
-    """Verify the booted deployment is not marked incompatible.
-
-    bootc sets booted.incompatible=true when the deployment has in-place
-    modifications that diverge from the image (e.g. files written to /usr).
-    When the field is absent the deployment is compatible by default.
-    The assertion is printed explicitly so CI output shows whether the field
-    was present or absent.
-    """
-    booted = _parse_bootc_status(context).get("booted") or {}
-    incompatible = booted.get("incompatible", False)
-    field_present = "incompatible" in booted
-    print(
-        f"bootc booted.incompatible={'present' if field_present else 'absent (defaults to false)'}: "
-        f"{incompatible!r}",
-        flush=True,
-    )
-    assert not incompatible, (
-        f"Expected booted deployment to be compatible, "
-        f"got incompatible={incompatible!r}: {booted}"
-    )
-
-
 @step("bootc status shows rollback deployment is available")
 def bootc_status_rollback_available(context):
     """Verify bootc status reports a rollback deployment (.status.rollback is not null).
@@ -650,101 +515,6 @@ def bootc_status_rollback_available(context):
     )
     rollback_ref = rollback.get("image", {}).get("image", {}).get("image", "")
     print(f"Rollback deployment available: {rollback_ref!r}", flush=True)
-
-
-@step("bootc status rollback deployment matches migration source digest")
-def bootc_rollback_matches_source(context):
-    """After migration, verify the rollback deployment has the original source digest.
-
-    This proves the legacy-rechunker deployment was preserved and can be recovered,
-    which is stronger than just checking that two ostree deployments exist.
-    """
-    original_digest = getattr(context, "original_digest", None)
-    if not original_digest:
-        _skip_current_scenario(
-            context,
-            "original_digest is not set — add "
-            "'Capture booted image digest for rollback verification' before the switch",
-        )
-        return
-    status = _parse_bootc_status(context)
-    rollback = status.get("rollback")
-    assert rollback is not None, (
-        "Expected .status.rollback to be present but it is null — "
-        "no rollback target was preserved after migration"
-    )
-    rollback_digest = rollback.get("image", {}).get("imageDigest", "")
-    assert rollback_digest == original_digest, (
-        f"Rollback deployment digest {rollback_digest!r} != "
-        f"original source digest {original_digest!r}"
-    )
-    print(f"Rollback deployment correctly preserves source digest: {rollback_digest!r}", flush=True)
-
-
-@step("Unified storage overlay directory is present on the VM")
-def unified_storage_overlay_present(context):
-    """Verify /var/lib/bootc/storage/overlay exists after a unified-storage switch.
-
-    This directory is the containers-storage backing store used by bootc's
-    experimental unified storage mode. Its presence confirms the migrated image
-    was placed in containers-storage (not the legacy ostree repo).
-    """
-    run_ssh(context, "test -d /var/lib/bootc/storage/overlay")
-    rc = getattr(context, "ssh_rc", 1)
-    assert rc == 0, (
-        "Expected /var/lib/bootc/storage/overlay to exist after unified-storage "
-        "migration, but the directory was not found. "
-        "Check that the switch was issued with --experimental-unified-storage."
-    )
-    print("Confirmed: /var/lib/bootc/storage/overlay is present", flush=True)
-
-
-@step("Active image layers use zstd:chunked compression")
-def active_image_layers_zstd_chunked(context):
-    """Verify the active image uses zstd:chunked layer compression.
-
-    Inspects the OCI manifest via skopeo to confirm at least one layer uses
-    tar+zstd mediaType or carries the zstd-chunked annotation.
-
-    Requires the target image to have been built or repushed with zstd:chunked
-    (e.g. skopeo copy --dest-compress-format=zstd:chunked).
-    """
-    status = _parse_bootc_status(context)
-    image_ref = (
-        status.get("booted", {}).get("image", {}).get("image", {}).get("image", "")
-    )
-    assert image_ref, f"Could not extract booted image ref from bootc status: {status}"
-
-    out, rc = run_ssh(context, f"skopeo inspect --raw docker://{image_ref}", timeout=120)
-    assert rc == 0, f"skopeo inspect --raw failed for {image_ref!r}: rc={rc}\n{out}"
-
-    try:
-        manifest = json.loads(out)
-    except json.JSONDecodeError as exc:
-        raise AssertionError(f"Invalid manifest JSON from skopeo: {exc}\n{out}") from exc
-
-    layers = manifest.get("layers", [])
-    assert layers, f"No layers found in manifest for {image_ref!r}"
-
-    for layer in layers:
-        media_type = layer.get("mediaType", "")
-        annotations = layer.get("annotations", {})
-        if "tar+zstd" in media_type or any("zstd-chunked" in k for k in annotations):
-            print(
-                f"Confirmed: {image_ref!r} uses zstd:chunked "
-                f"(first matching layer: mediaType={media_type!r})",
-                flush=True,
-            )
-            return
-
-    media_types = {layer.get("mediaType") for layer in layers}
-    raise AssertionError(
-        f"Image {image_ref!r} does not use zstd:chunked compression. "
-        f"Observed layer mediaTypes: {media_types}. "
-        "Ensure the target image was built or repushed with zstd:chunked "
-        "(e.g. skopeo copy --dest-compress-format=zstd:chunked)."
-    )
-
 
 
 @step("ostree status shows two deployments")
