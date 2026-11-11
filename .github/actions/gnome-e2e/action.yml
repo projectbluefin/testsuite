@@ -158,8 +158,11 @@ runs:
 
         BOOTC_INSTALL_LOG="$(pwd)/bootc-install.log"
         set +e
+        # --pid=host: bootc install refuses to run without it ("This command
+        # must be run with the podman --pid=host flag", canary run 42923546804);
+        # e2e.yml's install step already passes it.
         sudo podman run \
-          --rm --privileged \
+          --rm --privileged --pid=host \
           --security-opt label=type:unconfined_t \
           -v /var/lib/containers:/var/lib/containers \
           -v /dev:/dev \
