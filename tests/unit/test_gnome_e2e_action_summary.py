@@ -462,3 +462,20 @@ def test_action_precreates_systemd_user_for_immutable_usr_guard():
 def test_qemu_pidfile_read_with_sudo_guard():
     action = _action_guard()
     assert "sudo cat /tmp/gnome_e2e_qemu.pid" in action
+
+
+# The boot message in the action reads the root-owned pidfile with sudo, but
+# the workflow's cleanup step (#1144) did the same read without sudo and
+# aborted on "Permission denied" before signalling QEMU. Guard the cleanup
+# read in the workflow, not only the action's boot message.
+def _canary_workflow() -> str:
+    return (
+        Path(__file__).parents[2] / ".github" / "workflows" / "gnomeos-canary.yml"
+    ).read_text()
+
+
+def test_gnomeos_canary_cleanup_reads_pidfile_with_sudo_guard():
+    workflow = _canary_workflow()
+    assert (
+        'sudo kill "$(sudo cat /tmp/gnome_e2e_qemu.pid)"' in workflow
+    )
