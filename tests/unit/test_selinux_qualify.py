@@ -321,6 +321,159 @@ def test_allowlisting_the_canary_breaks_detection():
     assert sq.canary_result("", CANARY_AVC, [entry])["detected"] is False
 
 
+# ── canary diagnostics (#1141) ───────────────────────────────────────────────
+
+SSHD_CANARY_AVC = CANARY_AVC.replace("httpd_t", "sshd_t").replace("900)", "901)")
+
+DIAG_BLOCKED = """attempt_httpd_t=rc=229 status=229
+attempt_sshd_t=rc=203 status=203
+canary_type=sshd_t
+canary_rc=203
+canary_status=203
+canary_stderr=Running as unit: run-u7.service Finished with result: exit-code Main processes terminated with: code=exited/status=203/EXEC
+collector_context=unconfined_u:unconfined_r:unconfined_t:s0-s0:c0.c1023
+cmdline=BOOT_IMAGE=/vmlinuz root=UUID=x console=ttyS0
+seinfo_httpd_t=unavailable (no seinfo)
+audit_log=missing
+auditd=inactive
+journal_kernel_avc=0
+journal_avc=0
+dmesg_avc=0
+canary_ssh_rc=0
+collect_rc=0
+"""
+
+DIAG_NOT_RUN = """attempt_httpd_t=rc=229 status=229
+attempt_sshd_t=rc=229 status=229
+canary_type=sshd_t
+canary_rc=229
+canary_status=229
+canary_stderr=Main processes terminated with: code=exited/status=229/SELINUX_CONTEXT
+seinfo_httpd_t=unavailable (no seinfo)
+canary_ssh_rc=0
+collect_rc=0
+"""
+
+
+def test_parse_diagnostics_keeps_values_with_equals_signs():
+    diag = sq.parse_diagnostics(DIAG_BLOCKED + "free text line\n")
+    assert diag["canary_type"] == "sshd_t"
+    assert diag["cmdline"] == "BOOT_IMAGE=/vmlinuz root=UUID=x console=ttyS0"
+    assert diag["attempt_httpd_t"] == "rc=229 status=229"
+    assert "free text line" not in diag
+
+
+def test_canary_types_cover_every_attempted_domain():
+    assert sq.canary_types(sq.parse_diagnostics(DIAG_BLOCKED)) == ("httpd_t", "sshd_t")
+    assert sq.canary_types({}) == (sq.CANARY_TYPE,)
+
+
+def test_canary_detected_in_fallback_domain():
+    types = sq.canary_types(sq.parse_diagnostics(DIAG_BLOCKED))
+    assert sq.canary_result("", SSHD_CANARY_AVC, [], types)["detected"] is True
+    assert sq.canary_result("", SSHD_CANARY_AVC, [])["detected"] is False
+
+
+def test_canary_failure_not_run_when_no_domain_was_blocked():
+    result = sq.canary_result("", "", [])
+    reason, message = sq.canary_failure(result, sq.parse_diagnostics(DIAG_NOT_RUN))
+    assert reason == "not-run"
+    assert "could not run" in message
+    assert "229/SELINUX_CONTEXT" in message
+
+
+def test_canary_failure_not_run_when_policy_allows_it():
+    diag = sq.parse_diagnostics(DIAG_NOT_RUN.replace("229", "0"))
+    assert sq.canary_failure(sq.canary_result("", "", []), diag)[0] == "not-run"
+
+
+def test_canary_failure_not_run_without_guest_output():
+    reason, message = sq.canary_failure(
+        sq.canary_result("", "", []), {"canary_ssh_rc": "255", "collect_rc": "0"}
+    )
+    assert reason == "not-run"
+    assert "255" in message
+
+
+def test_canary_failure_not_collected_when_blocked_but_missing():
+    reason, message = sq.canary_failure(
+        sq.canary_result("", "", []), sq.parse_diagnostics(DIAG_BLOCKED)
+    )
+    assert reason == "not-collected"
+    assert "not collected" in message
+    assert "audit_log=missing" in message
+    assert "journal_kernel_avc=0" in message
+
+
+def test_canary_failure_not_collected_when_collector_fails():
+    diag = sq.parse_diagnostics(DIAG_BLOCKED.replace("collect_rc=0", "collect_rc=1"))
+    reason, message = sq.canary_failure(sq.canary_result("", "", []), diag)
+    assert reason == "not-collected"
+    assert "collector failed (exit 1)" in message
+
+
+def test_canary_failure_permissive_and_allowlisted():
+    permissive = CANARY_AVC.replace("permissive=0", "permissive=1")
+    assert sq.canary_failure(sq.canary_result("", permissive, []), {})[0] == "permissive"
+    entry = {
+        "source_context": "system_u:system_r:httpd_t:s0",
+        "target_context": "system_u:object_r:bin_t:s0",
+        "permission": "entrypoint",
+        "comm": "(cat)",
+        "reason": "would hide the canary",
+    }
+    assert sq.canary_failure(sq.canary_result("", CANARY_AVC, [entry]), {})[0] == "allowlisted"
+
+
+def test_canary_failure_unknown_without_diagnostics():
+    assert sq.canary_failure(sq.canary_result("", "", []), None)[0] == "unknown"
+
+
+def test_canary_cli_names_reason_and_records_diagnostics(tmp_path):
+    empty = tmp_path / "empty.log"
+    empty.write_text("")
+    diag = tmp_path / "diag.txt"
+    diag.write_text(DIAG_BLOCKED)
+    out = tmp_path / "canary.json"
+    result = _run(
+        "canary", str(empty), str(empty), "--allowlist", str(_allowlist(tmp_path, [])),
+        "--diagnostics", str(diag), "--json", str(out),
+    )
+    assert result.returncode == 1
+    assert "did not reach the AVC gate (not-collected)" in result.stdout
+    payload = json.loads(out.read_text())
+    assert payload["reason"] == "not-collected"
+    assert payload["diagnostics"]["audit_log"] == "missing"
+    assert payload["canary_types"] == ["httpd_t", "sshd_t"]
+
+
+def test_canary_cli_detects_fallback_domain(tmp_path):
+    before = tmp_path / "before.log"
+    before.write_text("")
+    after = tmp_path / "after.log"
+    after.write_text(SSHD_CANARY_AVC + "\n")
+    diag = tmp_path / "diag.txt"
+    diag.write_text(DIAG_BLOCKED)
+    out = tmp_path / "canary.json"
+    result = _run(
+        "canary", str(before), str(after), "--allowlist", str(_allowlist(tmp_path, [])),
+        "--diagnostics", str(diag), "--json", str(out),
+    )
+    assert result.returncode == 0, result.stdout
+    assert json.loads(out.read_text())["reason"] == "detected"
+
+
+def test_canary_cli_missing_diagnostics_file_is_not_run(tmp_path):
+    empty = tmp_path / "empty.log"
+    empty.write_text("")
+    result = _run(
+        "canary", str(empty), str(empty), "--allowlist", str(_allowlist(tmp_path, [])),
+        "--diagnostics", str(tmp_path / "absent.txt"),
+    )
+    assert result.returncode == 1
+    assert "(not-run)" in result.stdout
+
+
 # ── workflow wiring ──────────────────────────────────────────────────────────
 
 
@@ -369,6 +522,7 @@ def test_sparse_checkout_ships_selinux_helpers():
     checkout = _steps()["Checkout testsuite"]["with"]["sparse-checkout"].split()
     for path in (
         "scripts/selinux_qualify.py",
+        "scripts/selinux_canary.sh",
         "scripts/selinux_collect_avc.sh",
         "selinux_allowlist.yaml",
     ):
@@ -408,8 +562,43 @@ def test_gate_runs_canary_after_scenario_collection():
     gate = _steps()["SELinux denial gate"]["run"]
     collect = gate.index("avc-scenario.log")
     verdict = gate.index("selinux_qualify.py gate")
-    canary = gate.index("SELinuxContext=system_u:system_r:httpd_t:s0")
+    canary = gate.index("scripts/selinux_canary.sh")
+    after = gate.index("avc-after-canary.log")
     check = gate.index("selinux_qualify.py canary")
-    assert collect < verdict < canary < check
-    assert "StandardOutput=null" in gate
+    assert collect < verdict < canary < after < check
+    assert '--diagnostics "${DIAG}"' in gate
     assert 'exit "${RC}"' in gate
+
+
+def test_gate_records_why_the_canary_failed():
+    gate = _steps()["SELinux denial gate"]["run"]
+    assert 'canary_ssh_rc=${CANARY_SSH_RC}' in gate
+    assert 'collect_rc=${COLLECT_RC}' in gate
+    # The diagnostics land in results/selinux (uploaded) and the step summary.
+    assert 'DIAG="${D}/canary-diagnostics.txt"' in gate
+    summary = gate[gate.index("### SELinux qualification"):gate.index('"$GITHUB_STEP_SUMMARY"')]
+    assert 'cat "${DIAG}"' in summary
+    assert '"${CANARY_OUT}"' in summary
+
+
+def test_canary_script_triggers_denial_and_logs_evidence():
+    script = (ROOT / "scripts" / "selinux_canary.sh").read_text()
+    assert "SELinuxContext=system_u:system_r:${type}:s0" in script
+    assert "CANDIDATES=(httpd_t " in script
+    assert "--quiet" not in script
+    for evidence in (
+        "/proc/cmdline",
+        "seinfo -t httpd_t",
+        "/var/log/audit/audit.log",
+        "journalctl -k",
+        "canary_rc=",
+        "canary_stderr=",
+    ):
+        assert evidence in script
+
+
+def test_collector_reads_audit_log_and_ring_buffer():
+    script = (ROOT / "scripts" / "selinux_collect_avc.sh").read_text()
+    assert "ausearch -m AVC,USER_AVC --raw" in script
+    assert "grep -hF 'avc:' /var/log/audit/audit.log*" in script
+    assert "dmesg" in script
