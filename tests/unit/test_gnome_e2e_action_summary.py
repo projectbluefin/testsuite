@@ -373,6 +373,21 @@ def test_action_checks_out_the_summary_module():
     assert "scripts" in checkout
 
 
+def test_action_checkout_resolves_its_repository_outside_the_checkout_step():
+    """Inside the checkout step github.action_repository names actions/checkout.
+
+    Reading it there made the canary fetch testsuite's commit from
+    actions/checkout ("not our ref"); the repository and ref must come from
+    the earlier run step.
+    """
+    checkout = _action_text().partition("- name: Checkout testsuite")[2].partition("- name:")[0]
+
+    assert "github.action_repository" not in checkout
+    assert "github.action_ref" not in checkout
+    assert "steps.testsuite-source.outputs.repository" in checkout
+    assert "steps.testsuite-source.outputs.ref" in checkout
+
+
 def _gate_step() -> str:
     step = _action_text().partition("- name: Gate extension-validation run")[2]
     assert step, "Gate extension-validation run step not found in the gnome-e2e action"

@@ -11,7 +11,9 @@
 # image under test. When the candidate fails, the same suites boot again with
 # the tests at the current v1 on the same digest (the baseline), and
 # scripts/v1_gate_compare.py moves v1 only if every candidate failure also
-# fails at v1. Anything it cannot explain holds v1.
+# fails at v1. Anything it cannot explain holds v1. The failures it accepts
+# come from the image or the VM, so scripts/v1_gate_preexisting.py files each
+# one as an issue for the hive to quarantine or fix (#1143, #1153).
 #
 # The range starts at v1, not at the push's previous commit: if a newer push
 # cancels a gated run, the next run still covers the cancelled change.
@@ -112,7 +114,10 @@ jobs:
           fi
 
           if [ -n "${PREVIOUS}" ] && git merge-base --is-ancestor "${PREVIOUS}" "${SHA}"; then
-            git diff --name-only "${PREVIOUS}" "${SHA}" > changed.txt
+            # A file in the gnome-e2e action whose only change is pinned-SHA
+            # swaps in `uses:` lines (Renovate digest bumps) needs no VM.
+            git diff --name-only "${PREVIOUS}" "${SHA}" \
+              | python3 scripts/v1_gate_pins.py "${PREVIOUS}" "${SHA}" 2> pins.txt > changed.txt
           else
             # No v1 yet, or v1 is not behind main: plan the full set (fail-closed).
             echo "unknown-base" > changed.txt
@@ -128,6 +133,10 @@ jobs:
             echo '```json'
             cat plan.json
             echo '```'
+            if [ -s pins.txt ]; then
+              echo
+              sed 's/^/- /' pins.txt
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Pin the gate image by digest
@@ -219,7 +228,9 @@ jobs:
         with:
           ref: ${{ needs.plan.outputs.sha }}
           persist-credentials: false
-          sparse-checkout: scripts/v1_gate_compare.py
+          sparse-checkout: |
+            scripts/v1_gate_compare.py
+            scripts/v1_gate_preexisting.py
           sparse-checkout-cone-mode: false
 
       - name: Download candidate and baseline results
@@ -235,7 +246,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/v1_gate_compare.py artifacts "${IMAGE}" "${BASELINE_IMAGE}" \
-            --summary compare.md | tee -a "$GITHUB_OUTPUT"
+            --summary compare.md --preexisting preexisting.json | tee -a "$GITHUB_OUTPUT"
           cat compare.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Move or hold v1
@@ -282,17 +293,26 @@ jobs:
           else
             WHY="${REASON}"
           fi
-          # A hold that no test change explains, or one that has lasted a day,
-          # is a maintainer's problem, not contributor work: say so first and
-          # label the issue so it is parked for a person (#1123 sat 36 hours as
-          # a "good first issue" while the runner could not boot any VM).
+          # A hold that no test change explains, one only a hand check can
+          # release, or one that has lasted a day is a maintainer's problem,
+          # not contributor work: say so first and label the issue so it is
+          # parked for a person (#1123 sat 36 hours as a "good first issue"
+          # while the runner could not boot any VM; #1149 waited on a force).
           ESCALATE=""
+          URGENT=""
           if [ "${INFRA:-false}" = "true" ]; then
             ESCALATE="no failed suite produced test results on either side, so the test machines most likely never booted (a runner or install problem). This is not a test regression."
-          elif [ -n "${HELD}" ]; then
+            URGENT=yes
+          elif [ "${ACTION}" = "hold" ]; then
+            ESCALATE="the change needs a lane the gate cannot boot, so only a maintainer's hand check and a forced run can release it. No contributor change clears this hold."
+          fi
+          # Age is checked on its own so a hand-check hold still turns urgent
+          # after a day; the more specific explanation above is kept.
+          if [ -z "${URGENT}" ] && [ -n "${HELD}" ]; then
             OPENED=$(gh issue view "${HELD}" --json createdAt --jq .createdAt)
             if [ $(( $(date +%s) - $(date -d "${OPENED}" +%s) )) -gt 86400 ]; then
-              ESCALATE="v1 has been held for more than 24 hours."
+              ESCALATE="${ESCALATE:-v1 has been held for more than 24 hours.}"
+              URGENT=yes
             fi
           fi
           HEADLINE=""
@@ -309,8 +329,12 @@ jobs:
             HELD=$(gh issue create --title "${HELD_TITLE}" --body "${BODY}" | grep -oE '[0-9]+$')
           fi
           if [ -n "${ESCALATE}" ] && [ -n "${HELD}" ]; then
-            gh issue edit "${HELD}" --add-label needs-human --add-label priority/critical-urgent \
+            gh issue edit "${HELD}" --add-label needs-human \
               || echo "::warning::could not label #${HELD} for a maintainer"
+            if [ -n "${URGENT}" ]; then
+              gh issue edit "${HELD}" --add-label priority/critical-urgent \
+                || echo "::warning::could not label #${HELD} as urgent"
+            fi
             for LABEL in "good first issue" "help wanted"; do
               gh issue edit "${HELD}" --remove-label "${LABEL}" > /dev/null 2>&1 || true
             done
@@ -322,3 +346,49 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           echo "::error::v1 held at ${PREVIOUS:-none}: ${WHY}"
           exit 1
+
+      # A failure that also fails at v1 comes from the image or the VM, not
+      # from the merged change, so it never holds v1. Left alone it keeps every
+      # later run red, the PR VM check included, until someone notices it by
+      # hand (#1143, #1153). File each one for the hive, once while an issue
+      # with the same title is open. Runs after a hold too: the failures it
+      # files are explained by v1 either way. Never fails the job.
+      - name: File pre-existing failures
+        if: always() && steps.compare.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          [ -s preexisting.json ] || exit 0
+          python3 scripts/v1_gate_preexisting.py artifacts "${IMAGE}" preexisting.json "${RUN_URL}" > issues.jsonl
+          [ -s issues.jsonl ] || exit 0
+          OPEN_TITLES=$(gh issue list --state open --limit 1000 --json title --jq '.[].title')
+          : > filed.md
+          while IFS= read -r ISSUE; do
+            TITLE=$(jq -r .title <<<"${ISSUE}")
+            if grep -qxF -- "${TITLE}" <<<"${OPEN_TITLES}"; then
+              echo "Already open: ${TITLE}"
+              continue
+            fi
+            jq -r .body <<<"${ISSUE}" > body.md
+            URL=$(gh issue create --title "${TITLE}" --body-file body.md)
+            NUM=${URL##*/}
+            # One issue for many failures is a maintainer's call (likely the
+            # image as a whole); a single scenario is ready for the hive.
+            if [ "$(jq -r .needs_human <<<"${ISSUE}")" = "true" ]; then
+              LABELS=(kind/bug needs-human)
+            else
+              LABELS=(kind/bug triage/accepted)
+            fi
+            for LABEL in "${LABELS[@]}"; do
+              gh issue edit "${NUM}" --add-label "${LABEL}" > /dev/null \
+                || echo "::warning::could not label #${NUM} ${LABEL}"
+            done
+            echo "- #${NUM} ${TITLE}" >> filed.md
+          done < issues.jsonl
+          if [ -s filed.md ]; then
+            {
+              echo "### Pre-existing failures filed for the hive"
+              echo
+              cat filed.md
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi

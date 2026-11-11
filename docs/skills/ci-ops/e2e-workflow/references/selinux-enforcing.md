@@ -17,8 +17,9 @@ a candidate pass.
 When enabled, `e2e.yml` boots the candidate with its own SELinux mode. There
 is no `selinux=0`, `enforcing=0` or `enforcing=1` on the kernel command line:
 the first two hide policy regressions, the last hides a candidate that ships
-permissive. Helpers live in `scripts/selinux_qualify.py` and
-`scripts/selinux_collect_avc.sh` (both in the sparse checkout). Evidence is
+permissive. Helpers live in `scripts/selinux_qualify.py`,
+`scripts/selinux_collect_avc.sh` and `scripts/selinux_canary.sh` (all in the
+sparse checkout). Evidence is
 written to `results/selinux/` and uploaded with the results artifact.
 
 ## Contract
@@ -67,14 +68,34 @@ Never fix a denial by relabeling the whole tree, `-F` over candidate files,
 ## AVC collection and canary
 
 `selinux_collect_avc.sh` runs in the guest as root and prints AVC/USER_AVC
-records from `ausearch` (when auditd has a log) and the whole journal (all
-kept boots). `selinux_qualify.py` de-duplicates by audit serial.
+records from `ausearch` (or the raw `audit.log` when `ausearch` is missing),
+the whole journal (all kept boots) and the kernel ring buffer (`dmesg`).
+`selinux_qualify.py` de-duplicates by audit serial.
 
-After the scenario log is judged, the gate starts a transient unit in
-`httpd_t` that runs `/usr/bin/cat /etc/shadow` with output discarded. The
-policy forbids that (entrypoint or read), so a new `httpd_t` denial must
-appear and must fail the gate. If it does not, collection is broken and the
-step fails: a clean gate would prove nothing.
+After the scenario log is judged, `selinux_canary.sh` starts a transient unit
+in a confined domain that runs `/usr/bin/cat /etc/shadow` with output
+discarded. It tries `httpd_t`, then `sshd_t`, `getty_t`, `syslogd_t` and
+`chronyd_t`, and stops at the first one whose unit ends with status
+`203/EXEC` (the policy blocked execve). A domain the loaded policy lacks
+ends with `229/SELINUX_CONTEXT` and the next one is tried. A new denial in
+any tried domain must appear and must fail the gate.
+
+The canary script also prints `key=value` diagnostics: each attempt's
+`systemd-run` exit code (`attempt_<domain>`) and output (`canary_output_<domain>`), `/proc/cmdline`, `seinfo -t httpd_t`
+(when `seinfo` exists), whether `/var/log/audit/audit.log` exists, `auditd`
+and `auditctl -s` state, and AVC counts from `journalctl -k`, the whole
+journal and `dmesg`. The gate adds the SSH and collector exit codes, writes
+everything to `results/selinux/canary-diagnostics.txt` and the step summary,
+and `selinux_qualify.py canary --diagnostics` names the failure (#1141):
+
+| Reason | Meaning |
+|--------|---------|
+| `not-run` | Every attempt failed before execve (e.g. 229/SELINUX_CONTEXT), or the guest returned no diagnostics. |
+| `not-collected` | The AVC collector itself failed. |
+| `unknown` | execve failed (203/EXEC), `cat` exited non-zero after execve in any attempt, or a probe read the file (status 0), but no denial was collected; the exit code does not show SELinux caused it. Read the per-attempt output and evidence fields, and check for a `dontaudit` rule. |
+| `permissive` / `allowlisted` | The denial was collected but did not fail the gate. |
+
+Any of these fails the step: a clean gate would prove nothing.
 
 ## Allowlist
 

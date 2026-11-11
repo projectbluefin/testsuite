@@ -22,13 +22,17 @@ candidate and baseline runs pass differently spelled references to the same
 digest, so their suffixes differ.
 
 Usage:
-    python3 scripts/v1_gate_compare.py ARTIFACT_DIR CANDIDATE_IMAGE BASELINE_IMAGE [--summary FILE]
+    python3 scripts/v1_gate_compare.py ARTIFACT_DIR CANDIDATE_IMAGE BASELINE_IMAGE [--summary FILE] [--preexisting FILE]
 
 Prints ``verdict=move`` or ``verdict=hold`` and ``infrastructure=true`` or
 ``infrastructure=false`` for ``$GITHUB_OUTPUT``. ``infrastructure=true`` means
 no failed suite produced test results on either side: the test machines most
 likely never booted (a runner or install problem, as in #1123), so the hold is
 not a test regression and needs a maintainer rather than a contributor.
+
+``--preexisting FILE`` writes the failures that also fail at ``v1`` as JSON
+(``{"suite": ["Feature :: Scenario", ...]}``) for
+``scripts/v1_gate_preexisting.py``, which files them for the hive.
 """
 
 from __future__ import annotations
@@ -164,10 +168,15 @@ def main(argv: list[str]) -> int:
     parser.add_argument("candidate_image")
     parser.add_argument("baseline_image")
     parser.add_argument("--summary", type=Path)
+    parser.add_argument("--preexisting", type=Path)
     args = parser.parse_args(argv[1:])
     result = compare(args.artifacts, args.candidate_image, args.baseline_image)
     if args.summary:
         args.summary.write_text(summary_markdown(result), encoding="utf-8")
+    if args.preexisting:
+        args.preexisting.write_text(
+            json.dumps(result["preexisting"], indent=2) + "\n", encoding="utf-8"
+        )
     print(f"verdict={result['verdict']}")
     print(f"infrastructure={'true' if result['infrastructure'] else 'false'}")
     return 0

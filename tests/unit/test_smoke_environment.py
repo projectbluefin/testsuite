@@ -1,8 +1,11 @@
 """Unit tests for smoke suite environment setup helpers."""
 import importlib
 import sys
+import subprocess
 import types
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 
 def _setup_stubs():
@@ -86,3 +89,71 @@ def test_before_all_suppresses_idle_lock_from_inside_the_runner_container():
 
     assert any("idle-delay" in c and "0" in c for c in commands), commands
     assert any("lock-enabled" in c and "false" in c for c in commands), commands
+
+
+@pytest.mark.parametrize(
+    "virt_rc,has_supply,expected_skip",
+    [(0, False, True), (0, True, False), (1, False, False), (1, True, False)],
+)
+def test_power_hardware_gate_probes_guest_before_sandbox(
+    tmp_path, virt_rc, has_supply, expected_skip,
+):
+    _setup_stubs()
+    env = importlib.import_module("tests.smoke.features.environment")
+    supply_dir = tmp_path / "power_supply"
+    supply_dir.mkdir()
+    if has_supply:
+        (supply_dir / "AC").mkdir()
+
+    def run_guest_probe(command, timeout):
+        assert "systemd-detect-virt --vm --quiet" in command
+        assert timeout == 10
+        command = command.replace("/sys/class/power_supply", str(supply_dir))
+        result = subprocess.run(
+            ["bash", "-c", f"systemd-detect-virt() {{ return {virt_rc}; }}; {command}"],
+            capture_output=True, text=True, timeout=timeout,
+        )
+        return result.stdout, result.returncode, result.stderr
+
+    guest_probe = MagicMock(side_effect=run_guest_probe)
+    sys.modules["steps.steps"]._run_host = guest_probe
+    scenario = MagicMock(tags=["requires_vm_power_supply"],
+                         effective_tags=["requires_vm_power_supply"])
+    context = MagicMock()
+    # Stop applicable scenarios after the capability gate, before GUI hooks.
+    context.is_bluefin_image = False
+    scenario.effective_tags.append("bluefin")
+    with patch("tests.shared.quarantine.skip_quarantine", return_value=False):
+        env.before_scenario(context, scenario)
+    guest_probe.assert_called_once()
+    context.sandbox.before_scenario.assert_not_called()
+    reason = scenario.skip.call_args.args[0]
+    assert ("VM has no power-supply hardware" in reason) == expected_skip
+
+
+@pytest.mark.parametrize("rc,stdout", [(2, ""), (127, ""), (0, "garbage")])
+def test_power_probe_errors_fail_instead_of_skipping(rc, stdout):
+    _setup_stubs()
+    env = importlib.import_module("tests.smoke.features.environment")
+    sys.modules["steps.steps"]._run_host = MagicMock(
+        return_value=(stdout, rc, "probe failed")
+    )
+    scenario = MagicMock(tags=["requires_vm_power_supply"],
+                         effective_tags=["requires_vm_power_supply"])
+    with patch("tests.shared.quarantine.skip_quarantine", return_value=False):
+        with pytest.raises(AssertionError, match="[Pp]ower hardware probe"):
+            env.before_scenario(MagicMock(), scenario)
+    scenario.skip.assert_not_called()
+
+
+def test_other_settings_scenarios_do_not_probe_power_hardware():
+    _setup_stubs()
+    env = importlib.import_module("tests.smoke.features.environment")
+    guest_probe = MagicMock()
+    sys.modules["steps.steps"]._run_host = guest_probe
+    scenario = MagicMock(tags=["bluefin", "settings"],
+                         effective_tags=["bluefin", "settings"])
+    context = MagicMock(is_bluefin_image=False)
+    with patch("tests.shared.quarantine.skip_quarantine", return_value=False):
+        env.before_scenario(context, scenario)
+    guest_probe.assert_not_called()

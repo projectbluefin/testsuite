@@ -43,3 +43,21 @@ if _IN_CONTAINER:
 ```
 
 `xdg-mime query default` does NOT require a running D-Bus session.
+
+## Power panel on hardware-free VMs
+
+The smoke tag `@requires_vm_power_supply` skips before the Settings Background
+only when the DUT is a VM (`systemd-detect-virt --vm`) and its
+`/sys/class/power_supply` directory is empty. The probe uses `_run_host`, not
+runner-local sysfs. Bare metal and VMs exposing any power supply retain the
+normal accessibility assertion; probe failures fail rather than skip.
+
+In testsuite#1153, both attempts of run 43010304130 show Settings opening
+`gnome-control-center power`, followed by a 25-second D-Bus activation timeout
+for `org.freedesktop.UPower.PowerProfiles`. The service starts only near shutdown;
+the captured serial logs do not show a Settings coredump. Boot also reports an
+empty power-supply directory. This supports a narrow hardware-free VM exclusion,
+not a claim that Settings crashes on physical hardware or that all Power panel
+failures are harmless. Do not raise the AT-SPI timeout or quarantine the whole
+feature. Revisit this exclusion when the VM's power-service activation is fixed;
+a successful Power panel run on a hardware-free VM is the removal evidence.

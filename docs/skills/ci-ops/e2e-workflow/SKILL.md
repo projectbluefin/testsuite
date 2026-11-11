@@ -215,7 +215,7 @@ another script runs. Why this fails silently: [troubleshooting.md](references/tr
 18. **Load runner container into VM** — non-common suites; ensures `bluefin-test` has `/etc/subuid`/`/etc/subgid`, runs `podman system migrate`, pipes `ghcr.io/<image-org>/testsuite:runner` via `podman save | ssh podman load`; patches `openssh-clients` into the runner image if missing
 19. **Install Python test stack** — non-common suites; loads `uinput` kernel module, sets device permissions, copies SSH private key into VM for `@plain_ssh` scenarios, queries GNOME session environment into `/tmp/session.env`, enables `unsafe-mode@bluefin-test` extension, sets `toolkit-accessibility true`, disables idle locking for the disposable test user, re-queries AT-SPI bus address after enabling accessibility, terminates any pre-started `gnome-control-center`
 20. **Install gnome-ponytail-daemon** — non-common suites; builds `gnome-ponytail-daemon` (tag `0.0.11`) and `grim` from source inside a `debian:bookworm` container on the runner (without libei, uses Mutter D-Bus fallback for input events; wayland-protocols 1.37 built from source for grim); SCPs binaries into `~/.local/libexec/` and `~/.local/bin/`; registers D-Bus service file and pre-starts the daemon
-21. **Run behave suite** — `common`/`lifecycle`/`installer`: runner-side `python3 tests/shared/behave_retry.py` with `VM_IP/VM_USER/SSH_KEY/SSH_PORT` env vars (this fixed list is the whole environment those suites get — a scenario gated on any other variable can never run; see [installer-suite.md](references/installer-suite.md)). The migration lane additionally receives `MIGRATION_TARGET` and `EXTRA_TAGS` from the two `migration-target`/`extra-tags` inputs below; `EXTRA_TAGS` is appended to `BEHAVE_TAG_ARGS` as `--tags <value>` so a dispatch can scope the lifecycle run to just `@migration`. GUI suites: SCP `tests/<suite>` + `tests/shared` + `tests/__init__.py` to VM, then `podman run ... ghcr.io/<image-org>/testsuite:runner "python3 .../behave_retry.py ... --format json.pretty"` inside VM; always `--tags ~quarantine`; retries controlled by `BEHAVE_RETRIES=2`; then **SELinux denial gate** — `always()` after the suite; re-checks enforcing, collects AVCs via `scripts/selinux_collect_avc.sh`, fails on denials not in `selinux_allowlist.yaml`, then runs the `httpd_t` canary (see [selinux-enforcing.md](references/selinux-enforcing.md))
+21. **Run behave suite** — `common`/`lifecycle`/`installer`: runner-side `python3 tests/shared/behave_retry.py` with `VM_IP/VM_USER/SSH_KEY/SSH_PORT` env vars (this fixed list is the whole environment those suites get — a scenario gated on any other variable can never run; see [installer-suite.md](references/installer-suite.md)). The migration lane additionally receives `MIGRATION_TARGET` and `EXTRA_TAGS` from the two `migration-target`/`extra-tags` inputs below; `EXTRA_TAGS` is appended to `BEHAVE_TAG_ARGS` as `--tags <value>` so a dispatch can scope the lifecycle run to just `@migration`. GUI suites: SCP `tests/<suite>` + `tests/shared` + `tests/__init__.py` to VM, then `podman run ... ghcr.io/<image-org>/testsuite:runner "python3 .../behave_retry.py ... --format json.pretty"` inside VM; always `--tags ~quarantine`; retries controlled by `BEHAVE_RETRIES=2`; then **SELinux denial gate** — `always()` after the suite; re-checks enforcing, collects AVCs via `scripts/selinux_collect_avc.sh`, fails on denials not in `selinux_allowlist.yaml`, then runs the SELinux canary (`scripts/selinux_canary.sh`, `httpd_t` first) and records why it was or was not seen (see [selinux-enforcing.md](references/selinux-enforcing.md))
 22. **Capture post-upgrade desktop screenshot** — lifecycle suite only; SSHes with `ControlMaster=no`, waits up to 60 s for Wayland socket, captures via `gdbus org.gnome.Shell.Eval`
 23. **Capture post-migration screenshot and status** — lifecycle suite only; QEMU framebuffer capture via `qemu_screendump.py` + SSH for `bootc status`, `fastfetch`, `os-release` into `results/migration-status.txt`
 24. **Capture Flatpak screenshots** — when `inputs.screenshot_flatpaks != ''`; runs `screenshot_cli.py` inside the runner container
@@ -297,48 +297,9 @@ The serial log is always uploaded (even on failure) — it's the primary debug t
 
 ---
 
-## zstd:chunked migration toggle
+## Retired migration lane
 
-
-The `@zstd_chunked` tag gates the final-state migration scenario. It is **skipped** (not failed) when disabled.
-
-| Workflow input | Effect |
-|---|---|
-| `chunked_enabled: false` (default) | `@zstd_chunked` scenarios skip |
-| `chunked_enabled: true` | `@zstd_chunked` scenarios run |
-
-Enable once `ghcr.io/<image-org>/bluefin:latest` ships `tar+zstd` OCI layers. Verify:
-```bash
-skopeo inspect --raw docker://ghcr.io/<image-org>/bluefin:latest \
-  | jq '.layers[0].mediaType'
-```
-
----
-
-## Running migration tests manually
-
-
-Use `migration-test.yml` in `<image-org>/actions` to run only the `@migration` scenario group.
-
-**Go to:** [<image-org>/actions → Actions → bootc Migration Test → Run workflow](https://github.com/<image-org>/actions/actions/workflows/migration-test.yml)
-
-| Field | Non-LTS | LTS |
-|---|---|---|
-| `source_image` | `ghcr.io/<readonly-upstream>/bluefin:latest` | `ghcr.io/<readonly-upstream>/bluefin-lts:lts` |
-| `migration_target` | _(leave blank)_ | `ghcr.io/<image-org>/bluefin-lts:stable` |
-| `chunked_enabled` | `false` (default) | `false` (default) |
-
-Wire as a consumer post-build gate:
-```yaml
-migration-test:
-  needs: build
-  uses: <image-org>/actions/.github/workflows/migration-test.yml@<ref>
-  with:
-    source_image: ghcr.io/<readonly-upstream>/bluefin-lts:lts
-    migration_target: ghcr.io/<image-org>/bluefin-lts@${{ needs.build.outputs.digest }}
-```
-
-For non-migration lifecycle runs: dispatch `upgrade-test.yml` in `<image-org>/actions`. `migration-test.yml` passes `migration-target` and `extra-tags` into `e2e.yml`, and both must stay declared there or the `workflow_call` is rejected at startup — wiring, the input table, and the red flag are in [`references/migration-inputs.md`](references/migration-inputs.md).
+The `@migration` and `@zstd_chunked` lifecycle scenarios are gone: testsuite no longer tests the archived Bluefin images. `e2e.yml` keeps its `chunked_enabled` input only for downstream callers that may still pass it; it no longer affects any scenario. `migration-target` and `extra-tags` remain active: `extra-tags` is still appended to the behave tag filter, and `migration-target` is still forwarded as `MIGRATION_TARGET` to the lifecycle steps that drive the image switch.
 
 ---
 
@@ -493,7 +454,6 @@ Load these when you hit the specific topic:
 - [KDE suite wiring, gating, and runner-image split.](references/kde-suites.md)
 - [Hardware-oriented suite groups, the all-blocked backstop, and why it fails loud.](references/hardware-suite-blocked.md)
 - [Installer suite assertions, and why an env-var gate made one unreachable.](references/installer-suite.md)
-- [Migration inputs `migration-target` / `extra-tags` and the startup_failure they cause when missing.](references/migration-inputs.md)
 - [GNOME OS guest lane for the developer extension-validation service and its mandatory gate.](references/gnome-extensions-validation.md)
 - [SELinux enforcing in the e2e guest (default on): labeling, mode checks, AVC gate, canary.](references/selinux-enforcing.md)
 - [GNOME OS image provenance (2-week tag expiry), verified guest inventory, and the extensions pre-boot preflight](references/gnomeos-guest-provenance.md)

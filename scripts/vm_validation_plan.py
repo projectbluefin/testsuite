@@ -84,6 +84,8 @@ RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("scripts/generate_badges.py", ()),
     ("scripts/v1_gate.py", ()),
     ("scripts/v1_gate_compare.py", ()),
+    ("scripts/v1_gate_pins.py", ()),
+    ("scripts/v1_gate_preexisting.py", ()),
     ("scripts/vm_validation_plan.py", ()),
     # Shared helpers: route by the path that imports them.
     ("tests/shared/kde_*", ("kde-smoke",)),
@@ -101,7 +103,6 @@ RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     (".github/actions/gnome-e2e/*", (ACTION,)),
     (".github/workflows/e2e.yml", FULL),
     (".github/workflows/manual.yml", FULL),
-    (".github/workflows/migration-test.yml", (LIFECYCLE,)),
     (".github/workflows/iso-*.yml", ("installer",)),
     # Helper scripts e2e.yml sparse-checks-out and runs per suite.
     ("scripts/install-kde-webdriver.sh", ("kde-smoke",)),

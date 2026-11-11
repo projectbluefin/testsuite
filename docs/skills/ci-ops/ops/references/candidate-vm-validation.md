@@ -34,7 +34,7 @@ git diff --name-only upstream/main...HEAD | python3 scripts/vm_validation_plan.p
 | other `tests/shared/*`, `container/` runner, `scripts/*` that `e2e.yml` runs | `smoke`, `common` |
 | `.github/actions/gnome-e2e/**`, `scripts/extension_validation.py` | `gnome-e2e-action` (reported under `composite_action`, not `suites`) |
 | `.github/workflows/e2e.yml`, `manual.yml` | `smoke`, `common`, `lifecycle` |
-| `migration-test.yml` / `iso-*.yml` | `lifecycle` / `installer` |
+| `iso-*.yml` | `lifecycle` / `installer` |
 | anything else | `smoke`, `common`, `lifecycle` (fail-closed) |
 
 `smoke` is the GUI lane, `common` the SSH lane and `lifecycle` the bootc reboot
@@ -90,7 +90,14 @@ and `.../check-runs`.
 `update-v1-tag.yml` no longer moves `v1` on every push. On a push to `main` it:
 
 1. Plans the range `v1..main` (not just the last push, so a cancelled run's
-   change is still covered) with `scripts/vm_validation_plan.py`.
+   change is still covered) with `scripts/vm_validation_plan.py`. First,
+   `scripts/v1_gate_pins.py` drops any file under `.github/actions/gnome-e2e/`
+   whose whole diff in the range only swaps one pinned commit SHA for another
+   in `uses:` lines (Renovate's `projectbluefin/actions` digest bumps). Those
+   used to hold `v1` every time (#1127, #1140). Any other change in the file,
+   or a ref that is not a full SHA on both sides, keeps it in the plan. The run
+   summary lists the dropped files. This is the gate's version of the hive's
+   pin-only rule; it goes once the gate boots the canary itself (#1144).
 2. Turns the plan into an action with `scripts/v1_gate.py`:
    - `move`: nothing reaches a VM (docs, unit tests, repo tooling).
    - `gate`: boot the planned suites through `e2e.yml` at the merged SHA,
@@ -107,14 +114,32 @@ and `.../check-runs`.
      or `no_hosted_lane`).
 3. On a hold or a failed gate, fails the run and opens (or comments on) the
    issue **"v1 tag held by the post-merge VM gate"** naming the held SHA. The
-   next successful move closes it. Two holds are a maintainer's problem rather
-   than contributor work, so the comment starts with **Needs a maintainer** and
-   the issue gets `needs-human` and `priority/critical-urgent` (and loses
+   next successful move closes it. Three holds are a maintainer's problem
+   rather than contributor work, so the comment starts with **Needs a
+   maintainer**, and the issue gets `needs-human` (and loses
    `good first issue` / `help wanted`):
+   - a `hold` action: only a hand check and a forced run can release it, and
+     it repeats on every push until then (#1149);
    - no failed suite produced test results on either side
      (`v1_gate_compare.py` prints `infrastructure=true`): the test machines
-     most likely never booted, as when `ubuntu-latest` moved to 26.04 (#1123);
-   - the issue has been open for more than 24 hours.
+     most likely never booted, as when `ubuntu-latest` moved to 26.04 (#1123).
+     Also `priority/critical-urgent`;
+   - the issue has been open for more than 24 hours. Also
+     `priority/critical-urgent`.
+4. Files the failures it let through. A scenario that fails at both the
+   merged SHA and `v1` comes from the image or the VM, so it never holds
+   `v1`, but it keeps every later run red (the PR VM check included) until
+   someone deals with it. The step "File pre-existing failures" runs
+   `scripts/v1_gate_preexisting.py` on the `--preexisting` output of
+   `v1_gate_compare.py` and opens one issue per scenario, titled
+   `e2e: <suite> fails on <image>, also at v1: <Feature> :: <Scenario>`,
+   labelled `kind/bug` and `triage/accepted`, for the hive to skip in VMs,
+   quarantine or fix. It files a title only when no open issue has it, so a
+   failure seen on every run is filed once. More than five at once becomes one
+   issue, `e2e: many scenarios fail on <image>, also at v1`, labelled
+   `needs-human`: that many points at the image as a whole. The step runs
+   after a hold too, and never fails the run. Before this, #1143 and #1153
+   were found by hand.
 
 `lifecycle` is planned but not booted (`UNGATED_SUITES`): its upgrade
 scenarios need a second, newer image to upgrade to (#706, #1023), and on one

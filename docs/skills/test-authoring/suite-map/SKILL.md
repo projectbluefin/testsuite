@@ -111,8 +111,7 @@ Any bootc/ostree GNOME image can plug in `smoke` and `common` as a portable heal
 
 **Trigger a lifecycle run manually**:
 Go to **[projectbluefin/actions → Actions → bootc Upgrade and Rollback Test → Run workflow](https://github.com/projectbluefin/actions/actions/workflows/upgrade-test.yml)**.
-Set `image` (e.g. `ghcr.io/ublue-os/bluefin:latest`), `suites: lifecycle`, `chunked_enabled: false`.
-Set `chunked_enabled: true` once `ghcr.io/projectbluefin/bluefin:latest` ships zstd:chunked layers.
+Set `image` (e.g. `ghcr.io/projectbluefin/dakota:latest`), `suites: lifecycle`, `chunked_enabled: false`.
 
 > **For lifecycle runs, use `upgrade-test.yml` in `projectbluefin/actions`** — it
 > calls `e2e.yml` cross-repo and exposes the lifecycle-specific inputs (`chunked_enabled`,
@@ -164,7 +163,7 @@ Set `chunked_enabled: true` once `ghcr.io/projectbluefin/bluefin:latest` ships z
 
 <!-- coverage-snapshot:start -->
 
-571 scenarios across 82 feature files: 455 active, 0 quarantined, 116 `@future`/`@pending`/`@hardware_blocked`
+554 scenarios across 81 feature files: 433 active, 6 quarantined, 115 `@future`/`@pending`/`@hardware_blocked`
 
 | Suite | Scenarios | Active | Quarantined | Pending/Future | Notes |
 |---|---|---|---|---|---|
@@ -178,10 +177,10 @@ Set `chunked_enabled: true` once `ghcr.io/projectbluefin/bluefin:latest` ships z
 | hardware | 13 | 13 | 0 | 0 | udev rules syntax validation (ZSA, Apple SuperDrive, Framework 16, AMD s2idle, Wooting, VIIA); emulated peripherals driven by shared SSH steps |
 | installer | 3 | 3 | 0 | 0 | post-boot assertions for installer-driven installs (UEFI, Flatpak exclusion, LUKS cmdline) |
 | kde-smoke | 13 | 13 | 0 | 0 | Plasma session, D-Bus services, AT-SPI tree, KWin output, one KCM, Dolphin, Konsole, Kickoff; all `@informational` |
-| lifecycle | 33 | 30 | 0 | 3 | bootc upgrade / rollback / migration; switch is `@future` (needs a valid alternate image ref; pin activated with settled-deployment barrier) |
+| lifecycle | 24 | 22 | 0 | 2 | bootc upgrade / rollback / migration; switch is `@future` (needs a valid alternate image ref; pin activated with settled-deployment barrier) |
 | nvidia | 12 | 0 | 0 | 12 | `@future` / `@hardware_blocked` until GPU passthrough exists in the lab |
-| security | 15 | 15 | 0 | 0 | cosign verify: projectbluefin (bluefin, lts, dakota) + ublue-os (latest, LTS, DX, nvidia, GTS, DX-nvidia, negative) |
-| smoke | 221 | 175 | 0 | 46 | 39 `@pending` flatpak-permission audits blocked on CI never seeding system Flatpaks; MIME handler coverage (Firefox/Papers/Loupe/Text Editor/video); GNOME accessibility (AT-SPI daemon, high-contrast toggle, a11y panel); display fractional/integer scaling via Mutter DisplayConfig; Bluefin desktop identity (Wayland, hardware accel, Dash to Dock); GNOME regression guards in gnome_regression.feature; Dakota sudo-rs privilege and PAM checks |
+| security | 7 | 7 | 0 | 0 | cosign verify: projectbluefin (bluefin, lts, dakota) + ublue-os (latest, LTS, DX, nvidia, GTS, DX-nvidia, negative) |
+| smoke | 221 | 169 | 6 | 46 | 39 `@pending` flatpak-permission audits blocked on CI never seeding system Flatpaks; MIME handler coverage (Firefox/Papers/Loupe/Text Editor/video); GNOME accessibility (AT-SPI daemon, high-contrast toggle, a11y panel); display fractional/integer scaling via Mutter DisplayConfig; Bluefin desktop identity (Wayland, hardware accel, Dash to Dock); GNOME regression guards in gnome_regression.feature; Dakota sudo-rs privilege and PAM checks |
 | software | 35 | 27 | 0 | 8 | Bazaar GUI (`@bazaar_ui`: launch, view content per tab, typed search with a visible result, Ctrl+Q quit) + CLI presence/info/remote + config YAML parse (non-empty mappings; empty dir fails) active on images that carry Bazaar; CLI (Flathub remote + permissions DB) active on all images; Flatpak per-app permission management active on all images; FlatPark remote + Compass (`org.tunaos.compass`) system install/permission/export/uninstall lifecycle active (x86_64 only) and the shipped `compass@tunaos.org` default gated on the image enabling it (#1073); upstream GNOME Software scenarios are `@future` (#847) |
 | vanilla-gnome | 15 | 15 | 0 | 0 | Baseline GNOME Shell parity check; runs on any GNOME image; org.gnome.desktop.a11y.interface reduced-motion + keyboard-focus-visible-timeout gsettings round-trips (@requires_gnome_51, skip on GNOME <= 50 via runtime Shell version probe) |
 

@@ -26,6 +26,13 @@ to register manual dispatch. It also supports `workflow_call` from an existing
 workflow for fork experiments. It requests only `contents: read`, publishes no
 image, and uses no registry credentials. It is never scheduled automatically.
 
+It runs on `ubuntu-24.04`, not `ubuntu-latest`: on 26.04 runners bootc's
+loopback install fails with "root partition 3 has type <none>" (#1123). The
+`gnome-e2e` action resolves its own repository and ref in a run step before
+checking out testsuite, because inside the checkout step
+`github.action_repository` names `actions/checkout` (canary run 42919533096
+failed with "not our ref" for that reason).
+
 On a Linux host with rootful Podman, Skopeo, curl, Python and KVM:
 
 ```bash

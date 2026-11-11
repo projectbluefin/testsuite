@@ -29,6 +29,8 @@ IGNORED_FAILED_UNITS_IN_VM = {
     "malcontent-webd-update.service",
     "blueman-mechanism.service",
     "gnome-remote-desktop.service",
+    # geoclue has no network or location source in the isolated QEMU guest
+    "geoclue.service",
     # bootupd cannot update the bootloader inside a QEMU VM (no EFI vars/bootctl)
     "bootloader-update.service",
     # bootctl refuses to set the systemd-boot timeout when not booted with UEFI;

@@ -237,19 +237,15 @@ compare-results run_uid="":
 
 # ── Validation ───────────────────────────────────────────────────────────────
 
-# Verify cosign signatures on all active Bluefin image tags
+# Verify cosign signatures on the active Dakota image tag
 verify-images:
     #!/usr/bin/env bash
     set -euo pipefail
     IMAGES=(
-        "ghcr.io/ublue-os/bluefin:latest"
-        "ghcr.io/ublue-os/bluefin:lts"
-        "ghcr.io/ublue-os/bluefin-dx:latest"
-        # Uncomment as variants are added to the matrix:
-        # "ghcr.io/ublue-os/bluefin-nvidia:latest"
+        "ghcr.io/projectbluefin/dakota:latest"
     )
     ISSUER="https://token.actions.githubusercontent.com"
-    IDENTITY="https://github.com/ublue-os/.*"
+    IDENTITY="https://github.com/projectbluefin/.*"
     FAILED=0
     for img in "${IMAGES[@]}"; do
         echo "Verifying: ${img}..."
@@ -276,10 +272,7 @@ lock-images:
     #!/usr/bin/env bash
     set -euo pipefail
     IMAGES=(
-        "ghcr.io/ublue-os/bluefin:latest"
-        "ghcr.io/ublue-os/bluefin:lts"
-        "ghcr.io/ublue-os/bluefin-dx:latest"
-        "ghcr.io/ublue-os/bluefin-nvidia:latest"
+        "ghcr.io/projectbluefin/dakota:latest"
     )
     LOCKED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     LOCK_FILE="images.lock"

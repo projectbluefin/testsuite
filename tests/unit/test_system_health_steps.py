@@ -121,6 +121,36 @@ class TestFailedSystemdUnits:
         ):
             system_health_steps.no_failed_systemd_units_at_boot(None)
 
+    def test_ignores_geoclue_inside_qemu(self):
+        output = (
+            "UNIT LOAD ACTIVE SUB DESCRIPTION\n"
+            "geoclue.service loaded failed failed Location Lookup Service\n"
+            "1 loaded units listed."
+        )
+        with patch.object(
+            system_health_steps,
+            "_run_host",
+            side_effect=[(output, 0, ""), ("kvm", 0, "")],
+        ):
+            system_health_steps.no_failed_systemd_units_at_boot(None)
+
+    def test_rejects_nfs_unit_failures(self):
+        import pytest
+
+        output = (
+            "UNIT LOAD ACTIVE SUB DESCRIPTION\n"
+            "nfs-idmapd.service loaded failed failed NFSv4 ID-name mapping service\n"
+            "rpc-statd.service loaded failed failed NFS status monitor\n"
+            "2 loaded units listed."
+        )
+        with patch.object(
+            system_health_steps,
+            "_run_host",
+            side_effect=[(output, 0, ""), ("kvm", 0, ""), ("kvm", 0, "")],
+        ):
+            with pytest.raises(AssertionError, match="nfs-idmapd.service"):
+                system_health_steps.no_failed_systemd_units_at_boot(None)
+
     def test_rejects_required_service_failure(self):
         import pytest
 

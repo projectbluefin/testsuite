@@ -95,7 +95,7 @@ A **"Capture post-migration screenshot and status"** step also runs (`always()`,
 
 **Cause:** `github.ref_name` inside a `workflow_call` reusable workflow always resolves to the **default branch** (`main`), not the caller's branch. This is a GitHub Actions platform behavior — it does not reflect the dispatched branch.
 
-**Fix:** Set `test_ref` in the `workflow_dispatch` caller (`manual.yml`, `migration-test.yml`), where `github.ref_name` correctly reflects the dispatched branch:
+**Fix:** Set `test_ref` in the `workflow_dispatch` caller (`manual.yml`), where `github.ref_name` correctly reflects the dispatched branch:
 
 ```yaml
 jobs:

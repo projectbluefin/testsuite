@@ -72,7 +72,7 @@ still belong only in a fresh disposable guest without publishing credentials.
 
 **Root cause:** `github.ref_name` inside a `workflow_call` reusable workflow always resolves to the default branch (`main`). If `e2e.yml` uses it directly as the test checkout ref, it always pulls from `main`.
 
-**Fix:** Pass `test_ref` through the `workflow_dispatch` caller (`manual.yml`, `migration-test.yml`, or another wrapper) using `github.ref_name` on the **workflow_dispatch** side (where it correctly reflects the dispatched branch), then forward it as an input to `e2e.yml`. Inside `e2e.yml`, the checkout must use `inputs.test_ref` directly — never `github.ref_name`. See ops.md "test_ref and github.ref_name" for the exact pattern.
+**Fix:** Pass `test_ref` through the `workflow_dispatch` caller (`manual.yml` or another wrapper) using `github.ref_name` on the **workflow_dispatch** side (where it correctly reflects the dispatched branch), then forward it as an input to `e2e.yml`. Inside `e2e.yml`, the checkout must use `inputs.test_ref` directly — never `github.ref_name`. See ops.md "test_ref and github.ref_name" for the exact pattern.
 
 ### Install OCI image fails: "root partition 3 has type <none>"
 

@@ -8,10 +8,18 @@
 # scripts/selinux_qualify.py de-duplicates by audit serial.
 set -uo pipefail
 
-if command -v ausearch >/dev/null 2>&1 && [[ -s /var/log/audit/audit.log ]]; then
-  ausearch -m AVC,USER_AVC --raw 2>/dev/null || true
+if [[ -s /var/log/audit/audit.log ]]; then
+  if command -v ausearch >/dev/null 2>&1; then
+    ausearch -m AVC,USER_AVC --raw 2>/dev/null || true
+  else
+    # auditd without its search tool: the raw log has the same records.
+    grep -hF 'avc:' /var/log/audit/audit.log* 2>/dev/null || true
+  fi
 fi
 # Without auditd, kernel AVCs land in the journal via kmsg and userspace
 # USER_AVCs (dbus-broker, systemd) via syslog/audit transports. Read every
 # boot the journal kept; `-k` would limit this to the current boot.
 journalctl --no-pager -o cat 2>/dev/null | grep -F 'avc:' || true
+# The kernel ring buffer still holds this boot's kernel AVCs when journald
+# missed or rate-limited them (#1141).
+dmesg 2>/dev/null | grep -F 'avc:' || true

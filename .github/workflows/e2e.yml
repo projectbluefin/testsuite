@@ -265,6 +265,7 @@ jobs:
             scripts/install-kde-webdriver.sh
             scripts/e2e_summary.py
             scripts/image_slug.py
+            scripts/selinux_canary.sh
             scripts/selinux_collect_avc.sh
             scripts/selinux_qualify.py
             selinux_allowlist.yaml
@@ -1681,19 +1682,34 @@ jobs:
           $SSH 'sudo bash -s' < scripts/selinux_collect_avc.sh > "${D}/avc-scenario.log"
           python3 scripts/selinux_qualify.py gate "${D}/avc-scenario.log" \
             --allowlist selinux_allowlist.yaml --json "${D}/avc-verdict.json" || RC=1
-          # Canary: start a transient unit in httpd_t, which may not run
-          # /usr/bin/cat or read shadow_t. Output goes nowhere.
-          $SSH "sudo timeout 60 systemd-run --quiet --wait --collect -p StandardOutput=null -p StandardError=null -p SELinuxContext=system_u:system_r:httpd_t:s0 /usr/bin/cat /etc/shadow" || true
-          sleep 3
-          $SSH 'sudo bash -s' < scripts/selinux_collect_avc.sh > "${D}/avc-after-canary.log"
-          python3 scripts/selinux_qualify.py canary "${D}/avc-scenario.log" "${D}/avc-after-canary.log" \
-            --allowlist selinux_allowlist.yaml --json "${D}/canary.json" || RC=1
+          # Canary: selinux_canary.sh starts a transient unit in a confined
+          # domain (httpd_t first) that may not exec /usr/bin/cat, then
+          # records why (systemd-run result, cmdline, seinfo, audit.log,
+          # journal/dmesg AVC counts) so a missing canary says whether it
+          # could not run or was not collected (#1141).
+          DIAG="${D}/canary-diagnostics.txt"
+          CANARY_SSH_RC=0
+          $SSH 'sudo bash -s' < scripts/selinux_canary.sh > "${DIAG}" 2> "${D}/canary-stderr.txt" || CANARY_SSH_RC=$?
+          echo "canary_ssh_rc=${CANARY_SSH_RC}" >> "${DIAG}"
+          COLLECT_RC=0
+          $SSH 'sudo bash -s' < scripts/selinux_collect_avc.sh > "${D}/avc-after-canary.log" || COLLECT_RC=$?
+          echo "collect_rc=${COLLECT_RC}" >> "${DIAG}"
+          CANARY_OUT=$(python3 scripts/selinux_qualify.py canary "${D}/avc-scenario.log" "${D}/avc-after-canary.log" \
+            --allowlist selinux_allowlist.yaml --diagnostics "${DIAG}" --json "${D}/canary.json") || RC=1
+          echo "${CANARY_OUT}"
           {
             echo "### SELinux qualification: $([[ ${RC} -eq 0 ]] && echo passed || echo FAILED)"
             echo '```'
             cat "${D}/mode.txt"
             python3 scripts/selinux_qualify.py gate "${D}/avc-scenario.log" --allowlist selinux_allowlist.yaml 2>&1 | sed -E 's/^::[a-z]+:://' || true
+            echo "${CANARY_OUT}" | sed -E 's/^::[a-z]+:://'
             echo '```'
+            echo '<details><summary>SELinux canary diagnostics</summary>'
+            echo
+            echo '```'
+            cat "${DIAG}"
+            echo '```'
+            echo '</details>'
           } >> "$GITHUB_STEP_SUMMARY"
           exit "${RC}"
 

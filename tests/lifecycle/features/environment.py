@@ -28,30 +28,16 @@ def before_all(context):
     context.original_digest = None
     context.initial_version_id = None
     context.current_version_id = None
-    context.migration_source_ref = None
     # Run-scoped (set at the root layer so it survives across scenarios):
     # the pre-upgrade VM state that "VM is restored to the pre-upgrade
     # baseline deployment" returns to before each gated upgrade scenario.
     context.lifecycle_baseline = {}
-    # Central toggle: set ZSTD_CHUNKED=false to skip @zstd_chunked scenarios
-    # when the target image does not yet ship with zstd:chunked compression.
-    # Flip to true once projectbluefin/bluefin ships zstd:chunked layers.
-    context.zstd_chunked = os.environ.get("ZSTD_CHUNKED", "true").lower() not in (
-        "false",
-        "0",
-        "no",
-    )
 
 
 def before_scenario(context, scenario):
     from tests.shared.quarantine import skip_quarantine
 
     if skip_quarantine(scenario):
-        return
-    if "zstd_chunked" in scenario.tags and not context.zstd_chunked:
-        scenario.skip(
-            "ZSTD_CHUNKED disabled — skip until projectbluefin/bluefin ships zstd:chunked layers"
-        )
         return
     context.scenario = scenario
     context.command_stdout = ""
@@ -61,7 +47,6 @@ def before_scenario(context, scenario):
     context.original_digest = None
     context.initial_version_id = None
     context.current_version_id = None
-    context.migration_source_ref = None
     record_start(context)
 
 
