@@ -99,6 +99,7 @@ runs:
         sparse-checkout: |
           tests/${{ inputs.suite }}
           tests/shared
+          tests/__init__.py
           scripts
         sparse-checkout-cone-mode: true
 
@@ -338,7 +339,7 @@ runs:
           -serial   file:$(pwd)/vm-serial.log \
           -daemonize \
           -pidfile  /tmp/gnome_e2e_qemu.pid
-        echo "VM booting (pid=$(cat /tmp/gnome_e2e_qemu.pid))"
+        echo "VM booting (pid=$(sudo cat /tmp/gnome_e2e_qemu.pid))"
 
     # ── Wait for SSH ──────────────────────────────────────────────────────────
     - name: Wait for SSH
@@ -452,10 +453,20 @@ runs:
         mkdir -p results
 
         # Copy tests/ tree preserving structure so tests.shared imports resolve.
+        # Copy tests/__init__.py too: without it the guest's tests/ is only a
+        # namespace package and another tests package on the path shadows it.
         $SSH "mkdir -p /tmp/gnome_e2e/tests /tmp/gnome_e2e/results"
         $SCP "_testsuite/tests/${GNOME_E2E_SUITE}" "bluefin-test@127.0.0.1:/tmp/gnome_e2e/tests/"
         [[ -d "_testsuite/tests/shared" ]] && \
           $SCP "_testsuite/tests/shared" "bluefin-test@127.0.0.1:/tmp/gnome_e2e/tests/" || true
+        [[ -f "_testsuite/tests/__init__.py" ]] && \
+          $SCP "_testsuite/tests/__init__.py" "bluefin-test@127.0.0.1:/tmp/gnome_e2e/tests/__init__.py" || true
+
+        # GNOME OS ships a read-only /usr. qecore-headless rewrites the GNOME
+        # Shell unit for --unsafe-mode and, failing to write /usr, falls back to
+        # the writable /etc/systemd/user/. Ensure that directory exists so the
+        # fallback lands instead of the run aborting before any scenario.
+        $SSH "sudo mkdir -p /etc/systemd/user"
 
         HEADLESS_FLAGS=""
         if [[ "${GNOME_E2E_SUITE}" == "gnomeos-canary" ]]; then
