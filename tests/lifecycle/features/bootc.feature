@@ -77,7 +77,7 @@ Feature: bootc upgrade and rollback lifecycle
   @lifecycle @switch @future
   Scenario: bootc switch transitions to a different variant
     # Future: mutates VM image variant (bluefin → bluefin-dx), corrupting
-    # subsequent migration.feature scenarios that expect ublue-os/bluefin as source.
+    # later scenarios that expect the original image as the starting point.
     # Run as a standalone suite once cross-variant golden-disk testing is set up.
     * Run long SSH command: "sudo bootc switch ghcr.io/ublue-os/bluefin-dx:latest"
     * SSH command return code is "0"

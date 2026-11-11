@@ -101,7 +101,6 @@ RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     (".github/actions/gnome-e2e/*", (ACTION,)),
     (".github/workflows/e2e.yml", FULL),
     (".github/workflows/manual.yml", FULL),
-    (".github/workflows/migration-test.yml", (LIFECYCLE,)),
     (".github/workflows/iso-*.yml", ("installer",)),
     # Helper scripts e2e.yml sparse-checks-out and runs per suite.
     ("scripts/install-kde-webdriver.sh", ("kde-smoke",)),

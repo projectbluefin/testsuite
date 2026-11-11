@@ -23,9 +23,7 @@ after bootc switch + reboot
 
 # Justfile local recipes name the stream a developer wants to run the suite
 # against on their own machine; nothing from CI consumes these lines.
-"ghcr.io/ublue-os/bluefin:latest"
-"ghcr.io/ublue-os/bluefin-dx:latest"
-"ghcr.io/ublue-os/bluefin-nvidia:latest"
+"ghcr.io/projectbluefin/dakota:latest"
 
 # Harness image built in the same job and never pulled from a registry.
 localhost/gnomeos-harness:canary
