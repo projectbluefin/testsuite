@@ -395,14 +395,39 @@ def test_canary_failure_not_run_without_guest_output():
     assert "255" in message
 
 
-def test_canary_failure_not_collected_when_blocked_but_missing():
+def test_canary_failure_unknown_when_exec_failed_but_not_collected():
     reason, message = sq.canary_failure(
         sq.canary_result("", "", []), sq.parse_diagnostics(DIAG_BLOCKED)
     )
-    assert reason == "not-collected"
-    assert "not collected" in message
+    assert reason == "unknown"
+    assert "does not show whether SELinux caused it" in message
     assert "audit_log=missing" in message
     assert "journal_kernel_avc=0" in message
+
+
+def test_canary_failure_unknown_when_read_failed_after_exec():
+    diag = sq.parse_diagnostics(
+        DIAG_BLOCKED.replace("rc=203 status=203", "rc=1 status=1")
+        .replace("canary_rc=203", "canary_rc=1")
+        .replace("canary_status=203", "canary_status=1")
+    )
+    reason, message = sq.canary_failure(sq.canary_result("", "", []), diag)
+    assert reason == "unknown"
+    assert "cat exited 1" in message
+    assert "reading the protected file failed" in message
+    assert "no denial was produced" not in message
+
+
+def test_canary_failure_reports_each_attempts_output():
+    diag = sq.parse_diagnostics(
+        DIAG_NOT_RUN + "canary_output_httpd_t=first httpd_t failure\n"
+        "canary_output_sshd_t=second sshd_t failure\n"
+    )
+    assert sq.canary_types(diag) == ("httpd_t", "sshd_t")
+    reason, message = sq.canary_failure(sq.canary_result("", "", []), diag)
+    assert reason == "not-run"
+    assert "httpd_t: first httpd_t failure" in message
+    assert "sshd_t: second sshd_t failure" in message
 
 
 def test_canary_failure_not_collected_when_collector_fails():
@@ -440,9 +465,9 @@ def test_canary_cli_names_reason_and_records_diagnostics(tmp_path):
         "--diagnostics", str(diag), "--json", str(out),
     )
     assert result.returncode == 1
-    assert "did not reach the AVC gate (not-collected)" in result.stdout
+    assert "did not reach the AVC gate (unknown)" in result.stdout
     payload = json.loads(out.read_text())
-    assert payload["reason"] == "not-collected"
+    assert payload["reason"] == "unknown"
     assert payload["diagnostics"]["audit_log"] == "missing"
     assert payload["canary_types"] == ["httpd_t", "sshd_t"]
 
@@ -593,6 +618,7 @@ def test_canary_script_triggers_denial_and_logs_evidence():
         "journalctl -k",
         "canary_rc=",
         "canary_stderr=",
+        "canary_output_${type}=",
     ):
         assert evidence in script
 

@@ -39,6 +39,8 @@ SELINUX_XATTR = "security.selinux"
 CANARY_TYPE = "httpd_t"
 # systemd's EXIT_EXEC: execve failed, here because the policy denied it.
 EXIT_EXEC = "203"
+# systemd exit codes where the unit never reached execve (e.g. 229/SELINUX_CONTEXT).
+CONTEXT_FAILURES = frozenset(range(200, 243)) - {int(EXIT_EXEC)}
 
 _AUDIT_ID = re.compile(r"audit\((\d+\.\d+:\d+)\)")
 _DENIED = re.compile(r"avc:\s+denied\s+\{\s*([^}]*?)\s*\}")
@@ -247,13 +249,25 @@ def _collection_evidence(diagnostics: dict[str, str]) -> str:
     return ", ".join(f"{key}={diagnostics.get(key) or '?'}" for key in keys)
 
 
+def _attempt_outputs(diagnostics: dict[str, str]) -> str:
+    outputs = [
+        f"{key[len('canary_output_'):]}: {value or 'no output'}"
+        for key, value in diagnostics.items()
+        if key.startswith("canary_output_")
+    ]
+    if not outputs:
+        return f"Output: {diagnostics.get('canary_stderr') or 'no output'}"
+    return "Output per attempt: " + "; ".join(outputs)
+
+
 def canary_failure(result: dict, diagnostics: dict[str, str] | None) -> tuple[str, str]:
     """Return (reason, message) for a canary that did not reach the gate.
 
-    reason is ``not-run`` (no denial was produced), ``not-collected`` (a
-    denial was produced but no log the collector reads has it),
+    reason is ``not-run`` (the probe never reached execve), ``not-collected`` (the
+    collector itself failed),
     ``permissive`` or ``allowlisted`` (collected but did not fail the gate),
-    or ``unknown`` when no diagnostics were supplied.
+    or ``unknown`` when the evidence cannot say why (no diagnostics, execve
+    or the read failed without a collected denial).
     """
     denials = result["canary_denials"]
     if denials:
@@ -282,21 +296,29 @@ def canary_failure(result: dict, diagnostics: dict[str, str] | None) -> tuple[st
         )
     status = diagnostics.get("canary_status", "none")
     rc = diagnostics.get("canary_rc", "none")
-    if status != EXIT_EXEC and not (status == "none" and rc == EXIT_EXEC):
-        tried = ", ".join(canary_types(diagnostics))
-        return "not-run", (
-            f"the canary could not run: no candidate domain ({tried}) was blocked at "
-            f"execve, so no denial was produced. Last attempt "
-            f"{diagnostics.get('canary_type')}: systemd-run exit {rc}, unit status "
-            f"{status}: {diagnostics.get('canary_stderr') or 'no output'}. "
-            f"seinfo: {diagnostics.get('seinfo_httpd_t') or '?'}"
+    exec_failed = status == EXIT_EXEC or (status == "none" and rc == EXIT_EXEC)
+    if exec_failed:
+        return "unknown", (
+            f"the canary's execve failed in {diagnostics.get('canary_type')} (status "
+            f"{EXIT_EXEC}/EXEC) but no denial was collected, and the exit code does not "
+            "show whether SELinux caused it. Either the policy blocked it and the denial "
+            f"was not collected ({_collection_evidence(diagnostics)}; dontaudit: "
+            f"{diagnostics.get('sesearch_dontaudit') or 'sesearch unavailable'}) or "
+            f"something else failed execve. {_attempt_outputs(diagnostics)}"
         )
-    return "not-collected", (
-        f"the canary ran and was blocked ({diagnostics.get('canary_type')}, status "
-        f"{EXIT_EXEC}/EXEC) but its denial was not collected: "
-        f"{_collection_evidence(diagnostics)}. Either denials do not reach the audit "
-        f"log, journal or kernel ring buffer, or the policy dontaudits this access "
-        f"({diagnostics.get('sesearch_dontaudit') or 'sesearch unavailable'})"
+    if status.isdigit() and status != "0" and int(status) not in CONTEXT_FAILURES:
+        return "unknown", (
+            f"the canary executed in {diagnostics.get('canary_type')} but cat exited "
+            f"{status}, so reading the protected file failed after execve succeeded; "
+            "the cause is unknown and no denial was collected "
+            f"({_collection_evidence(diagnostics)}). {_attempt_outputs(diagnostics)}"
+        )
+    tried = ", ".join(canary_types(diagnostics))
+    return "not-run", (
+        f"the canary could not run: no candidate domain ({tried}) reached execve, "
+        f"so no denial was produced. Last attempt {diagnostics.get('canary_type')}: "
+        f"systemd-run exit {rc}, unit status {status}. {_attempt_outputs(diagnostics)} "
+        f"seinfo: {diagnostics.get('seinfo_httpd_t') or '?'}"
     )
 
 

@@ -2,7 +2,8 @@
 # Trigger one deliberate SELinux denial in the e2e guest and report how it went.
 #
 # Runs inside the guest as root (piped over SSH: `sudo bash -s < this`).
-# Prints `key=value` lines only; scripts/selinux_qualify.py (`canary
+# Prints `key=value` lines only (`canary_output_<domain>` keeps every attempt's
+# systemd-run output, `canary_stderr` the last one); scripts/selinux_qualify.py (`canary
 # --diagnostics`) reads them to tell "the canary could not run" apart from
 # "the canary ran but its denial was not collected" (#1141).
 #
@@ -34,6 +35,7 @@ for type in "${CANDIDATES[@]}"; do
   canary_rc=${rc}
   canary_status=${status:-none}
   canary_stderr=$(one_line <<<"${out}")
+  echo "canary_output_${type}=${canary_stderr}"
   # 203/EXEC: the policy blocked execve, which is the denial we want.
   [[ "${status}" == "${EXIT_EXEC}" || ( -z "${status}" && "${rc}" == "${EXIT_EXEC}" ) ]] && break
 done

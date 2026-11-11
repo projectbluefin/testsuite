@@ -81,7 +81,7 @@ ends with `229/SELINUX_CONTEXT` and the next one is tried. A new denial in
 any tried domain must appear and must fail the gate.
 
 The canary script also prints `key=value` diagnostics: each attempt's
-`systemd-run` exit code and output, `/proc/cmdline`, `seinfo -t httpd_t`
+`systemd-run` exit code (`attempt_<domain>`) and output (`canary_output_<domain>`), `/proc/cmdline`, `seinfo -t httpd_t`
 (when `seinfo` exists), whether `/var/log/audit/audit.log` exists, `auditd`
 and `auditctl -s` state, and AVC counts from `journalctl -k`, the whole
 journal and `dmesg`. The gate adds the SSH and collector exit codes, writes
@@ -90,8 +90,9 @@ and `selinux_qualify.py canary --diagnostics` names the failure (#1141):
 
 | Reason | Meaning |
 |--------|---------|
-| `not-run` | No candidate domain was blocked at execve (or the guest returned no diagnostics), so no denial was produced. |
-| `not-collected` | A denial was produced (203/EXEC) or the collector failed, but no log the collector reads has it; check the evidence fields, or a `dontaudit` rule. |
+| `not-run` | No candidate domain reached execve (e.g. 229/SELINUX_CONTEXT), or the guest returned no diagnostics. |
+| `not-collected` | The AVC collector itself failed. |
+| `unknown` | execve failed (203/EXEC) or `cat` exited non-zero after execve, but no denial was collected; the exit code does not show SELinux caused it. Read the per-attempt output and evidence fields, and check for a `dontaudit` rule. |
 | `permissive` / `allowlisted` | The denial was collected but did not fail the gate. |
 
 Any of these fails the step: a clean gate would prove nothing.
