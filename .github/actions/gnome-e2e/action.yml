@@ -235,8 +235,26 @@ runs:
         if [[ -n "${BLS_FILE}" ]]; then
           BLS_OPTS=$(sudo grep '^options' "${BLS_FILE}" | sed 's/^options //')
         else
-          DEPLOY_HASH="${DEPLOY%.*}"
-          BLS_OPTS="root=UUID=${ROOT_UUID} rw ostree=/ostree/boot.1/default/${DEPLOY_HASH}/0 systemd.firstboot=no"
+          # No BLS entry (bootc's bootloader step failed): find the deployment's
+          # real ostree boot entry, as e2e.yml and startup-qualification.yml do.
+          # Guessing /ostree/boot.1/default/<hash>/0 left ostree-prepare-root
+          # with "Couldn't find specified OSTree root" (canary run 42932368882).
+          BOOT_ENTRY=$(sudo find /mnt/root/ostree -maxdepth 4 -type l -name '0' | grep -E '/boot\.[0-9]' | grep '/default/' | head -1 || true)
+          if [[ -z "${BOOT_ENTRY}" ]]; then
+            BOOT_DIR="/mnt/root/ostree/boot.0/default/${DEPLOY%.*}"
+            sudo mkdir -p "${BOOT_DIR}"
+            sudo ln -sfT "../../../deploy/default/deploy/${DEPLOY}" "${BOOT_DIR}/${DEPLOY##*.}"
+            BOOT_ENTRY="${BOOT_DIR}/${DEPLOY##*.}"
+          fi
+          OSTREE_PATH="${BOOT_ENTRY#/mnt/root}"
+          # ostree-system-generator only parses /ostree/boot.[01]/... (see e2e.yml).
+          if [[ "${OSTREE_PATH}" =~ /ostree/(boot\.[0-9]+)\.[0-9]+ ]]; then
+            VERSIONED=$(echo "${OSTREE_PATH}" | grep -oE 'boot\.[0-9]+\.[0-9]+')
+            [[ -e "/mnt/root/ostree/${BASH_REMATCH[1]}" ]] || sudo ln -s "${VERSIONED}" "/mnt/root/ostree/${BASH_REMATCH[1]}"
+            OSTREE_PATH="${OSTREE_PATH/${VERSIONED}/${BASH_REMATCH[1]}}"
+          fi
+          echo "ostree boot entry: ${OSTREE_PATH}"
+          BLS_OPTS="root=UUID=${ROOT_UUID} rw ostree=${OSTREE_PATH} systemd.firstboot=no"
         fi
         GNOME_E2E_KERNEL_ARGS="${BLS_OPTS} console=ttyS0,115200 quiet"
         echo "GNOME_E2E_KERNEL_ARGS=${GNOME_E2E_KERNEL_ARGS}" >> "$GITHUB_ENV"
