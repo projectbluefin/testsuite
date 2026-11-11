@@ -1,12 +1,12 @@
 {
   "id": "42931029794",
-  "timestamp": "2026-11-11T02:06:08Z",
+  "timestamp": "2026-11-11T04:05:51Z",
   "stream": "testing",
   "flavor": "dakota",
   "suite": "smoke",
   "version": "40.latest",
   "git_commit": {
-    "sha": "467f16e066f61cc259340cda07f35cb9167d8003",
+    "sha": "61a2ea6872c4b57534f1bb68e59c1d9bcf96715a",
     "message": "E2E test run compiled via projectbluefin/testsuite",
     "author": "KubeVirt Lab",
     "repo_url": "https://github.com/projectbluefin/testsuite"
