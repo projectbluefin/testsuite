@@ -51,7 +51,10 @@ Feature: GNOME Settings smoke tests
     * Navigate to Settings panel "Keyboard"
     * Settings panel "Keyboard" is visible
 
-  @settings @power
+  # QEMU without power-supply hardware: PowerProfiles activation times out
+  # before Settings registers on AT-SPI (testsuite#1153). Keep bare-metal coverage
+  # and run on VMs that expose a power supply; do not extend the UI timeout.
+  @settings @power @requires_vm_power_supply
   Scenario: Power settings panel is accessible
     * Navigate to Settings panel "Power"
     * Settings panel "Power" is visible
