@@ -99,8 +99,11 @@ overlay, so describe it as GNOME OS **with a harness**, never stock GNOME OS.
 The canary requires an empty extension inventory. It cannot be repurposed to
 validate candidate code with the current administrative desktop account. The
 mandatory result gate rejects missing results, empty/all-skipped runs and
-hook/step errors. The canary itself rejects a non-GNOME-OS identity, unknown
-build, non-Wayland session or an accessibility address that is merely the
+hook/step errors. The applicable mandatory gate for this suite is
+`Gate extension-validation run`; the more general
+`Gate suite has passing scenarios` gate explicitly excludes the GNOME OS
+canary. The canary itself rejects a non-GNOME-OS identity, unknown build,
+non-Wayland session or an accessibility address that is merely the
 session-bus fallback. Its child process is bounded to 90 seconds, including
 Ponytail connection waits.
 
