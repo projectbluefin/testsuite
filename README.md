@@ -11,9 +11,9 @@ Coverage metrics and screenshots are published to the [Live Build Health Dashboa
 ## Where this repo fits
 
 ```
-projectbluefin/bluefin      ──┐
-projectbluefin/bluefin-lts  ┼──▶ images ──▶ testsuite (e2e gate) ──▶ promotion
-projectbluefin/dakota       ──┘
+projectbluefin/utah    ──┐
+projectbluefin/dakota  ┼──▶ images ──▶ testsuite (e2e gate) ──▶ promotion
+projectbluefin/common  ──┘
 
 Any GNOME bootc image ──────────────────▶ testsuite (smoke + common)
 ```
@@ -70,7 +70,7 @@ jobs:
       suites: smoke,common
 ```
 
-Pin to `@v1`; testsuite updates the `v1` tag automatically on each merge.
+Pin to `@v1`. After each merge, `update-v1-tag.yml` looks at every change since the current `v1` tag and either moves the tag straight away (for example, docs-only changes), boots the affected suites in a VM first, or holds it for a manual check. So `v1` can lag `main`; see [the gate policy](docs/skills/ci-ops/ops/references/candidate-vm-validation.md) for the exceptions and how to recover a hold.
 
 ### Inputs
 

@@ -34,17 +34,17 @@ Use `.github/workflows/manual.yml` for ad hoc image and suite runs on GitHub Act
 ```bash
 # Smoke suite (auto-shards into smoke-a + smoke-b)
 gh workflow run manual.yml --repo projectbluefin/testsuite --ref main \
-  -f image=ghcr.io/projectbluefin/bluefin:testing \
+  -f image=ghcr.io/projectbluefin/dakota:testing \
   -f suites=smoke
 
 # Common suite (auto-shards into common-a + common-b)
 gh workflow run manual.yml --repo projectbluefin/testsuite --ref main \
-  -f image=ghcr.io/projectbluefin/bluefin:testing \
+  -f image=ghcr.io/projectbluefin/dakota:testing \
   -f suites=common
 
 # Multiple suites
 gh workflow run manual.yml --repo projectbluefin/testsuite --ref main \
-  -f image=ghcr.io/projectbluefin/bluefin:testing \
+  -f image=ghcr.io/projectbluefin/dakota:testing \
   -f suites=smoke,common,vanilla-gnome
 
 # Installer post-boot assertions (SSH-mode, like common/lifecycle)
@@ -70,15 +70,19 @@ gh run view --job=<JOB_ID> --log-failed --repo projectbluefin/testsuite
 
 **Diagnosing failures** — load `docs/skills/ci-ops/ops/SKILL.md` first; the on-demand references cover the most common signatures.
 
-## Merge queue
+## Merging
 
-This repo uses a merge queue (ruleset `main — merge queue`). Enqueue with:
+There is no merge queue. The ruleset is still named `main — merge queue`, but its queue rule was removed on 2026-10-24, and branches don't need to be up to date with `main`.
+
+Required checks: `Lint & syntax`, `Behave dry-run`, `pytest`, `docs-validate`.
+
+The hive merges a PR once its reviewer approves and the required checks pass. A change to `e2e.yml`, `build-runner.yml` or `build-kde-runner.yml` waits for a maintainer, who merges it by hand:
 
 ```bash
-gh pr merge <NUMBER> --repo projectbluefin/testsuite --squash --auto
+gh pr merge <NUMBER> --repo projectbluefin/testsuite --squash
 ```
 
-Required checks: `Lint & syntax`, `Behave dry-run`, `pytest` — all must be green before enqueueing.
+`v1` is moved separately by `update-v1-tag.yml`. It looks at every change since the current `v1` tag and either moves the tag straight away (for example, docs-only changes), boots the affected suites in a VM first, or holds it for a manual check. See [the gate policy](skills/ci-ops/ops/references/candidate-vm-validation.md) for the exceptions and how to recover a hold.
 
 ## Vanilla GNOME baseline comparison
 
@@ -90,7 +94,7 @@ The `vanilla-gnome` suite runs against an unmodified GNOME OS disk to establish 
 Procedure:
 
 1. Dispatch two manual runs and wait for completion:
-   - Downstream baseline: `image=ghcr.io/projectbluefin/bluefin:testing`, `suites=smoke`
+   - Downstream baseline: `image=ghcr.io/projectbluefin/dakota:testing`, `suites=smoke`
    - GNOME OS baseline: `image=quay.io/gnome_infrastructure/gnome-build-meta:gnomeos-latest`, `suites=vanilla-gnome`
 2. Compare overlapping scenarios between `smoke` and `vanilla-gnome`.
 3. Flag regressions that fail on the downstream image but pass on vanilla.
