@@ -584,6 +584,33 @@ def before_scenario(context, scenario) -> None:
 
     scenario_tags = set(getattr(scenario, "effective_tags", scenario.tags))
 
+    if "requires_vm_power_supply" in scenario_tags:
+        # Probe the DUT, not the Fedora runner's /sys or virtualization type.
+        from steps.steps import _run_host
+
+        result = _run_host(
+            'if systemd-detect-virt --vm --quiet; then '
+            'test -d /sys/class/power_supply || exit 2; '
+            'for supply in /sys/class/power_supply/*; do '
+            'if test -e "$supply"; then echo applicable; exit 0; fi; done; '
+            'echo vm-without-power-supply; '
+            'else rc=$?; test "$rc" -eq 1 || exit "$rc"; echo applicable; fi',
+            timeout=10,
+        )
+        assert result.returncode == 0, (
+            f"Power hardware probe failed (rc={result.returncode}): {result.stderr}"
+        )
+        state = result.stdout.strip()
+        assert state in {"applicable", "vm-without-power-supply"}, (
+            f"Unexpected power hardware probe output: {state!r}"
+        )
+        if state == "vm-without-power-supply":
+            scenario.skip(
+                "VM has no power-supply hardware; Power panel service activation "
+                "times out in Dakota QEMU (#1153)"
+            )
+            return
+
     # Skip @vm_only scenarios in container lanes. Those scenarios drive the
     # device under test over SSH, but a container lane runs behave inside the
     # target itself and has no sshd — the resulting connection failure is a
