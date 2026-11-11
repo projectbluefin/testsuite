@@ -116,6 +116,20 @@ and `.../check-runs`.
      Also `priority/critical-urgent`;
    - the issue has been open for more than 24 hours. Also
      `priority/critical-urgent`.
+4. Files the failures it let through. A scenario that fails at both the
+   merged SHA and `v1` comes from the image or the VM, so it never holds
+   `v1`, but it keeps every later run red (the PR VM check included) until
+   someone deals with it. The step "File pre-existing failures" runs
+   `scripts/v1_gate_preexisting.py` on the `--preexisting` output of
+   `v1_gate_compare.py` and opens one issue per scenario, titled
+   `e2e: <suite> fails on <image>, also at v1: <Feature> :: <Scenario>`,
+   labelled `kind/bug` and `triage/accepted`, for the hive to skip in VMs,
+   quarantine or fix. It files a title only when no open issue has it, so a
+   failure seen on every run is filed once. More than five at once becomes one
+   issue, `e2e: many scenarios fail on <image>, also at v1`, labelled
+   `needs-human`: that many points at the image as a whole. The step runs
+   after a hold too, and never fails the run. Before this, #1143 and #1153
+   were found by hand.
 
 `lifecycle` is planned but not booted (`UNGATED_SUITES`): its upgrade
 scenarios need a second, newer image to upgrade to (#706, #1023), and on one

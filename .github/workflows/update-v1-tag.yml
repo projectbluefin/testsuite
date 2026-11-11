@@ -11,7 +11,9 @@
 # image under test. When the candidate fails, the same suites boot again with
 # the tests at the current v1 on the same digest (the baseline), and
 # scripts/v1_gate_compare.py moves v1 only if every candidate failure also
-# fails at v1. Anything it cannot explain holds v1.
+# fails at v1. Anything it cannot explain holds v1. The failures it accepts
+# come from the image or the VM, so scripts/v1_gate_preexisting.py files each
+# one as an issue for the hive to quarantine or fix (#1143, #1153).
 #
 # The range starts at v1, not at the push's previous commit: if a newer push
 # cancels a gated run, the next run still covers the cancelled change.
@@ -226,7 +228,9 @@ jobs:
         with:
           ref: ${{ needs.plan.outputs.sha }}
           persist-credentials: false
-          sparse-checkout: scripts/v1_gate_compare.py
+          sparse-checkout: |
+            scripts/v1_gate_compare.py
+            scripts/v1_gate_preexisting.py
           sparse-checkout-cone-mode: false
 
       - name: Download candidate and baseline results
@@ -242,7 +246,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/v1_gate_compare.py artifacts "${IMAGE}" "${BASELINE_IMAGE}" \
-            --summary compare.md | tee -a "$GITHUB_OUTPUT"
+            --summary compare.md --preexisting preexisting.json | tee -a "$GITHUB_OUTPUT"
           cat compare.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Move or hold v1
@@ -342,3 +346,49 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           echo "::error::v1 held at ${PREVIOUS:-none}: ${WHY}"
           exit 1
+
+      # A failure that also fails at v1 comes from the image or the VM, not
+      # from the merged change, so it never holds v1. Left alone it keeps every
+      # later run red, the PR VM check included, until someone notices it by
+      # hand (#1143, #1153). File each one for the hive, once while an issue
+      # with the same title is open. Runs after a hold too: the failures it
+      # files are explained by v1 either way. Never fails the job.
+      - name: File pre-existing failures
+        if: always() && steps.compare.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          [ -s preexisting.json ] || exit 0
+          python3 scripts/v1_gate_preexisting.py artifacts "${IMAGE}" preexisting.json "${RUN_URL}" > issues.jsonl
+          [ -s issues.jsonl ] || exit 0
+          OPEN_TITLES=$(gh issue list --state open --limit 1000 --json title --jq '.[].title')
+          : > filed.md
+          while IFS= read -r ISSUE; do
+            TITLE=$(jq -r .title <<<"${ISSUE}")
+            if grep -qxF -- "${TITLE}" <<<"${OPEN_TITLES}"; then
+              echo "Already open: ${TITLE}"
+              continue
+            fi
+            jq -r .body <<<"${ISSUE}" > body.md
+            URL=$(gh issue create --title "${TITLE}" --body-file body.md)
+            NUM=${URL##*/}
+            # One issue for many failures is a maintainer's call (likely the
+            # image as a whole); a single scenario is ready for the hive.
+            if [ "$(jq -r .needs_human <<<"${ISSUE}")" = "true" ]; then
+              LABELS=(kind/bug needs-human)
+            else
+              LABELS=(kind/bug triage/accepted)
+            fi
+            for LABEL in "${LABELS[@]}"; do
+              gh issue edit "${NUM}" --add-label "${LABEL}" > /dev/null \
+                || echo "::warning::could not label #${NUM} ${LABEL}"
+            done
+            echo "- #${NUM} ${TITLE}" >> filed.md
+          done < issues.jsonl
+          if [ -s filed.md ]; then
+            {
+              echo "### Pre-existing failures filed for the hive"
+              echo
+              cat filed.md
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
