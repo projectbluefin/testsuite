@@ -43,16 +43,18 @@ workarounds — Bluefin stays on GNOME 50. Version-branch (or fix) a workaround
 | 6 | Nautilus AT-SPI app-name handling (`FILES_APP_NAMES`, `_nautilus_app`) | **STILL REQUIRED** — run confirmed: Files launched, navigated, and closed cleanly on 51 | `tests/smoke/features/steps/gnome_files_steps.py` |
 | 7 | Ptyxis window title (`user@host:~`) | **LIKELY-KEEP** — Ptyxis not exercised by the smoke run; still required on 50 | `tests/smoke/features/steps/gnome_apps_steps.py` |
 | 8 | ScreenSaver D-Bus `Lock` (not `screenShield.lock(true)`) | **LIKELY-KEEP** — `screen_lock_engages` not in the smoke-a/smoke-b run; still required on 50 | `tests/smoke/features/steps/steps.py`; `SKILL.md` "Screen Lock/Unlock D-Bus calls" |
-| 9 | `Main.overview.visible` reads `false` in QEMU; do not assert it | **STILL REQUIRED** — run confirmed: `super_key`, `typing_in_overview`, `switching_workspace` all passed on 51 | `tests/smoke/features/steps/steps.py`; `SKILL.md` "Activities overview (GNOME 50 QEMU)" |
+| 9 | `Main.overview.visible` reads `false` in QEMU; do not assert it | **LIKELY-KEEP (unverified)** — the scenarios passed, but `overview_is_open` checks `OverviewActive`, not `Main.overview.visible`, so the pass cannot show the workaround is still needed; needs a targeted 51 probe of `Main.overview.visible` | `tests/smoke/features/steps/steps.py`; `SKILL.md` "Activities overview (GNOME 50 QEMU)" |
 | 10 | Notification banner dismissal check | **STILL REQUIRED** — run confirmed: `toast_notification_banner_can_be_dismissed` passed on 51 | `tests/smoke/features/steps/gnome_notifications_steps.py` |
-| 11 | Panel buttons `showing=False` before overview toggle | **STILL REQUIRED** — run confirmed: Activities / clock / system-menu toggle buttons were visible on 51 | `tests/shared/gnome_shell_steps.py` |
+| 11 | Panel buttons `showing=False` before overview toggle | **LIKELY-KEEP (unverified)** — panel helpers match role/name without checking `showing`, so the run does not measure this property; needs a targeted 51 probe recording `showing` | `tests/shared/gnome_shell_steps.py` |
 | 12 | keyring skip on GDM restart | **LIKELY-KEEP** — GDM restart not exercised by the smoke run; still required on 50 | `tests/smoke/features/environment.py` |
 
-Rows 4–11 are **confirmed** by the run in §Run evidence. Rows 1, 2, 3, 7, 8, 12
-were **not** exercised by the smoke-a/smoke-b run (they are Bluefin-only or
-bazzite-only paths), so they carry `LIKELY-KEEP`. Before calling this audit
-complete, either run those paths on gnomeos-51 or note in the PR that they
-remain unverified.
+Rows 4–8 and 10 are **confirmed** by the run in §Run evidence. Rows 9 and 11
+passed scenarios that do not measure the affected properties, so they are
+unverified. Rows 1, 2, 3, 7, 8, 12 were **not** exercised by the smoke-a/smoke-b
+run (they are Bluefin-only or bazzite-only paths). All of these carry
+`LIKELY-KEEP`. **This audit is incomplete**: issue #827 requires live
+validation of every row, so running the unverified rows (with targeted probes
+for 9 and 11) on gnomeos-51 is follow-up work.
 
 ## Run target
 
@@ -60,20 +62,11 @@ The image exists and is maintained upstream; `gnomeos-latest` has **not** moved
 since 2026-08-07 and is not a GNOME 51 proxy — use `gnomeos-51`. The tag moves,
 so pin the digest on the day you run.
 
-```yaml
-# .github/workflows/manual.yml  — run this to produce the evidence below
-name: Manual GNOME 51 run
-on: workflow_dispatch
-jobs:
-  e2e:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Run smoke suite on gnomeos-51
-        uses: projectbluefin/actions/e2e-run@main
-        with:
-          image: quay.io/gnome_infrastructure/gnome-build-meta:gnomeos-51
-          suites: smoke-a,smoke-b
+```sh
+gh workflow run manual.yml \
+  -f image=quay.io/gnome_infrastructure/gnome-build-meta@sha256:b3cc30d8052b914c4741ae7ee35c5b1815cccc7bfb2e4e2badb141d2091bdee5 \
+  -f suites=smoke \
+  -f test_ref=827-gnome-51-audit
 ```
 
 ## Run evidence
