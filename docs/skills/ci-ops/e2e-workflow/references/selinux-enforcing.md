@@ -71,6 +71,9 @@ Never fix a denial by relabeling the whole tree, `-F` over candidate files,
 records from `ausearch` (or the raw `audit.log` when `ausearch` is missing),
 the whole journal (all kept boots) and the kernel ring buffer (`dmesg`).
 `selinux_qualify.py` de-duplicates by audit serial.
+The collector is piped to `bash -s` over SSH. Always pass `--input-logs`
+to `ausearch`: otherwise it reads the remaining script from stdin instead of
+the audit logs, preventing the journal and kernel-buffer collection from running.
 
 After the scenario log is judged, `selinux_canary.sh` starts a transient unit
 in a confined domain that runs `/usr/bin/cat /etc/shadow` with output
