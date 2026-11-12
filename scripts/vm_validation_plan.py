@@ -120,6 +120,7 @@ RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("scripts/assert_passed.py", ("kde-smoke", GUI, ACTION)),
     # Run only inside the gnome-e2e composite action, never by e2e.yml.
     ("scripts/extension_validation.py", (ACTION,)),
+    ("scripts/run_gnomeos_canary_behave.sh", (ACTION,)),
     ("scripts/*", (GUI, SSH)),
     ("flatpak-app-list.txt", (GUI, SSH)),
 )

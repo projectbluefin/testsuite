@@ -27,8 +27,11 @@ def test_canary_paths_use_only_canary_on_pr(path):
     assert result["composite_action"] == []
 
 
-def test_composite_action_runs_canary_without_losing_other_suites():
-    path = ".github/actions/gnome-e2e/action.yml"
+@pytest.mark.parametrize("path", [
+    ".github/actions/gnome-e2e/action.yml",
+    "scripts/run_gnomeos_canary_behave.sh",
+])
+def test_composite_action_runs_canary_without_losing_other_suites(path):
     assert suites_for_path(path) == (ACTION,)
     result = plan([path, "tests/smoke/features/test.feature"], pr=True)
     assert result["canary"] is True

@@ -68,7 +68,7 @@ jobs:
               'cat /opt/gnomeos-harness/packages.txt' > results/harness-packages.txt 2>&1 || true
           fi
           if [[ -f /tmp/gnome_e2e_qemu.pid ]]; then
-            sudo kill "$(cat /tmp/gnome_e2e_qemu.pid)" || true
+            sudo kill "$(sudo cat /tmp/gnome_e2e_qemu.pid)" || true
           fi
           sudo chown -R "$(id -u):$(id -g)" results
 

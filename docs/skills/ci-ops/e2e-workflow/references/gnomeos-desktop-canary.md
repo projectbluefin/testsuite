@@ -104,6 +104,11 @@ build, non-Wayland session or an accessibility address that is merely the
 session-bus fallback. Its child process is bounded to 90 seconds, including
 Ponytail connection waits.
 
+The canary launcher obtains the live Wayland and accessibility addresses inside
+qecore's child process, after qecore has set up the desktop session. The action
+copies the `tests` package marker as well as the suite and shared helpers so
+guest Python imports cannot be shadowed by an installed `tests` package.
+
 ## Upstream contracts
 
 - [GNOME OCI contribution guide](https://gnome.pages.gitlab.gnome.org/gnome-build-meta/docs/contributing-oci.html):

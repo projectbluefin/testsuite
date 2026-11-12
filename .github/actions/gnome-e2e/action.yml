@@ -338,7 +338,7 @@ runs:
           -serial   file:$(pwd)/vm-serial.log \
           -daemonize \
           -pidfile  /tmp/gnome_e2e_qemu.pid
-        echo "VM booting (pid=$(cat /tmp/gnome_e2e_qemu.pid))"
+        echo "VM booting (pid=$(sudo cat /tmp/gnome_e2e_qemu.pid))"
 
     # ── Wait for SSH ──────────────────────────────────────────────────────────
     - name: Wait for SSH
@@ -453,22 +453,27 @@ runs:
 
         # Copy tests/ tree preserving structure so tests.shared imports resolve.
         $SSH "mkdir -p /tmp/gnome_e2e/tests /tmp/gnome_e2e/results"
+        $SCP "_testsuite/tests/__init__.py" "bluefin-test@127.0.0.1:/tmp/gnome_e2e/tests/"
         $SCP "_testsuite/tests/${GNOME_E2E_SUITE}" "bluefin-test@127.0.0.1:/tmp/gnome_e2e/tests/"
         [[ -d "_testsuite/tests/shared" ]] && \
           $SCP "_testsuite/tests/shared" "bluefin-test@127.0.0.1:/tmp/gnome_e2e/tests/" || true
 
         HEADLESS_FLAGS=""
+        BEHAVE_PREFIX=""
         if [[ "${GNOME_E2E_SUITE}" == "gnomeos-canary" ]]; then
           HEADLESS_FLAGS="--dont-kill"
+          $SCP "_testsuite/scripts/run_gnomeos_canary_behave.sh" "bluefin-test@127.0.0.1:/tmp/gnome_e2e/"
+          BEHAVE_PREFIX="/bin/bash /tmp/gnome_e2e/run_gnomeos_canary_behave.sh "
         fi
         BEHAVE_RC=0
         $SSH "
           set -e
+          sudo mkdir -p /etc/systemd/user
           source /tmp/gnome_e2e_session.env
           export PATH=\$HOME/.local/bin:\$PATH
           export PYTHONPATH=/tmp/gnome_e2e
           BEHAVE_BIN=\$(which behave)
-          \$HOME/.local/bin/qecore-headless ${HEADLESS_FLAGS} \"\$BEHAVE_BIN /tmp/gnome_e2e/tests/${GNOME_E2E_SUITE}/features/ --format json.pretty --outfile /tmp/gnome_e2e/results/results.json --format pretty --outfile /tmp/gnome_e2e/results/results.txt --format progress --no-capture\"
+          \$HOME/.local/bin/qecore-headless ${HEADLESS_FLAGS} \"${BEHAVE_PREFIX}\$BEHAVE_BIN /tmp/gnome_e2e/tests/${GNOME_E2E_SUITE}/features/ --format json.pretty --outfile /tmp/gnome_e2e/results/results.json --format pretty --outfile /tmp/gnome_e2e/results/results.txt --format progress --no-capture\"
         " || BEHAVE_RC=$?
 
         $SCP "bluefin-test@127.0.0.1:/tmp/gnome_e2e/results/." ./results/ 2>/dev/null || true
