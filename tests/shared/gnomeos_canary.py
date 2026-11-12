@@ -169,14 +169,24 @@ def probe():
         # eval, clipboard or application command is allowed to supply the text.
         for char in expected:
             ponytail.generateKeysymEvent(ord(char))
+        evidence["entry_found"] = False
         deadline = time.monotonic() + 20
         while time.monotonic() < deadline:
             matches = tree.root.findChildren(lambda node: node.name == ENTRY_NAME)
             if matches:
+                evidence["entry_found"] = True
                 evidence["observed"] = matches[0].text
                 if evidence["observed"] == expected:
                     break
             time.sleep(0.25)
+        if evidence["observed"] != expected:
+            # Separate "the text never arrived" from "AT-SPI never found the
+            # entry", and keep a picture of what the window showed.
+            evidence["focused_after_typing"] = _focused(ponytail)
+            evidence["after_typing_screenshot"] = window_wait_diagnostics(child)["screenshot"]
+            print("gnomeos-canary readback: " + json.dumps(
+                {k: evidence.get(k) for k in ("entry_found", "observed", "focused_after_typing", "focus")}),
+                file=sys.stderr, flush=True)
         assert evidence["observed"] == expected, f"Virtual input was not observed over AT-SPI: {evidence}"
         screenshot = RESULTS / "desktop-canary.png"
         screenshot.unlink(missing_ok=True)

@@ -212,12 +212,18 @@ def test_probe_records_typed_value_and_screenshot(probe_env):
     assert FakePonytail.instances[-1].disconnected
 
 
-def test_probe_writes_evidence_when_readback_never_matches(probe_env):
+def test_probe_writes_evidence_when_readback_never_matches(probe_env, monkeypatch):
+    from tests.shared import gnomeos_canary
+    monkeypatch.setattr(gnomeos_canary, "window_wait_diagnostics",
+                        lambda child: {"screenshot": "saved"})
     probe_env["readback"] = lambda expected: expected[:-1]
     with pytest.raises(AssertionError, match="not observed over AT-SPI"):
         probe_env["probe"]()
     evidence = probe_env["evidence"]()
     assert evidence["observed"] == evidence["expected"][:-1]
+    assert evidence["entry_found"] is True
+    assert evidence["focused_after_typing"] is True
+    assert evidence["after_typing_screenshot"] == "saved"
     assert not any("org.gnome.Shell.Screenshot.Screenshot" in c for c in probe_env["commands"])
     assert FakeChild.last.terminated and FakeChild.last.waited
     assert FakePonytail.instances[-1].disconnected
