@@ -480,8 +480,8 @@ Reuse this helper rather than a new `gdbus`-poll loop. See
 GNOME 51. Keep GNOME 50 workarounds while any tested image still needs them.
 See `references/gnome-51-audit.md` for run evidence and per-workaround verdicts.
 Calculator display lookup and Text Editor new-document/quit diverged on plain
-GNOME OS 51. The PR VM check runs `dakota:testing` for every PR, but cannot
-capture the AT-SPI tree for apps that image does not ship.
+GNOME OS 51. When the PR validation plan selects VM-covered suites, the check
+runs `dakota:testing`; it cannot capture AT-SPI trees for apps that image lacks.
 
 ## On-demand references
 

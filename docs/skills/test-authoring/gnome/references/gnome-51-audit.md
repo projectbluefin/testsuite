@@ -95,8 +95,9 @@ findings.
 These are **not** among the twelve workarounds above. In the plain `gnomeos-51`
 run above, Calculator and Text Editor scenarios diverged. In the `dakota:testing`
 v1 gate run above, both apps were absent and their scenarios skipped; that run
-does not show them passing or failing. The PR VM check runs `dakota:testing`
-for every PR, but cannot capture the AT-SPI trees of apps it does not ship.
+does not show them passing or failing. When the PR validation plan selects
+VM-covered suites, the check runs `dakota:testing`; it cannot capture AT-SPI
+trees for apps that image does not ship.
 The findings below are **documented here, not fixed**.
 
 ### Calculator display lookup — broken on 51
