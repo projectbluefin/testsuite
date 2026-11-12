@@ -168,3 +168,41 @@ class TestFailedSystemdUnits:
             pytest.raises(AssertionError, match="gdm.service"),
         ):
             system_health_steps.no_failed_systemd_units_at_boot(None)
+
+
+class TestGraphicalTarget:
+    def test_waits_for_queued_start_then_passes(self):
+        with patch.object(system_health_steps, "_run_host", side_effect=[
+            ("inactive", 3, ""),
+            ("42 graphical.target start waiting", 0, ""),
+            ("active", 0, ""),
+        ]), patch.object(system_health_steps.time, "sleep"):
+            system_health_steps.graphical_target_is_active(None)
+
+    def test_failure_reports_jobs_system_state_and_chain(self):
+        import pytest
+
+        with patch.object(system_health_steps, "_run_host", side_effect=[
+            ("inactive", 3, "inactive stderr"),
+            ("42 other.service start running", 0, ""),
+            ("degraded", 1, ""),
+            ("graphical.target\n  slow.service", 0, ""),
+        ]), pytest.raises(AssertionError) as error:
+            system_health_steps.graphical_target_is_active(None)
+        message = str(error.value)
+        assert "42 other.service start running" in message
+        assert "degraded" in message
+        assert "slow.service" in message
+        assert "inactive stderr" in message
+
+    def test_queued_start_times_out_with_diagnostics(self):
+        import pytest
+
+        with patch.object(system_health_steps, "_run_host", side_effect=[
+            ("inactive", 3, ""),
+            ("42 graphical.target start waiting", 0, ""),
+            ("starting", 1, ""),
+            ("waiting.service", 0, ""),
+        ]), patch.object(system_health_steps.time, "monotonic", side_effect=[0, 60]), \
+             pytest.raises(AssertionError, match="waiting.service"):
+            system_health_steps.graphical_target_is_active(None)

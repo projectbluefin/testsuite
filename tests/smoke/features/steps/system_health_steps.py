@@ -3,6 +3,7 @@ import json
 import os
 import re
 import subprocess
+import time
 
 from behave import step
 from tests.shared.ssh_config import ssh_argv
@@ -343,10 +344,30 @@ def gdm_service_is_active(context) -> None:
 
 @step("graphical.target is active")
 def graphical_target_is_active(context) -> None:
-    output, returncode, stderr = _run_host("systemctl is-active graphical.target")
-    assert output == "active", (
-        f"graphical.target is not active (got '{output}'; stderr={stderr!r}) — "
-        "display manager did not reach the graphical session target."
+    # GDM can be active while the graphical target's start job is still queued.
+    # The cause is unconfirmed; only wait while that specific job exists.
+    deadline = time.monotonic() + 60
+    while True:
+        output, returncode, stderr = _run_host("systemctl is-active graphical.target")
+        if returncode == 0 and output == "active":
+            return
+        jobs, jobs_rc, jobs_err = _run_host("systemctl list-jobs --no-legend --no-pager")
+        queued = jobs_rc == 0 and any(
+            len(fields) >= 3 and fields[1:3] == ["graphical.target", "start"]
+            for fields in (line.split() for line in jobs.splitlines())
+        )
+        remaining = deadline - time.monotonic()
+        if not queued or remaining <= 0:
+            break
+        time.sleep(min(2, remaining))
+
+    running, running_rc, running_err = _run_host("systemctl is-system-running")
+    chain, chain_rc, chain_err = _run_host("systemd-analyze critical-chain graphical.target")
+    raise AssertionError(
+        f"graphical.target is not active (got {output!r}; rc={returncode}; stderr={stderr!r})\n"
+        f"systemctl list-jobs (rc={jobs_rc}):\n{jobs}\n{jobs_err}\n"
+        f"systemctl is-system-running (rc={running_rc}):\n{running}\n{running_err}\n"
+        f"systemd-analyze critical-chain graphical.target (rc={chain_rc}):\n{chain}\n{chain_err}"
     )
 
 
