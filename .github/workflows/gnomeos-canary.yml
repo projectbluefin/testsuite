@@ -20,7 +20,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Free disk space
-        uses: projectbluefin/actions/bootc-build/setup-runner@41992083f437357010da2ea072ef353d982ae369 # v1
+        uses: projectbluefin/actions/bootc-build/setup-runner@4d0850f9bcc9d80a6233fd112aa979fc6adceb2a # v1
         with:
           update-podman: "false"
 
