@@ -12,14 +12,15 @@ metadata:
 
 Audits every GNOME 50-specific workaround in the repo against GNOME 51 and
 records what a **live `gnomeos-51` run** actually proved. This is the source of
-truth the `gnome` skill (`SKILL.md`) links to. Do **not** delete GNOME 50
-workarounds — Bluefin stays on GNOME 50. Version-branch (or fix) a workaround
-**only** after a 51 run proves the behavior genuinely diverged.
+truth the `gnome` skill (`SKILL.md`) links to. `dakota:testing` runs GNOME
+51.1, and its e2e smoke runs exercise workarounds on GNOME 51 (see §Run evidence).
+Keep GNOME 50 workarounds while another tested image still needs them.
+Version-branch or fix a workaround only after a run proves behavior diverges.
 
 ## Status key
 
 - **still required** — the workaround's behavior holds on GNOME 51; the run
-  confirmed it. Keep it (Bluefin needs it; GNOME 51 needs it).
+  confirmed it. Keep it on GNOME 51.
 - **broken on 51** — the run proved the workaround no longer works on GNOME 51;
   the step needs a GNOME 51 fix or a version branch.
 - **obsolete** — the workaround targets a GNOME 50 bug that no longer exists on
@@ -79,6 +80,10 @@ gh workflow run manual.yml \
 - **smoke-a:** 28 passed, 11 failed · **smoke-b:** 51 passed, 11 failed
 - **smoke-firefox:** passed
 
+- **`dakota:testing` PR VM run:** https://github.com/projectbluefin/testsuite/actions/runs/43170644165 — logs GNOME Shell 51.
+- **`dakota:testing` v1 gate run:** https://github.com/projectbluefin/testsuite/actions/runs/43126910959 — smoke-a and smoke-b skip Calculator and Text Editor because the apps are not installed.
+- **Image version:** GNOME 51.1 is recorded in [dakota #1796](https://github.com/projectbluefin/dakota/pull/1796).
+
 The 11 failures in smoke-a and smoke-b are **Bluefin-only** (see §Bluefin-only
 failures) — extensions, power-status, tailscale, fastfetch, and failed-units are
 expected on plain gnomeos-51 and are **not** GNOME 51 divergences. The two
@@ -87,12 +92,12 @@ findings.
 
 ## Run findings — Calculator and Text Editor divergences
 
-These are **not** among the twelve workarounds above. They are vanilla GNOME
-app smoke scenarios that the maintainer flagged ("look at calculator and text
-editor"). Both fail on GNOME 51 and pass on GNOME 50 (Bluefin). They are
-**documented here, not fixed** — the fix requires the GNOME 51 AT-SPI tree for
-each app, which cannot be captured locally (no VM here, `qecore` not
-importable). Do not treat the notes below as fixes.
+These are **not** among the twelve workarounds above. In the plain `gnomeos-51`
+run above, Calculator and Text Editor scenarios diverged. In the `dakota:testing`
+v1 gate run above, both apps were absent and their scenarios skipped; that run
+does not show them passing or failing. The PR VM check runs `dakota:testing`
+for every PR, but cannot capture the AT-SPI trees of apps it does not ship.
+The findings below are **documented here, not fixed**.
 
 ### Calculator display lookup — broken on 51
 
@@ -111,11 +116,9 @@ importable). Do not treat the notes below as fixes.
   `-5` match no button and fail. The screenshot
   `screenshot_smoke_failed_basic_multiplication.png` shows the calculator with
   no display value matching.
-- **What the run proves:** the display node's role/structure on GNOME 51 differs
-  from GNOME 50. The step must be re-grounded against the GNOME 51 AT-SPI tree
-  for `gnome-calculator` (find the real display node, or distinguish it from the
-  keypad buttons). **Not fixable from here** — capture the GNOME 51 AT-SPI tree
-  first.
+- **What the run proves:** the step did not locate the display node on this
+  `gnomeos-51` image. Capture the app's GNOME 51 AT-SPI tree to identify the
+  real display node or distinguish it from the keypad buttons.
 - **Also failing:** `calculator_closes_cleanly_via_ctrl_q` — `Ctrl+Q` did not
   quit (see Text Editor below; shared key-combo path).
 
@@ -130,11 +133,9 @@ importable). Do not treat the notes below as fixes.
   empty buffer. `Ctrl+N` is not creating a new document on GNOME 51. Plain
   character entry via uinput works, so the input layer is fine — the failure is
   specific to the `Key combo` path (`Ctrl+N`/`Ctrl+S`/`Ctrl+Shift+S`).
-- **What the run proves:** the `Key combo` step (in `qecore`, external to this
-  repo) does not drive the expected accelerator on GNOME 51 for Text Editor. The
-  fix lives either in `qecore`'s key delivery or in a GNOME 51 test branch that
-  avoids the broken combo. **Not fixable from here** — needs a GNOME 51 run with
-  `qecore` debug logging to confirm whether the combo is dropped or mis-routed.
+- **What the run shows:** the `Key combo` step did not drive the expected
+  accelerator for Text Editor on this `gnomeos-51` image. A run with `qecore`
+  debug logging is needed to establish whether the combo is dropped or mis-routed.
 
 ## Bluefin-only failures (expected on gnomeos-51 — not divergences)
 

@@ -476,12 +476,12 @@ Reuse this helper rather than a new `gdbus`-poll loop. See
 
 ## GNOME 51 workarounds audit
 
-Bluefin stays on GNOME 50, so every "GNOME 50" section above is still required.
-The full per-workaround verdict is in `references/gnome-51-audit.md`. Two things
-diverge on GNOME 51 and need a fix/version branch there — Calculator display
-lookup and Text Editor new-document/quit — documented in the audit, not fixed
-here (the fix needs the GNOME 51 AT-SPI tree, which cannot be captured without a
-VM).
+`dakota:testing` runs GNOME 51.1; its e2e smoke runs exercise workarounds on
+GNOME 51. Keep GNOME 50 workarounds while any tested image still needs them.
+See `references/gnome-51-audit.md` for run evidence and per-workaround verdicts.
+Calculator display lookup and Text Editor new-document/quit diverged on plain
+GNOME OS 51. The PR VM check runs `dakota:testing` for every PR, but cannot
+capture the AT-SPI tree for apps that image does not ship.
 
 ## On-demand references
 
