@@ -188,19 +188,20 @@ _SESSION_ENV = "[ -f /tmp/session.env ] && . /tmp/session.env; "
 
 
 def _clipboard_set(text: str) -> None:
-    """Put ``text`` on the clipboard, fed to wl-copy on stdin.
+    """Put ``text`` on the clipboard, fed to wl-copy from a guest file.
 
-    On stdin, not argv: a NUL byte cannot go in an argument (Python raises
-    ValueError before running anything). wl-copy forks a child that keeps
-    serving the selection; it inherits wl-copy's stdout and stderr, so with
-    those on the SSH channel ssh waits for the child and hangs to the
-    timeout. Send stdout to /dev/null and stderr to a file, shown only if
-    wl-copy fails.
+    The payload travels on stdin, not argv: a NUL byte cannot go in an
+    argument (Python raises ValueError before running anything). wl-copy
+    forks a child that keeps serving the selection, and the child inherits
+    wl-copy's stdin, stdout and stderr. With any of them on the SSH channel,
+    ssh waits for the child and hangs to the timeout (#1164). So drain stdin
+    into a temp file first and give wl-copy that file; send stdout to
+    /dev/null and stderr to a file, shown only if wl-copy fails.
     """
     inner = _SESSION_ENV + (
-        'err=$(mktemp); '
-        'if wl-copy >/dev/null 2>"$err"; then rm -f "$err"; '
-        'else cat "$err" >&2; rm -f "$err"; exit 1; fi'
+        'f=$(mktemp); err=$(mktemp); cat >"$f"; '
+        'if wl-copy <"$f" >/dev/null 2>"$err"; then rm -f "$f" "$err"; '
+        'else cat "$err" >&2; rm -f "$f" "$err"; exit 1; fi'
     )
     argv = ssh_argv() + [inner] if _IN_CONTAINER else ["sh", "-c", inner]
     result = subprocess.run(

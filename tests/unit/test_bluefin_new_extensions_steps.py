@@ -6,6 +6,7 @@ stub ``behave``, ``dogtail``, ``steps.gnome_extensions_steps`` and
 journal filtering, memory-bound math, gsettings key parsing, and the
 soft-pass/hard-fail branching used throughout the module.
 """
+import os
 import sys
 import types
 from unittest.mock import MagicMock, patch
@@ -400,7 +401,7 @@ class TestClipboardSet:
         argv = run.call_args.args[0]
         assert argv[: len(_SSH)] == _SSH
         inner = argv[-1]
-        assert "wl-copy >/dev/null 2>" in inner
+        assert 'wl-copy <"$f" >/dev/null 2>' in inner
         assert "/tmp/session.env" in inner
         assert run.call_args.kwargs["timeout"] == 30
         assert run.call_args.kwargs["capture_output"] is True
@@ -410,11 +411,36 @@ class TestClipboardSet:
             run = self._run(mod, "hello")
         argv = run.call_args.args[0]
         assert argv[:2] == ["sh", "-c"]
-        assert "wl-copy >/dev/null 2>" in argv[2]
+        assert 'wl-copy <"$f" >/dev/null 2>' in argv[2]
 
     def test_a_failure_reports_wl_copys_stderr(self, mod):
         with pytest.raises(AssertionError, match="Failed to connect to a Wayland server"):
             self._run(mod, "hello", returncode=1, stderr=b"Failed to connect to a Wayland server\n")
+
+
+    def test_wl_copy_reads_a_drained_file_not_the_ssh_channel(self, mod):
+        # wl-copy's selection-serving child inherits its stdin (#1164).
+        inner = self._run(mod, "hello").call_args.args[0][-1]
+        assert inner.index('cat >"$f"') < inner.index('wl-copy <"$f"')
+        assert "wl-copy >/dev/null" not in inner  # never wl-copy straight off stdin
+
+    def test_real_shell_hands_wl_copy_a_file_and_the_exact_bytes(self, mod, tmp_path, monkeypatch):
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        seen_stdin, copied = tmp_path / "stdin-kind", tmp_path / "copied"
+        stub = bin_dir / "wl-copy"
+        stub.write_text(
+            "#!/bin/sh\n"
+            f'if [ -f /dev/stdin ] && [ ! -p /dev/stdin ]; then echo file >"{seen_stdin}"; '
+            f'else echo other >"{seen_stdin}"; fi\n'
+            f'cat >"{copied}"\n')
+        stub.chmod(0o755)
+        monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
+        payload = "before \x00 after \r\n\t\x1b[31m"
+        with patch.object(mod, "_IN_CONTAINER", False):
+            mod._clipboard_set(payload)
+        assert seen_stdin.read_text().strip() == "file"
+        assert copied.read_bytes() == payload.encode("utf-8")
 
 
 class TestClipboardGet:
