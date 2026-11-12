@@ -3,7 +3,19 @@ name: GNOME OS desktop canary
 # Explicit experiment only. Does not install or validate candidate extensions.
 on:
   workflow_dispatch:
+    inputs:
+      test_ref:
+        description: "Commit SHA or ref to test, for example a pull request head; empty means the dispatched commit."
+        type: string
+        required: false
+        default: ""
   workflow_call:
+    inputs:
+      test_ref:
+        description: "Commit SHA or ref to test, for example a pull request head; empty means the dispatched commit."
+        type: string
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -17,7 +29,10 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Checkout
+        id: checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        ref: ${{ inputs.test_ref || github.sha }}
+        persist-credentials: false
 
       - name: Free disk space
         uses: projectbluefin/actions/bootc-build/setup-runner@46001bf923f11eab3a88fe1cf4540debb050516c # v1
@@ -36,7 +51,7 @@ jobs:
         with:
           image: localhost/gnomeos-harness:canary
           suite: gnomeos-canary
-          testsuite-ref: ${{ github.sha }}
+          testsuite-ref: ${{ steps.checkout.outputs.commit }}
           free-disk-space: 'false'
 
       - name: Collect guest journal and stop VM
