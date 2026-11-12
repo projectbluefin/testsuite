@@ -207,7 +207,7 @@ jobs:
           fi
 
   e2e:
-    name: ${{ startsWith(matrix.suite, 'kde') && 'KDE Plasma' || 'GNOME 50' }} — ${{ matrix.suite }}
+    name: ${{ startsWith(matrix.suite, 'kde') && 'KDE Plasma' || 'GNOME' }} — ${{ matrix.suite }}
     needs: [matrix, compose]
     # Run whenever the matrix resolved, even if compose was skipped (toggle
     # off) or failed (fallback to the raw image + runtime installs).
