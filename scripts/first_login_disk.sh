@@ -108,7 +108,15 @@ for DEP in "$STATEROOT"/deploy/*/; do
   printf 'PermitRootLogin prohibit-password\nPubkeyAuthentication yes\nPasswordAuthentication no\nAuthorizedKeysCommand /bin/cat /etc/ssh/ci-authorized-keys\nAuthorizedKeysCommandUser root\n' \
     | sudo tee "$DEP/etc/ssh/sshd_config.d/00-ci-root.conf" >/dev/null
   sudo install -m 644 -o root -g root "$PUBKEY" "$DEP/etc/ssh/ci-authorized-keys"
-  printf '%s\n' "$DEP/etc/ssh/sshd_config.d/00-ci-root.conf" "$DEP/etc/ssh/ci-authorized-keys" >> "$LABEL_LIST"
+  # The image doesn't enable sshd; enable it and pre-generate host keys, as
+  # e2e.yml does. Only the probe's SSH depends on this, not the desktop.
+  sudo mkdir -p "$DEP/etc/systemd/system/multi-user.target.wants"
+  sudo ln -sf /usr/lib/systemd/system/sshd.service \
+    "$DEP/etc/systemd/system/multi-user.target.wants/sshd.service"
+  sudo ssh-keygen -A -f "$DEP" >/dev/null
+  printf '%s\n' "$DEP/etc/ssh/sshd_config.d/00-ci-root.conf" "$DEP/etc/ssh/ci-authorized-keys" \
+    "$DEP/etc/systemd/system/multi-user.target.wants/sshd.service" >> "$LABEL_LIST"
+  sudo find "$DEP/etc/ssh" -maxdepth 1 -name 'ssh_host_*' | tee -a "$LABEL_LIST" >/dev/null
   # Regular users the disk would start with (names and uids only; no shadow).
   for passwd in "$DEP/etc/passwd" "$DEP/usr/lib/passwd"; do
     [[ -f "$passwd" ]] && sudo awk -F: -v src="${passwd#"$DEP"}" '$3 >= 1000 && $3 < 60000 {print src ": " $1 " " $3}' "$passwd"

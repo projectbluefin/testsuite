@@ -177,3 +177,10 @@ def test_wait_for_serial_tolerates_an_unreadable_log(tmp_path):
 def test_serial_log_is_created_as_the_runner_user_before_boot():
     boot = _step("Boot through OVMF")["run"]
     assert boot.index(': > "${RUN_DIR}/serial.log"') < boot.index("qemu-system-x86_64")
+
+
+def test_disk_enables_sshd_with_labelled_host_keys():
+    # Bluefin images ship sshd disabled; without this the probe can't reach the guest.
+    assert "multi-user.target.wants/sshd.service" in DISK_SCRIPT
+    assert 'ssh-keygen -A -f "$DEP"' in DISK_SCRIPT
+    assert "-name 'ssh_host_*' | tee -a \"$LABEL_LIST\"" in DISK_SCRIPT
