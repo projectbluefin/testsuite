@@ -49,6 +49,20 @@ def entry_window():
     Gtk.main()
 
 
+def wait_for_focused_window(ponytail, child, timeout=20):
+    # Ponytail 0.0.11 only retries on RunningApplicationsChanged. A focus
+    # change within an already running application need not emit that signal.
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if child.poll() is not None:
+            raise RuntimeError(f"Canary window exited with status {child.returncode}")
+        try:
+            return ponytail.getWindowId(TITLE, want_focus=True)
+        except ValueError:
+            time.sleep(0.25)
+    raise TimeoutError(f"Canary window did not become focused: {ponytail.window_list}")
+
+
 def probe():
     identity = require_gnomeos_wayland(Path("/usr/lib/os-release").read_text(), os.environ)
     from dogtail import tree
@@ -67,7 +81,7 @@ def probe():
     ponytail = None
     try:
         ponytail = Ponytail()
-        window_id = ponytail.waitFor(TITLE, timeout=20)
+        window_id = wait_for_focused_window(ponytail, child)
         ponytail.connectWindow(window_id)
         # ASCII keysyms are their Unicode values; no AT-SPI text setter, shell
         # eval, clipboard or application command is allowed to supply the text.

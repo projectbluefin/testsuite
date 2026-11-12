@@ -97,7 +97,7 @@ class FakePonytail:
         self.keysyms = []
         FakePonytail.instances.append(self)
 
-    def waitFor(self, title, timeout):
+    def getWindowId(self, title, want_focus):
         if self.fail_at == "wait":
             raise RuntimeError("window never appeared")
         return 7
@@ -116,6 +116,9 @@ class FakeChild:
     def __init__(self, *args, **kwargs):
         self.terminated = self.waited = False
         FakeChild.last = self
+
+    def poll(self):
+        return None
 
     def terminate(self):
         self.terminated = True
@@ -205,3 +208,18 @@ def test_probe_only_disconnects_after_connecting(probe_env, fail_at):
     assert probe_env["evidence"]()["observed"] == ""
     assert FakeChild.last.terminated and FakeChild.last.waited
     assert all(not p.disconnected for p in FakePonytail.instances)
+
+
+def test_window_wait_observes_focus_without_application_signal(probe_env, monkeypatch):
+    attempts = []
+
+    def lookup(self, title, want_focus):
+        attempts.append((title, want_focus))
+        if len(attempts) < 3:
+            raise ValueError("Window not found")
+        return 7
+
+    monkeypatch.setattr(FakePonytail, "getWindowId", lookup)
+    probe_env["probe"]()
+    assert len(attempts) == 3
+    assert FakePonytail.instances[-1].disconnected
