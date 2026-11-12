@@ -102,6 +102,8 @@ class FakePonytail:
         self.keysyms = []
         self.clicks = []
         self.control = []
+        self.windows = []
+        self.monitor_connected = False
         self.focused = self.window == "focused"
         FakePonytail.instances.append(self)
 
@@ -124,11 +126,11 @@ class FakePonytail:
 
     def connectWindow(self, window_id):
         self.connected = window_id
+        self.windows.append(window_id)
 
-    def generateKeycodeEvent(self, keycode):
-        from tests.shared.gnomeos_canary import HEX_KEYCODES
-        char = {code: c for c, code in HEX_KEYCODES.items()}[keycode]
-        self.keysyms.append(ord(char))
+    def connectMonitor(self, monitor=""):
+        self.connected = monitor
+        self.monitor_connected = True
 
     def generateKeysymEvent(self, keysym):
         if keysym >= 0xFF00:  # control keys (Escape) aren't typed text
@@ -264,7 +266,7 @@ def test_probe_focuses_an_unfocused_window_with_a_real_click(probe_env):
     assert evidence["focus"] == "click"
     assert evidence["observed"] == evidence["expected"]
     ponytail = FakePonytail.instances[-1]
-    assert ponytail.connected == 7
+    assert ponytail.windows == [7]  # clicked through the window connection
     (button, x, y), *_ = ponytail.clicks
     assert button == 1 and x == 240 and 37 < y < 157  # inside the entry, below any title bar
 
@@ -294,15 +296,13 @@ def test_probe_fails_with_diagnostics_when_the_window_never_maps(probe_env, monk
     with pytest.raises(ValueError, match="Timeout waiting for Window"):
         probe_env["probe"]()
     assert probe_env["evidence"]()["window_wait"] == {"seen": "nothing"}
-    assert FakePonytail.instances[-1].connected is None
+    assert FakePonytail.instances[-1].windows == []
 
 
-def test_probe_types_with_xkb_keycodes_for_every_hex_digit(probe_env):
-    from tests.shared import gnomeos_canary
-    assert set(gnomeos_canary.HEX_KEYCODES) == set("0123456789abcdef")
-    # XKB = evdev + 8: KEY_A is evdev 30, KEY_1 is evdev 2.
-    assert gnomeos_canary.HEX_KEYCODES["a"] == 38 and gnomeos_canary.HEX_KEYCODES["1"] == 10
-    assert len(set(gnomeos_canary.HEX_KEYCODES.values())) == 16
+def test_probe_types_through_a_monitor_connection(probe_env):
+    # dogtail types through connectMonitor(); keys sent through the window
+    # connection never reached the entry on GNOME OS.
     probe_env["probe"]()
     evidence = probe_env["evidence"]()
-    assert evidence["input"] == "keycode" and evidence["observed"] == evidence["expected"]
+    assert evidence["input"] == "keysym-monitor" and evidence["observed"] == evidence["expected"]
+    assert FakePonytail.instances[-1].monitor_connected
