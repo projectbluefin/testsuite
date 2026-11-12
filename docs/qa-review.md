@@ -53,6 +53,7 @@ Run unit tests with `python3 -m pytest tests/unit/ -q`. The `pytest` CI check (`
 | File | What it covers |
 |---|---|
 | `test_selinux_collect_avc.py` | Piped SELinux collector preserves audit, journal, and kernel records |
+| `test_gnomeos_canary_behave.py` | GNOME OS canary wrapper re-reads the live session (Wayland display, session and AT-SPI buses) after qecore's restart, and only the canary uses it |
 | `test_gnomeos_canary.py` | GNOME OS identity/session rejection, AT-SPI fallback rejection, strict result/process gate and evidence wiring |
 | `test_gnome_shell_steps.py` | Shell.Eval, AT-SPI step helpers, ShellEval bool variants |
 | `test_gnome_settings_steps.py` | Settings panel navigation and toggle helpers |

@@ -469,8 +469,16 @@ runs:
         $SSH "sudo mkdir -p /etc/systemd/user"
 
         HEADLESS_FLAGS=""
+        BEHAVE_PREFIX=""
         if [[ "${GNOME_E2E_SUITE}" == "gnomeos-canary" ]]; then
           HEADLESS_FLAGS="--dont-kill"
+          # qecore-headless replaces its environment with the first
+          # gnome-session's environ, which has no WAYLAND_DISPLAY or session
+          # bus (#1144). The wrapper reads them after qecore's GDM restart and
+          # execs behave. qecore needs the script's first word to be an
+          # executable, so call it through the harness Python checked above.
+          $SCP "_testsuite/scripts/gnomeos_canary_behave.py" "bluefin-test@127.0.0.1:/tmp/gnome_e2e/"
+          BEHAVE_PREFIX="/opt/gnomeos-harness/bin/python3 /tmp/gnome_e2e/gnomeos_canary_behave.py "
         fi
         BEHAVE_RC=0
         $SSH "
@@ -479,7 +487,7 @@ runs:
           export PATH=\$HOME/.local/bin:\$PATH
           export PYTHONPATH=/tmp/gnome_e2e
           BEHAVE_BIN=\$(which behave)
-          \$HOME/.local/bin/qecore-headless ${HEADLESS_FLAGS} \"\$BEHAVE_BIN /tmp/gnome_e2e/tests/${GNOME_E2E_SUITE}/features/ --format json.pretty --outfile /tmp/gnome_e2e/results/results.json --format pretty --outfile /tmp/gnome_e2e/results/results.txt --format progress --no-capture\"
+          \$HOME/.local/bin/qecore-headless ${HEADLESS_FLAGS} \"${BEHAVE_PREFIX}\$BEHAVE_BIN /tmp/gnome_e2e/tests/${GNOME_E2E_SUITE}/features/ --format json.pretty --outfile /tmp/gnome_e2e/results/results.json --format pretty --outfile /tmp/gnome_e2e/results/results.txt --format progress --no-capture\"
         " || BEHAVE_RC=$?
 
         $SCP "bluefin-test@127.0.0.1:/tmp/gnome_e2e/results/." ./results/ 2>/dev/null || true

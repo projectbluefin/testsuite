@@ -108,6 +108,27 @@ non-Wayland session or an accessibility address that is merely the
 session-bus fallback. Its child process is bounded to 90 seconds, including
 Ponytail connection waits.
 
+### Session environment under qecore-headless
+
+qecore-headless 4.19.3 clears its own environment and rebuilds it from the
+first `gnome-session` process's environ plus a short allowlist, then runs the
+script with `bash -c`. That environ has no `WAYLAND_DISPLAY` and no usable
+session bus, so anything the action exported over SSH is lost and the canary
+failed with "Missing Wayland display" (#1144). A `~/.config/environment.d`
+drop-in doesn't help: it feeds the systemd user manager, not the GDM-started
+session leader that qecore reads.
+
+So for this suite the action runs behave through
+`scripts/gnomeos_canary_behave.py`. After qecore's GDM restart, the wrapper
+reads `WAYLAND_DISPLAY` from `systemctl --user show-environment`, falling back
+to the `wayland-N` socket in `/run/user/<uid>`. It reads the accessibility
+bus address from `org.a11y.Bus.GetAddress`, exports those with
+`XDG_RUNTIME_DIR` and the session bus, and execs behave. qecore requires the
+script's first word to be an executable, so the action calls the wrapper
+through the harness Python (`/opt/gnomeos-harness/bin/python3`). The wrapper
+waits up to 60 seconds for the restarted shell, then execs anyway, so a
+missing value is reported by the canary's own first step.
+
 ## Upstream contracts
 
 - [GNOME OCI contribution guide](https://gnome.pages.gitlab.gnome.org/gnome-build-meta/docs/contributing-oci.html):
