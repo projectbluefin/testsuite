@@ -358,6 +358,9 @@ def graphical_target_is_active(context) -> None:
         )
         remaining = deadline - time.monotonic()
         if not queued or remaining <= 0:
+            output, returncode, stderr = _run_host("systemctl is-active graphical.target")
+            if returncode == 0 and output == "active":
+                return
             break
         time.sleep(min(2, remaining))
 

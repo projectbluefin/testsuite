@@ -179,12 +179,23 @@ class TestGraphicalTarget:
         ]), patch.object(system_health_steps.time, "sleep"):
             system_health_steps.graphical_target_is_active(None)
 
+    def test_passes_when_start_finishes_before_job_check(self):
+        with patch.object(system_health_steps, "_run_host", side_effect=[
+            ("inactive", 3, ""),
+            ("42 graphical.target start waiting", 0, ""),
+            ("inactive", 3, ""),
+            ("", 0, ""),
+            ("active", 0, ""),
+        ]), patch.object(system_health_steps.time, "sleep"):
+            system_health_steps.graphical_target_is_active(None)
+
     def test_failure_reports_jobs_system_state_and_chain(self):
         import pytest
 
         with patch.object(system_health_steps, "_run_host", side_effect=[
             ("inactive", 3, "inactive stderr"),
             ("42 other.service start running", 0, ""),
+            ("inactive", 3, "inactive stderr"),
             ("degraded", 1, ""),
             ("graphical.target\n  slow.service", 0, ""),
         ]), pytest.raises(AssertionError) as error:
@@ -201,6 +212,7 @@ class TestGraphicalTarget:
         with patch.object(system_health_steps, "_run_host", side_effect=[
             ("inactive", 3, ""),
             ("42 graphical.target start waiting", 0, ""),
+            ("inactive", 3, ""),
             ("starting", 1, ""),
             ("waiting.service", 0, ""),
         ]), patch.object(system_health_steps.time, "monotonic", side_effect=[0, 60]), \
