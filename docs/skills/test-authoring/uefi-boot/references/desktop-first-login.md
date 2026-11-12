@@ -120,6 +120,34 @@ requires repeatable hosted passing and failing runs before blocking rollout.
 4. Only after that evidence, propose suite/workflow interfaces and blocking
    rollout separately. Existing smoke callers retain their current contract.
 
+### Feasibility probe (step 2, #1179)
+
+`.github/workflows/first-login-probe.yml` runs on pull requests that change the
+probe and on demand (`image`, `test_ref` inputs). It never gates anything.
+
+- `scripts/first_login_disk.sh` installs the digest-pinned image with
+  `bootc install to-disk` and **no `--bootloader` override**. A failed loader
+  step records `unreachable` and fails. It seeds no user and no auto-login, and
+  adds only a per-run, key-only root SSH key (`/etc/ssh/ci-authorized-keys`
+  via an sshd drop-in), labelled with the image's own `setfiles`. Kernel
+  arguments added: `console=ttyS0,115200` and `systemd.firstboot=no`.
+- The VM boots through `OVMF_CODE_4M.fd` with a fresh copy of
+  `OVMF_VARS_4M.fd` and a disposable qcow2 overlay. There is no `-kernel`,
+  `-initrd` or `-append`.
+- `scripts/first_login_probe.py` uses its own monitor socket and serial log.
+  It checks three checkpoints:
+  1. a loader handoff and kernel on serial;
+  2. GNOME Initial Setup running, from its process and the GDM session over
+     root SSH, with no regular user present;
+  3. a monitor key press changing the framebuffer.
+
+  Frames, `verdict.json`, the ESP listing and the guest journal are kept as
+  evidence. The private key and the disk are deleted.
+
+Checkpoint 2 uses process evidence, not a committed reference frame. The
+probe's first runs capture the frames that a recognition step (#1180) can be
+calibrated against.
+
 Test content and reusable GitHub Actions code belong in testsuite; lab resources
 belong in projectbluefin/lab. No runtime coverage box in #1026 is checked by
 merging this design alone.
