@@ -48,7 +48,7 @@ workarounds — Bluefin stays on GNOME 50. Version-branch (or fix) a workaround
 | 11 | Panel buttons `showing=False` before overview toggle | **LIKELY-KEEP (unverified)** — panel helpers match role/name without checking `showing`, so the run does not measure this property; needs a targeted 51 probe recording `showing` | `tests/shared/gnome_shell_steps.py` |
 | 12 | keyring skip on GDM restart | **LIKELY-KEEP** — GDM restart not exercised by the smoke run; still required on 50 | `tests/smoke/features/environment.py` |
 
-Rows 4–8 and 10 are **confirmed** by the run in §Run evidence. Rows 9 and 11
+Rows 4, 5, 6, and 10 are **confirmed** by the run in §Run evidence. Rows 9 and 11
 passed scenarios that do not measure the affected properties, so they are
 unverified. Rows 1, 2, 3, 7, 8, 12 were **not** exercised by the smoke-a/smoke-b
 run (they are Bluefin-only or bazzite-only paths). All of these carry
@@ -66,7 +66,8 @@ so pin the digest on the day you run.
 gh workflow run manual.yml \
   -f image=quay.io/gnome_infrastructure/gnome-build-meta@sha256:b3cc30d8052b914c4741ae7ee35c5b1815cccc7bfb2e4e2badb141d2091bdee5 \
   -f suites=smoke \
-  -f test_ref=827-gnome-51-audit
+  -f test_ref=827-gnome-51-audit \
+  --repo kylerankin/testsuite
 ```
 
 ## Run evidence
