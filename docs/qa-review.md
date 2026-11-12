@@ -54,6 +54,7 @@ Run unit tests with `python3 -m pytest tests/unit/ -q`. The `pytest` CI check (`
 |---|---|
 | `test_selinux_collect_avc.py` | Piped SELinux collector preserves audit, journal, and kernel records |
 | `test_gnomeos_canary.py` | GNOME OS identity/session rejection, AT-SPI fallback rejection, strict result/process gate and evidence wiring |
+| `test_pr_vm_canary.py` | PR canary path routing, workflow dispatch and unchanged post-merge policy |
 | `test_gnome_shell_steps.py` | Shell.Eval, AT-SPI step helpers, ShellEval bool variants |
 | `test_gnome_settings_steps.py` | Settings panel navigation and toggle helpers |
 | `test_lifecycle_steps.py` | bootc upgrade/rollback/migration step helpers |
