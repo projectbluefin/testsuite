@@ -21,10 +21,26 @@ Use the Actions UI for `GNOME OS desktop canary` on the desired ref, or:
 gh workflow run gnomeos-canary.yml --repo YOUR_FORK/testsuite --ref YOUR_BRANCH
 ```
 
+To test a contributor's pull request without a maintainer copying its code
+onto a branch here first, pass the pull request's head commit as `test_ref`
+and dispatch from `main`. The canary checks out that commit:
+
+```bash
+gh workflow run gnomeos-canary.yml -R projectbluefin/testsuite --ref main -f test_ref=<sha>
+```
+
+An empty `test_ref` (the default) tests the commit the workflow was dispatched
+from, exactly as before.
+
 The workflow must first exist on the repository's default branch for GitHub
 to register manual dispatch. It also supports `workflow_call` from an existing
 workflow for fork experiments. It requests only `contents: read`, publishes no
 image, and uses no registry credentials. It is never scheduled automatically.
+
+Because the canary runs the pull request's own scripts and its `gnome-e2e`
+action on the runner, read the pull request's diff first. The workflow keeps
+`contents: read` and uses no secrets, so checking out an untrusted head gives
+it no write access or credentials.
 
 It runs on `ubuntu-24.04`, not `ubuntu-latest`: on 26.04 runners bootc's
 loopback install fails with "root partition 3 has type <none>" (#1123). The

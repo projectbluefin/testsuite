@@ -68,9 +68,10 @@ for another image. The manual run calls `e2e.yml` too, so it cannot cover a
 
 - a `composite_action` lane (the `gnome-e2e` action, or
   `scripts/extension_validation.py`, which only the action runs): dispatch
-  `gnomeos-canary.yml` on a branch at the PR's head. It calls the action and its
-  extension-validation gate at its own ref. A fork PR's head is pushed to a repo
-  branch such as `canary/pr-N` first;
+  `gnomeos-canary.yml` from `main` with `test_ref` set to the PR head commit.
+  It calls the action and its extension-validation gate at that commit, so no
+  fork PR head needs pushing to a branch such as `canary/pr-N` first (issue
+  #1172).
 - a suite without a hosted lane (`no_hosted_lane`, such as `security`): it needs
   its own hardware, or a hand check of the change.
 
