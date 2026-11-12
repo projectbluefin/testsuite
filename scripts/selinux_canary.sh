@@ -50,15 +50,21 @@ for type in "${CANDIDATES[@]}"; do
     # Skip a domain whose execve denial is hidden and try the next one.
     sesearch --dontaudit -s "${type}" -t bin_t -c file 2>/dev/null | grep -q execute && continue
     break
+  elif [[ "${status}" == "1" || ( -z "${status}" && "${rc}" == "1" ) ]]; then
+    # cat ran and was denied reading /etc/shadow (shadow_t). That read denial is
+    # collected only if the policy denies it without a dontaudit rule. Skip
+    # domains that can read shadow or hide the denial, and keep the first whose
+    # denial the policy audits.
+    sesearch -A -s "${type}" -t shadow_t -c file 2>/dev/null | grep -qw read && continue
+    sesearch --dontaudit -s "${type}" -t shadow_t -c file 2>/dev/null | grep -qw read && continue
+    break
+  else
+    # Failed before cat could run (229/SELINUX_CONTEXT for a domain the loaded
+    # policy lacks, or any other error): no shadow denial was produced, so skip
+    # this domain and try the next one. The old code fell through here and broke
+    # on a domain that produced no denial (#1156).
+    continue
   fi
-
-  # execve allowed: cat ran and was denied reading /etc/shadow (shadow_t). That
-  # read denial is collected only if the policy denies it without a dontaudit
-  # rule. Skip domains that can read shadow or hide the denial, and keep the
-  # first whose denial the policy audits.
-  sesearch -A -s "${type}" -t shadow_t -c file 2>/dev/null | grep -qw read && continue
-  sesearch --dontaudit -s "${type}" -t shadow_t -c file 2>/dev/null | grep -qw read && continue
-  break
 done
 echo "canary_type=${canary_type}"
 echo "canary_rc=${canary_rc}"
