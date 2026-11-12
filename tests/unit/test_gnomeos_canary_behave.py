@@ -105,3 +105,42 @@ def test_action_runs_behave_through_the_wrapper_only_for_the_canary():
     assert 'BEHAVE_PREFIX="/opt/gnomeos-harness/bin/python3 /tmp/gnome_e2e/gnomeos_canary_behave.py "' in canary
     assert 'BEHAVE_PREFIX=""' in step.partition("if [[")[0]
     assert '\\"${BEHAVE_PREFIX}\\$BEHAVE_BIN ' in step
+
+
+def test_window_wait_diagnostics_reports_shell_view_and_child_state():
+    from tests.shared.gnomeos_canary import window_wait_diagnostics
+
+    class Child:
+        def poll(self):
+            return None  # still running
+
+    class Done:
+        def __init__(self, out):
+            self.stdout, self.stderr = out, ""
+
+    seen = []
+
+    def run(args, **kwargs):
+        seen.append(args[0])
+        return Done("({uint64 1: {'title': <'GNOME OS desktop canary'>}},)" if args[0] == "gdbus" else "123 gnome-shell --unsafe-mode")
+
+    report = window_wait_diagnostics(Child(), run=run)
+    assert report["entry_child_returncode"] is None
+    assert "GNOME OS desktop canary" in report["introspect_windows"]
+    assert "--unsafe-mode" in report["shell_cmdline"]
+    assert seen == ["gdbus", "pgrep"]
+
+
+def test_window_wait_diagnostics_survives_failing_tools():
+    from tests.shared.gnomeos_canary import window_wait_diagnostics
+
+    class Child:
+        def poll(self):
+            return 1
+
+    def run(args, **kwargs):
+        raise FileNotFoundError(args[0])
+
+    report = window_wait_diagnostics(Child(), run=run)
+    assert report["entry_child_returncode"] == 1
+    assert report["introspect_windows"].startswith("error:")

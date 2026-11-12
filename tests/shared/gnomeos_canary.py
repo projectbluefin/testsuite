@@ -49,6 +49,24 @@ def entry_window():
     Gtk.main()
 
 
+def window_wait_diagnostics(child, run=subprocess.run):
+    """What the shell reported when Ponytail never found the canary window."""
+    def call(*args):
+        try:
+            done = run(args, capture_output=True, text=True, timeout=15)
+        except (OSError, subprocess.SubprocessError) as error:
+            return f"error: {error}"
+        return (done.stdout or done.stderr).strip()[:2000]
+    return {
+        "entry_child_returncode": child.poll(),
+        "introspect_windows": call(
+            "gdbus", "call", "--session", "--dest", "org.gnome.Shell.Introspect",
+            "--object-path", "/org/gnome/Shell/Introspect",
+            "--method", "org.gnome.Shell.Introspect.GetWindows"),
+        "shell_cmdline": call("pgrep", "-a", "-u", str(os.getuid()), "gnome-shell"),
+    }
+
+
 def probe():
     identity = require_gnomeos_wayland(Path("/usr/lib/os-release").read_text(), os.environ)
     from dogtail import tree
@@ -67,7 +85,14 @@ def probe():
     ponytail = None
     try:
         ponytail = Ponytail()
-        window_id = ponytail.waitFor(TITLE, timeout=20)
+        try:
+            window_id = ponytail.waitFor(TITLE, timeout=20)
+        except ValueError:
+            # Say what the shell could see, so a timeout explains itself.
+            evidence["window_wait"] = window_wait_diagnostics(child)
+            print("gnomeos-canary window wait: " + json.dumps(evidence["window_wait"]),
+                  file=sys.stderr, flush=True)
+            raise
         ponytail.connectWindow(window_id)
         # ASCII keysyms are their Unicode values; no AT-SPI text setter, shell
         # eval, clipboard or application command is allowed to supply the text.
