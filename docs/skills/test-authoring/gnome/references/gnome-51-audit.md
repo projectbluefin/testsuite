@@ -42,7 +42,7 @@ Version-branch or fix a workaround only after a run proves behavior diverges.
 | 4 | `filler`/`frame` toplevel-role fallback + require populated subtree | **STILL REQUIRED** — run confirmed: Files, Calculator, Text Editor, and fractional/integer scale windows all resolved their toplevels on 51 | `tests/shared/gnome_shell_steps.py`; `SKILL.md` "Window-role checks must prove the subtree is populated" |
 | 5 | Nautilus sidebar role (`home_folder_is_in_the_sidebar`) | **STILL REQUIRED** — run confirmed: `home_folder_is_in_the_sidebar` passed on 51 | `tests/smoke/features/steps/gnome_files_steps.py` |
 | 6 | Nautilus AT-SPI app-name handling (`FILES_APP_NAMES`, `_nautilus_app`) | **STILL REQUIRED** — run confirmed: Files launched, navigated, and closed cleanly on 51 | `tests/smoke/features/steps/gnome_files_steps.py` |
-| 7 | Ptyxis window title (`user@host:~`) | **LIKELY-KEEP** — Ptyxis not exercised by the smoke run; still required on 50 | `tests/smoke/features/steps/gnome_apps_steps.py` |
+| 7 | Ptyxis window title (`user@host:~`) | **UNEXERCISED on `dakota:testing`** — [smoke-a run 43170644165](https://github.com/projectbluefin/testsuite/actions/runs/43170644165) skipped “Ptyxis terminal launches successfully” because Ptyxis is not installed. A skip does not establish whether the workaround works or is obsolete on 51; retain it for images running GNOME 50. | `tests/smoke/features/steps/gnome_apps_steps.py:34-38` |
 | 8 | ScreenSaver D-Bus `Lock` (not `screenShield.lock(true)`) | **LIKELY-KEEP** — `screen_lock_engages` not in the smoke-a/smoke-b run; still required on 50 | `tests/smoke/features/steps/steps.py`; `SKILL.md` "Screen Lock/Unlock D-Bus calls" |
 | 9 | `Main.overview.visible` reads `false` in QEMU; do not assert it | **LIKELY-KEEP (unverified)** — the scenarios passed, but `overview_is_open` checks `OverviewActive`, not `Main.overview.visible`, so the pass cannot show the workaround is still needed; needs a targeted 51 probe of `Main.overview.visible` | `tests/smoke/features/steps/steps.py`; `SKILL.md` "Activities overview (GNOME 50 QEMU)" |
 | 10 | Notification banner dismissal check | **STILL REQUIRED** — run confirmed: `toast_notification_banner_can_be_dismissed` passed on 51 | `tests/smoke/features/steps/gnome_notifications_steps.py` |
@@ -51,11 +51,10 @@ Version-branch or fix a workaround only after a run proves behavior diverges.
 
 Rows 4, 5, 6, and 10 are **confirmed** by the run in §Run evidence. Rows 9 and 11
 passed scenarios that do not measure the affected properties, so they are
-unverified. Rows 1, 2, 3, 7, 8, 12 were **not** exercised by the smoke-a/smoke-b
-run (they are Bluefin-only or bazzite-only paths). All of these carry
-`LIKELY-KEEP`. **This audit is incomplete**: issue #827 requires live
-validation of every row, so running the unverified rows (with targeted probes
-for 9 and 11) on gnomeos-51 is follow-up work.
+unverified. Rows 1, 2, 3, 8, and 12 were not exercised by the plain GNOME OS
+smoke run and carry `LIKELY-KEEP`. Row 7 was also skipped on `dakota:testing`
+because Ptyxis was absent. **This audit is incomplete**: issue #827 still
+requires evidence for the unverified rows, including targeted probes for 9 and 11.
 
 ## Run target
 
