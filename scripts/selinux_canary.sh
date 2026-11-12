@@ -12,6 +12,12 @@
 # systemd reports status 203/EXEC. Candidate domains are tried in order; a
 # domain the loaded policy lacks fails earlier (229/SELINUX_CONTEXT) and the
 # next one is tried, so the canary does not depend on one policy module.
+#
+# A denial reaches the gate only when the policy blocks it AND does not hide
+# it with a dontaudit rule. httpd_t's execve denial is dontaudit on utah
+# (#1141), so it was never collected. The loop stops at the first domain whose
+# denial the policy audits: an execve denial not hidden by dontaudit, or a read
+# of /etc/shadow (shadow_t) that the domain is denied without a dontaudit rule.
 set -uo pipefail
 
 CANDIDATES=(httpd_t sshd_t getty_t syslogd_t chronyd_t)
@@ -36,8 +42,29 @@ for type in "${CANDIDATES[@]}"; do
   canary_status=${status:-none}
   canary_stderr=$(one_line <<<"${out}")
   echo "canary_output_${type}=${canary_stderr}"
-  # 203/EXEC: the policy blocked execve, which is the denial we want.
-  [[ "${status}" == "${EXIT_EXEC}" || ( -z "${status}" && "${rc}" == "${EXIT_EXEC}" ) ]] && break
+
+  if [[ "${status}" == "${EXIT_EXEC}" || ( -z "${status}" && "${rc}" == "${EXIT_EXEC}" ) ]]; then
+    # execve blocked (203/EXEC): the denial is the execute on bin_t. It reaches
+    # the gate only if the policy does NOT hide it with a dontaudit rule (#1141:
+    # httpd_t's execve denial is dontaudit on utah, so it was never collected).
+    # Skip a domain whose execve denial is hidden and try the next one.
+    sesearch --dontaudit -s "${type}" -t bin_t -c file 2>/dev/null | grep -q execute && continue
+    break
+  elif [[ "${status}" == "1" || ( -z "${status}" && "${rc}" == "1" ) ]]; then
+    # cat ran and was denied reading /etc/shadow (shadow_t). That read denial is
+    # collected only if the policy denies it without a dontaudit rule. Skip
+    # domains that can read shadow or hide the denial, and keep the first whose
+    # denial the policy audits.
+    sesearch -A -s "${type}" -t shadow_t -c file 2>/dev/null | grep -qw read && continue
+    sesearch --dontaudit -s "${type}" -t shadow_t -c file 2>/dev/null | grep -qw read && continue
+    break
+  else
+    # Failed before cat could run (229/SELINUX_CONTEXT for a domain the loaded
+    # policy lacks, or any other error): no shadow denial was produced, so skip
+    # this domain and try the next one. The old code fell through here and broke
+    # on a domain that produced no denial (#1156).
+    continue
+  fi
 done
 echo "canary_type=${canary_type}"
 echo "canary_rc=${canary_rc}"
