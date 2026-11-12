@@ -469,8 +469,18 @@ runs:
         $SSH "sudo mkdir -p /etc/systemd/user"
 
         HEADLESS_FLAGS=""
+        WRAPPER=""
         if [[ "${GNOME_E2E_SUITE}" == "gnomeos-canary" ]]; then
           HEADLESS_FLAGS="--dont-kill"
+          # qecore-headless rebuilds behave's environment from the running session,
+          # so the SSH-sourced session.env goes stale. Copy a thin bash wrapper that
+          # runs after qecore's --unsafe-mode GDM restart, reads the live display,
+          # bus and AT-SPI address, then execs behave. qecore requires the first
+          # word of the command to be an executable, so the action passes /bin/bash
+          # to qecore-headless. The wrapper is pinned by
+          # tests/unit/test_run_behave_wrapper.py.
+          $SCP "_testsuite/scripts/run-behave.sh" "bluefin-test@127.0.0.1:/tmp/gnome_e2e/"
+          WRAPPER="/bin/bash /tmp/gnome_e2e/run-behave.sh"
         fi
         BEHAVE_RC=0
         $SSH "
@@ -478,8 +488,12 @@ runs:
           source /tmp/gnome_e2e_session.env
           export PATH=\$HOME/.local/bin:\$PATH
           export PYTHONPATH=/tmp/gnome_e2e
-          BEHAVE_BIN=\$(which behave)
-          \$HOME/.local/bin/qecore-headless ${HEADLESS_FLAGS} \"\$BEHAVE_BIN /tmp/gnome_e2e/tests/${GNOME_E2E_SUITE}/features/ --format json.pretty --outfile /tmp/gnome_e2e/results/results.json --format pretty --outfile /tmp/gnome_e2e/results/results.txt --format progress --no-capture\"
+          if [[ -n \"$WRAPPER\" ]]; then
+            \"$WRAPPER\"
+          else
+            BEHAVE_BIN=\$(which behave)
+            \"$BEHAVE_BIN\" /tmp/gnome_e2e/tests/${GNOME_E2E_SUITE}/features/ --format json.pretty --outfile /tmp/gnome_e2e/results/results.json --format pretty --outfile /tmp/gnome_e2e/results/results.txt --format progress --no-capture
+          fi
         " || BEHAVE_RC=$?
 
         $SCP "bluefin-test@127.0.0.1:/tmp/gnome_e2e/results/." ./results/ 2>/dev/null || true
