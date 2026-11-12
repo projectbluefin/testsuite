@@ -485,6 +485,29 @@ runs:
         $SCP "bluefin-test@127.0.0.1:/tmp/gnome_e2e/results/." ./results/ 2>/dev/null || true
         echo "behave_rc=${BEHAVE_RC}" >> "$GITHUB_OUTPUT"
 
+    # Diagnostics for #1145 ("Missing Wayland display"): the session env after
+    # qecore-headless restarted GNOME Shell for --unsafe-mode. Canary branch only.
+    - name: Dump post-restart session environment (#1145 diagnostics)
+      if: always()
+      shell: bash
+      run: |
+        SSH_OPTS="-i /tmp/gnome_e2e_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ControlMaster=auto -o ControlPersist=600 -o ControlPath=/tmp/gnome-e2e-ssh-%C -o ConnectTimeout=3"
+        SSH="ssh ${SSH_OPTS} -p 2222 bluefin-test@127.0.0.1"
+        $SSH '
+          K="WAYLAND|DBUS|AT_SPI|XDG_RUNTIME|DISPLAY|XDG_SESSION"
+          echo "== id"; id
+          echo "== systemctl --user show-environment"; systemctl --user show-environment 2>&1 | grep -E "$K"
+          echo "== ls -la /run/user/$(id -u)/"; ls -la "/run/user/$(id -u)/" 2>&1
+          for pid in $(pgrep -u "$(id -u)" -f "gnome-shell|gnome-session"); do
+            echo "== /proc/$pid/environ ($(tr "\0" " " < "/proc/$pid/cmdline" | cut -c1-120); started $(ps -o lstart= -p "$pid"))"
+            tr "\0" "\n" < "/proc/$pid/environ" 2>&1 | grep -E "^($K)"
+          done
+          echo "== loginctl list-sessions"; loginctl list-sessions --no-pager 2>&1
+          echo "== systemctl --user list-units org.gnome.Shell*"; systemctl --user list-units --all --no-pager "org.gnome.Shell*" 2>&1
+          echo "== systemctl --user cat org.gnome.Shell@wayland.service"; systemctl --user cat org.gnome.Shell@wayland.service --no-pager 2>&1 | head -40
+          echo "== journal: gnome-shell restarts"; journalctl --user --no-pager -o short-iso 2>/dev/null | grep -E "org.gnome.Shell@|Started GNOME Shell|Stopped GNOME Shell|unsafe" | tail -20
+        ' 2>&1 || echo "diagnostics: ssh failed rc=$?"
+
     # ── Summarise results to CI log + job summary ─────────────────────────────
     # Scenario counting and the pass/fail headline come from
     # scripts/e2e_summary.py — the copy covered by
