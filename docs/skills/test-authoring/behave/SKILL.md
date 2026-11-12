@@ -18,9 +18,7 @@ metadata:
 ---
 # Behave Patterns Reference
 
-
 ## When to Use
-
 
 - Writing or extending behave `.feature` files in any suite
 - Reusing or checking shared SSH step phrases
@@ -29,13 +27,11 @@ metadata:
 
 ## When NOT to Use
 
-
 - Smoke-suite GUI implementation details that belong in `docs/skills/test-authoring/gnome/SKILL.md`
 - Bootc / upgrade / rollback workflow rules that belong in `docs/skills/test-authoring/bootc/SKILL.md`
 - CI workflow ownership, runner, or reusable-action changes that belong in workflow skills
 
 ## Core Process
-
 
 1. Read the target `.feature` file and the suite's `steps/*.py` before adding phrases.
 2. Reuse `tests/shared/ssh_steps.py` for generic SSH command/assertion steps instead of duplicating helpers.
@@ -45,7 +41,6 @@ metadata:
 6. Run `behave --dry-run` on the touched suite before pushing so undefined or ambiguous phrases fail locally.
 
 ## `grep -q` vs `grep -c` for existence checks
-
 
 **Never use `grep -c ... || echo 0`** for existence checks in SSH commands. This is a false-positive trap:
 - On no match: `grep -c` prints `0` and exits 1, then `echo 0` fires and the overall command exits 0
@@ -299,7 +294,6 @@ grep -r "@future" tests/*/features/*.feature
 ```
 
 ## Selective reruns with @retry
-
 
 Use a plain `@retry` tag on scenarios whose common failure mode is
 infrastructure timing (GNOME session startup, AT-SPI render races, slow app
