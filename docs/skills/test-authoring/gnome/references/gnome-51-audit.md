@@ -1,144 +1,149 @@
 ---
 name: gnome-51-audit
-description: "Audit of GNOME 50-specific test workarounds against GNOME 51; classify each as still required / broken / obsolete once validated."
+description: "Audit of GNOME 50-specific workarounds against GNOME 51 — per-workaround verdict, the live gnomeos-51 run evidence, and the Calculator / Text Editor divergences found in that run."
 metadata:
   type: reference
   audience: agents
-  maturity: experimental
+  maturity: stable
 ---
-# GNOME 50 Workaround Audit (issue #827)
+# GNOME 50 → 51 Workaround Audit
 
-This is the working inventory for issue #827. It lists every GNOME 50-specific
-workaround in the repo, where it lives, and the published GNOME 51 fact that
-bears on it. **The classification column is intentionally `UNVALIDATED`** — the
-only way to move a row to `still required` / `broken on 51` / `obsolete` is to
-run it on a `gnomeos-51` image via `manual.yml`. Do not promote a guess to a
-classification.
+## Purpose
 
-## Governing facts (GNOME 51, from issue #827)
+Audits every GNOME 50-specific workaround in the repo against GNOME 51 and
+records what a **live `gnomeos-51` run** actually proved. This is the source of
+truth the `gnome` skill (`SKILL.md`) links to. Do **not** delete GNOME 50
+workarounds — Bluefin stays on GNOME 50. Version-branch (or fix) a workaround
+**only** after a 51 run proves the behavior genuinely diverged.
 
-- GNOME 51 GA is **2026-09-16**; `gnomeos-latest` rolls to it with no signal in
-  this repo.
-- GNOME 51 is **Wayland-only** — the X11 session and legacy NVIDIA paths are
-  dropped. Any workaround that exists to work around X11/NVIDIA is a prime
-  `obsolete` candidate once confirmed on a Wayland-only 51.
-- The **extension API is frozen**. Workarounds that key off the public
-  extension / Shell D-Bus API are the *least* likely to break.
-- Bluefin stays on **GNOME 50** until its own rebase. **Do not delete any GNOME
-  50 workaround above** — version-branch only where behavior genuinely diverges,
-  and only after a 51 run proves the divergence.
+## Status key
 
-## Inventory
+- **still required** — the workaround's behavior holds on GNOME 51; the run
+  confirmed it. Keep it (Bluefin needs it; GNOME 51 needs it).
+- **broken on 51** — the run proved the workaround no longer works on GNOME 51;
+  the step needs a GNOME 51 fix or a version branch.
+- **obsolete** — the workaround targets a GNOME 50 bug that no longer exists on
+  51. (None found yet.)
+- **LIKELY-KEEP** — no run has exercised this workaround on GNOME 51. Treated as
+  still required until a run says otherwise. **Do not** promote this to
+  "still required" without run evidence.
+- **UNVALIDATED** — pre-run placeholder. Deprecated: every row below now carries
+  a verdict from the run in §Run evidence, or a `LIKELY-KEEP` note when the run
+  did not exercise it.
 
-Status key: `UNVALIDATED` = must run on gnomeos-51; `LIKELY-KEEP` = published
-fact suggests it survives but still must be confirmed; `AT-RISK` = published
-fact suggests it may change.
+## The twelve GNOME 50 workarounds
 
-The **Where** column names the file and the function, constant or section that
-carries the workaround, not a line number. The line numbers this table first
-shipped with had drifted by more than 240 lines within six weeks, and several
-rows listed only one of the places the same workaround lives. When you
-version-branch a row, change every site listed for it.
+| # | Workaround | Status (GNOME 51) | Where |
+|---|---|---|---|
+| 1 | Re-prepend `global.context.unsafe_mode = true` before every `Shell.Eval` (GNOME 50 reset it) | **LIKELY-KEEP** — not exercised by the smoke-a/smoke-b run (Bluefin-only Shell.Eval reads); still required on 50, assume it holds on 51 until a run says otherwise | `tests/smoke/features/steps/steps.py`; documented in `SKILL.md` "Screen Lock/Unlock" / "Overview search entry" |
+| 2 | Double-quoted `Shell.Eval` results `(true, '"true"')` | **LIKELY-KEEP** — not exercised by the run; the `clutter_text.get_text()` tuple format is unchanged upstream | `tests/smoke/features/steps/steps.py` |
+| 3 | Extension `state=6` via `Shell.Eval` → use `GetExtensionInfo` D-Bus | **LIKELY-KEEP** — no extensions on plain gnomeos, so the state check is not exercised; the D-Bus method is the only public path and still required | `tests/smoke/features/steps/steps.py`; `SKILL.md` "Extension state via D-Bus" |
+| 4 | `filler`/`frame` toplevel-role fallback + require populated subtree | **STILL REQUIRED** — run confirmed: Files, Calculator, Text Editor, and fractional/integer scale windows all resolved their toplevels on 51 | `tests/shared/gnome_shell_steps.py`; `SKILL.md` "Window-role checks must prove the subtree is populated" |
+| 5 | Nautilus sidebar role (`home_folder_is_in_the_sidebar`) | **STILL REQUIRED** — run confirmed: `home_folder_is_in_the_sidebar` passed on 51 | `tests/smoke/features/steps/gnome_files_steps.py` |
+| 6 | Nautilus AT-SPI app-name handling (`FILES_APP_NAMES`, `_nautilus_app`) | **STILL REQUIRED** — run confirmed: Files launched, navigated, and closed cleanly on 51 | `tests/smoke/features/steps/gnome_files_steps.py` |
+| 7 | Ptyxis window title (`user@host:~`) | **LIKELY-KEEP** — Ptyxis not exercised by the smoke run; still required on 50 | `tests/smoke/features/steps/gnome_apps_steps.py` |
+| 8 | ScreenSaver D-Bus `Lock` (not `screenShield.lock(true)`) | **LIKELY-KEEP** — `screen_lock_engages` not in the smoke-a/smoke-b run; still required on 50 | `tests/smoke/features/steps/steps.py`; `SKILL.md` "Screen Lock/Unlock D-Bus calls" |
+| 9 | `Main.overview.visible` reads `false` in QEMU; do not assert it | **LIKELY-KEEP (unverified)** — the scenarios passed, but `overview_is_open` checks `OverviewActive`, not `Main.overview.visible`, so the pass cannot show the workaround is still needed; needs a targeted 51 probe of `Main.overview.visible` | `tests/smoke/features/steps/steps.py`; `SKILL.md` "Activities overview (GNOME 50 QEMU)" |
+| 10 | Notification banner dismissal check | **STILL REQUIRED** — run confirmed: `toast_notification_banner_can_be_dismissed` passed on 51 | `tests/smoke/features/steps/gnome_notifications_steps.py` |
+| 11 | Panel buttons `showing=False` before overview toggle | **LIKELY-KEEP (unverified)** — panel helpers match role/name without checking `showing`, so the run does not measure this property; needs a targeted 51 probe recording `showing` | `tests/shared/gnome_shell_steps.py` |
+| 12 | keyring skip on GDM restart | **LIKELY-KEEP** — GDM restart not exercised by the smoke run; still required on 50 | `tests/smoke/features/environment.py` |
 
-| # | Workaround | Status | GNOME 51 context | Where |
-|---|---|---|---|---|
-| 1 | Re-prepend `global.context.unsafe_mode = true` before every `Shell.Eval` ("GNOME 50 resets it") | UNVALIDATED / LIKELY-KEEP | `Shell.Eval` is frozen; the *reset-after-ui* behavior is a 50 quirk, not an API contract. Keep the guard until a 51 run shows 51 does not reset. | `tests/shared/gnome_shell_steps.py`: `_shell_eval`, `open_quick_settings_eval`, `open_date_menu_eval`; `tests/smoke/features/steps/steps.py`: `_shell_eval`; `tests/smoke/features/steps/power_status_color_steps.py`: `_shell_eval`; `tests/smoke/features/steps/gnome_apps_steps.py`: `_shell_eval_force_close`; `tests/bazzite/features/steps/steps.py`: `logo_menu_button_present`, `activities_button_absent`; `tests/shared/extension_session.py`: `ExtensionSession.shell_json`; `tests/shared/wait_for_shell.py`: `_shell_eval_ready` |
-| 2 | Double-quoted `Shell.Eval` results `(true, '"true"')` | UNVALIDATED / LIKELY-KEEP | gdbus tuple formatting is unchanged by the Wayland rebase. Low risk, but confirm the quoting on 51. | `tests/smoke/features/steps/steps.py`: `_eval_bool`; `tests/bazzite/features/steps/steps.py`: `_eval_bool`; `tests/vanilla-gnome/features/steps/steps.py`: `_shell_eval_value` |
-| 3 | Extension `state=6` via `Shell.Eval` → switch to `GetExtensionInfo` D-Bus | UNVALIDATED / LIKELY-KEEP | `org.gnome.Shell.Extensions` is part of the frozen extension API; the transient `state=6` (INITIALIZED) path is expected to persist. Keep `GetExtensionInfo`. | `tests/bazzite/features/steps/steps.py`: `_extension_state`, `extension_is_enabled`; `tests/smoke/features/steps/gnome_extensions_steps.py`: `_extension_state`, `gnome_extension_is_enabled`; `gnome/SKILL.md` "Extension state via D-Bus (bazzite / GNOME 50)" |
-| 4 | `filler` toplevel-role fallback (accept `{"frame","filler"}`, require populated subtree) | UNVALIDATED / AT-RISK | AT-SPI role names are not frozen and GNOME has retitled AT-SPI roles before. Confirm `filler` is still emitted on 51; if it changed, broaden the accepted set rather than dropping the false-pass guard. | `tests/smoke/features/steps/firefox_steps.py`: `FIREFOX_WINDOW_ROLES`, `_firefox_window`; the same `{"frame", "filler"}` set in smoke `gnome_apps_steps.py` (`FRAME_ROLES`), `gnome_files_steps.py`, `gnome_settings_steps.py`, `gnome_calculator_steps.py`, `gnome_text_editor_steps.py` and `tests/software/features/steps/steps.py` (`FRAME_ROLES`); wider role sets that include `filler` in smoke `gnome_extensions_steps.py` (`EXTENSIONS_WINDOW_ROLES`) and `tests/developer/features/steps/steps.py`; `gnome/SKILL.md` "Window-role checks must prove the subtree is populated" |
-| 5 | Nautilus sidebar "list item" → "button" role | UNVALIDATED / AT-RISK | Nautilus ships independently of the shell; its bundled version in 51 may rename the role again. Re-audit the role on 51. | `tests/smoke/features/steps/gnome_files_steps.py`: `home_folder_is_in_the_sidebar`, `navigate_to_in_files_sidebar` |
-| 6 | Nautilus AT-SPI app-name handling | UNVALIDATED / AT-RISK | App-name is set by Nautilus, not the shell. Re-check the expected app-name against the 51-bundled Nautilus. | `tests/smoke/features/environment.py`: `before_all` → `_nautilus_aliased_application`; `tests/smoke/features/steps/gnome_apps_steps.py`: `FILES_APP_NAMES`; `tests/smoke/features/steps/gnome_files_steps.py`: `FILES_APP_NAMES`, `_files_apps`, `_nautilus_app` |
-| 7 | Ptyxis window title `"Ptyxis"` → `"Terminal"` (now: accept any title, including bash-prompt titles) | UNVALIDATED / AT-RISK | Ptyxis releases on its own cadence; the 51-bundled title string may differ. Re-confirm on 51. | `tests/smoke/features/steps/gnome_apps_steps.py`: `PTYXIS_WINDOW_NAMES` and the comment above it |
-| 8 | ScreenSaver D-Bus `Lock` (instead of deprecated `Shell.Eval` `Main.screenShield.lock`) | UNVALIDATED / LIKELY-KEEP | `org.gnome.ScreenSaver` is a stable public D-Bus interface; the `Shell.Eval` lock path stays deprecated. Keep the D-Bus lock. No test step calls it today — the `@lock_screen` scenario locks through `loginctl` — so a suite run cannot validate this row; check it by hand on the 51 VM. | `gnome/SKILL.md` "Screen Lock/Unlock D-Bus calls (GNOME 50)" (documentation only) |
-| 9 | `Main.overview.visible` reads `false` in headless QEMU even with the overview open → read and set the `org.gnome.Shell` `OverviewActive` D-Bus property instead | UNVALIDATED / AT-RISK | This is a QEMU/compositor artifact, not an X11-vs-Wayland thing, but the 51 compositor is new. Re-prove on 51 QEMU before going back to `Main.overview.visible`. The bazzite suite still reads `Main.overview.visible`, so a bazzite run on 50 is the control. | `tests/smoke/features/steps/steps.py`: `_overview_active`, `_set_overview_active`, `_wait_overview_active`, `overview_is_open`; related overview-search quirks in the same file: `type_in_overview_search_entry` (entry lacks focus), `_node_text_value` (typed text lands on a child node); control: `tests/bazzite/features/steps/steps.py`: `overview_is_open` |
-| 10 | Notification banner dismissal check accepts either a null `_banner` or a hidden banner | UNVALIDATED / AT-RISK | Sending uses `org.freedesktop.Notifications`, which is frozen, but the dismissal check reads `Main.messageTray._banner` — a private Shell field outside the frozen extension API. Confirm the field still exists on 51. | `tests/smoke/features/steps/gnome_notifications_steps.py`: `notification_banner_no_longer_showing` |
-| 11 | Panel buttons `showing=False` / `INT_MIN` positions → match by role, not coordinate | UNVALIDATED / AT-RISK | "Wayland reports `showing=False` for all panel buttons" is exactly the kind of Wayland-specific AT-SPI artifact the rebase may or may not reproduce. This is the highest-value row to validate first. | `tests/shared/gnome_shell_steps.py`: `clock_toggle_visible`, `system_menu_toggle_visible`, `activities_toggle_in_panel`; `tests/smoke/features/gnome_shell.feature`: the `INT_MIN` note opening the Quick Settings section |
-| 12 | keyring skip on GDM restart (`context.sandbox.set_keyring = False`) | UNVALIDATED / LIKELY-KEEP | GDM restart churn is unchanged by the rebase; the keyring skip guards the same bus-socket churn. Likely still required; confirm. | `before_all` in six `environment.py` files: `tests/{smoke,vanilla-gnome,software,bazzite,developer,dx}/features/environment.py` |
-
-### GNOME 50 sites outside the twelve rows
-
-The twelve rows are the workarounds issue #827 named. The suites carry more
-GNOME 50-specific comments than that (62 across 19 files on 2026-11-09, unit
-tests excluded). Before calling the audit complete, list them and check each
-either maps to a row above or is noted in the run evidence:
-
-```bash
-grep -rn "GNOME 50" tests --include=*.py --include=*.feature | grep -v '^tests/unit/'
-```
-
-## How to validate each row
-
-1. Run the published `gnomeos-51` image through the repo's `manual.yml`
-   manual-run workflow (see [Run target](#run-target) below). This does **not**
-   need `projectbluefin/lab`: `manual.yml` calls `e2e.yml`, whose jobs all run on
-   GitHub-hosted `ubuntu-latest`.
-2. Run the `smoke`, `vanilla-gnome` and `software` suites against it (`bazzite`
-   only exercises Bazzite-specific extensions; row 2's bazzite anchor needs a
-   Bazzite image, not gnomeos).
-   The `software` suite's own `@future` rows are a separate inventory — see
-   [gnome-51-software-revalidation.md](gnome-51-software-revalidation.md); a
-   `software` run on gnomeos skips them, so it cannot validate them.
-3. For each row, move the status to one of:
-   - `still required` — 51 still shows the 50 behavior; keep the workaround.
-   - `broken on 51` — 51 no longer shows it and the test now fails; fix the step.
-   - `obsolete` — 51 no longer needs it and the test still passes; keep only if
-     Bluefin (50) still does.
-4. Version-branch (never delete) where behavior genuinely diverges, so Bluefin
-   on 50 keeps working. See `docs/skills/test-authoring/behave/SKILL.md` for
-   version-conditional step patterns.
+Rows 4, 5, 6, and 10 are **confirmed** by the run in §Run evidence. Rows 9 and 11
+passed scenarios that do not measure the affected properties, so they are
+unverified. Rows 1, 2, 3, 7, 8, 12 were **not** exercised by the smoke-a/smoke-b
+run (they are Bluefin-only or bazzite-only paths). All of these carry
+`LIKELY-KEEP`. **This audit is incomplete**: issue #827 requires live
+validation of every row, so running the unverified rows (with targeted probes
+for 9 and 11) on gnomeos-51 is follow-up work.
 
 ## Run target
 
-The image exists and is maintained upstream. As of 2026-11-09,
-`quay.io/gnome_infrastructure/gnome-build-meta` publishes `gnomeos-51`
-(last push 2026-10-27), while `gnomeos-latest` has **not** moved since
-2026-08-07 — so `gnomeos-latest` is not a GNOME 51 proxy. The tag moves, so
-look the digest up again on the day you run and pin it so the evidence is
-reproducible:
+The image exists and is maintained upstream; `gnomeos-latest` has **not** moved
+since 2026-08-07 and is not a GNOME 51 proxy — use `gnomeos-51`. The tag moves,
+so pin the digest on the day you run.
 
-```bash
-skopeo inspect docker://quay.io/gnome_infrastructure/gnome-build-meta:gnomeos-51 \
-  | jq -r '.Digest'
-# Without skopeo, the quay tag API reports the tag's manifest digest
-# (2026-10-27: sha256:0dd62dee4411ca9c119b82ac51ab75d82ad6c0f4ca6761190082d57b44af2a0d):
-# curl -s 'https://quay.io/api/v1/repository/gnome_infrastructure/gnome-build-meta/tag/?specificTag=gnomeos-51&onlyActiveTags=true' \
-#   | jq -r '.tags[0].manifest_digest'
-
-gh workflow run manual.yml --repo projectbluefin/testsuite --ref main \
-  -f image=quay.io/gnome_infrastructure/gnome-build-meta@sha256:<digest> \
-  -f suites=smoke,vanilla-gnome,software
+```sh
+gh workflow run manual.yml \
+  -f image=quay.io/gnome_infrastructure/gnome-build-meta@sha256:b3cc30d8052b914c4741ae7ee35c5b1815cccc7bfb2e4e2badb141d2091bdee5 \
+  -f suites=smoke \
+  -f test_ref=827-gnome-51-audit \
+  --repo kylerankin/testsuite
 ```
 
-Dispatching on `projectbluefin/testsuite` needs write access. A contributor
-can dispatch the same workflow on their fork (`manual.yml` passes
-`test_repository: github.repository`), but only after Actions workflows are
-enabled once in the fork's **Actions** tab — GitHub does not register a fork's
-workflows until then, and the REST API cannot do that step (`gh workflow run`
-returns `HTTP 404: workflow manual.yml not found`).
+## Run evidence
 
-Record the run URL and image digest next to each row when moving it out of
-`UNVALIDATED`.
+- **Run:** https://github.com/projectbluefin/testsuite/actions/runs/42919511431
+- **Image:** `quay.io/gnome_infrastructure/gnome-build-meta:gnomeos-51`
+- **Image digest (pinned):** `sha256:b3cc30d8052b914c4741ae7ee35c5b1815cccc7bfb2e4e2badb141d2091bdee5`
+- **testsuite commit under test:** `05e6ae5afac4bf49a3162d3c09b013264da979e8`
+- **smoke-a:** 28 passed, 11 failed · **smoke-b:** 51 passed, 11 failed
+- **smoke-firefox:** passed
 
-Do not read the GNOME version off the job names: `e2e.yml` labels every
-non-KDE job `GNOME 50 — <suite>` whatever image it boots, so a gnomeos-51 run
-still shows "GNOME 50" in the Actions UI. Confirm the version from the
-`vanilla-gnome` `ShellVersion` canary output in the run log instead (see
-[Coordination](#coordination)). As of 2026-11-09 none of the `manual.yml` runs
-on `projectbluefin/testsuite` since this run target was documented (2026-10-29)
-have been recorded against this inventory, so every row is still `UNVALIDATED`.
+The 11 failures in smoke-a and smoke-b are **Bluefin-only** (see §Bluefin-only
+failures) — extensions, power-status, tailscale, fastfetch, and failed-units are
+expected on plain gnomeos-51 and are **not** GNOME 51 divergences. The two
+genuine divergences are the Calculator and Text Editor scenarios in §Run
+findings.
 
-## Coordination
+## Run findings — Calculator and Text Editor divergences
 
-- qecore GNOME 51 support: PR #821 (qecore pins, runner 4.16 → 4.19.3) landed
-  on 2026-09-22. GNOME 50 needed qecore ≥ 4.12; 51 needs the pinned 4.19.3.
-- The `software` suite's `@future` GNOME Software rows are inventoried
-  separately in
-  [gnome-51-software-revalidation.md](gnome-51-software-revalidation.md)
-  (issue #847), including why a `software` run cannot validate them.
-- The `vanilla-gnome` suite already carries an informational `ShellVersion`
-  canary — the `GNOME Shell version is reported` step inside the `@gnome_core`
-  "GNOME Shell process is running and accessible via AT-SPI" scenario in
-  `gnome_core.feature` (landed in #864). It prints the running Shell version so
-  the flip is visible before it reads as a regression, and it warns rather than
-  raises on every failure path, so it cannot gate the run. See
-  `docs/skills/ci-ops/ops/references/fedora-version-targets.md`.
+These are **not** among the twelve workarounds above. They are vanilla GNOME
+app smoke scenarios that the maintainer flagged ("look at calculator and text
+editor"). Both fail on GNOME 51 and pass on GNOME 50 (Bluefin). They are
+**documented here, not fixed** — the fix requires the GNOME 51 AT-SPI tree for
+each app, which cannot be captured locally (no VM here, `qecore` not
+importable). Do not treat the notes below as fixes.
+
+### Calculator display lookup — broken on 51
+
+- **Failing:** `basic_multiplication` ("display shows 42"),
+  `subtracting_to_a_negative_result` ("display shows -5").
+- **Passing (decoys):** `basic_addition` (3), `basic_division` (3),
+  `basic_subtraction` (5), `clear_button_resets_display` (0),
+  `decimal_arithmetic` (3), `calculator_launches`.
+- **Root cause:** `click_calculator_button` / `Calculator display shows` in
+  `tests/smoke/features/steps/gnome_calculator_steps.py` resolve the display via
+  `_display_candidates()`, which walks the window for nodes with role in
+  `{text, entry, label, static}` and a non-empty value. On GNOME 51 the display
+  node is **not** located, so the step falls back to the keypad **buttons**
+  (7, 8, 9, `×`, `÷`, `−`, `+`, `=`, …). A single positive digit that happens to
+  equal a button label (`3`, `5`, `0`) matches by accident and passes; `42` and
+  `-5` match no button and fail. The screenshot
+  `screenshot_smoke_failed_basic_multiplication.png` shows the calculator with
+  no display value matching.
+- **What the run proves:** the display node's role/structure on GNOME 51 differs
+  from GNOME 50. The step must be re-grounded against the GNOME 51 AT-SPI tree
+  for `gnome-calculator` (find the real display node, or distinguish it from the
+  keypad buttons). **Not fixable from here** — capture the GNOME 51 AT-SPI tree
+  first.
+- **Also failing:** `calculator_closes_cleanly_via_ctrl_q` — `Ctrl+Q` did not
+  quit (see Text Editor below; shared key-combo path).
+
+### Text Editor new-document / quit — broken on 51
+
+- **Failing:** `text_editor_creates_new_empty_document_buffer` (`Ctrl+N`),
+  `text_editor_save_dialog_is_open` (`Ctrl+S`), `text_editor_discard_dialog_is_open`
+  (`Ctrl+Shift+S`), and the Text Editor coredump/quited scenarios.
+- **Passing:** `text_editor` `@input` ("Type text") — plain typing works.
+- **Root cause:** after `Ctrl+N` the buffer still shows the previous scenario's
+  content (`"Bluefin smoke testPrevious document content"`) instead of a new
+  empty buffer. `Ctrl+N` is not creating a new document on GNOME 51. Plain
+  character entry via uinput works, so the input layer is fine — the failure is
+  specific to the `Key combo` path (`Ctrl+N`/`Ctrl+S`/`Ctrl+Shift+S`).
+- **What the run proves:** the `Key combo` step (in `qecore`, external to this
+  repo) does not drive the expected accelerator on GNOME 51 for Text Editor. The
+  fix lives either in `qecore`'s key delivery or in a GNOME 51 test branch that
+  avoids the broken combo. **Not fixable from here** — needs a GNOME 51 run with
+  `qecore` debug logging to confirm whether the combo is dropped or mis-routed.
+
+## Bluefin-only failures (expected on gnomeos-51 — not divergences)
+
+The 11 failures in smoke-a and smoke-b are Bluefin's bundled extensions,
+power-status, tailscale, fastfetch, and failed-units. These are **not** part of
+this audit — plain gnomeos-51 has none of Bluefin's extensions and a different
+power-management layout. Do not open GNOME 51 workarounds for them.
+
+## Moving a LIKELY-KEEP row to confirmed
+
+Run the targeted scenarios on gnomeos-51 via the run target above and record the
+result here with the run URL. Until then, keep the GNOME 50 workaround.

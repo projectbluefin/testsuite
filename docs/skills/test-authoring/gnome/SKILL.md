@@ -1,7 +1,7 @@
 ---
 name: gnome
 version: "1.2"
-last_updated: "2026-10-01"
+last_updated: "2026-11-09"
 id: gnome
 one_line_purpose: Write GNOME Shell, AT-SPI, and dogtail interaction tests.
 entry_point: docs/skills/test-authoring/gnome/SKILL.md
@@ -408,8 +408,6 @@ Unconditional `sleep(N)` calls inflate suite time — avoid them. Rules:
 
 5. **Never remove** — small sleeps after user-visible actions (sidebar clicks, key combos, focus transitions) that have no async poll to catch up: `sleep(0.2)` is the minimum. Do not go below 0.1s.
 
-The pattern `for _ in range(N): ... sleep(X)` that returns early already IS exit-early. The gains come from removing the PRECEDING unconditional sleep, not from changing the loop.
-
 ## Red Flags
 
 - Using `'true' in out` to check a Shell.Eval result (success_bool is always true)
@@ -436,13 +434,6 @@ The pattern `for _ in range(N): ... sleep(X)` that returns early already IS exit
 - [ ] `behave --dry-run tests/smoke/features/` passes before pushing
 - [ ] Window-role helpers that accept `filler` also assert the node has a populated subtree
 - [ ] Launch targets for Flatpak-packaged apps resolve to `flatpak run --env=`, not an exported desktop entry
-
-## Common Rationalizations
-
-
-- "A direct command launch is simpler." → For GUI apps, desktop-file activation is usually more reliable for AT-SPI registration.
-- "I'll just sleep after launch." → Poll for the visible window instead; fixed sleeps bloat the suite and still flake.
-- "This title match is good enough." → Prefer app-level AT-SPI lookup first, then use title fallback only when the app name is unstable.
 
 ## Red Flags
 
@@ -483,6 +474,15 @@ helper; key contract points:
 Reuse this helper rather than a new `gdbus`-poll loop. See
 `docs/skills/ci-ops/ops/references/qecore-headless-restarts-gdm-bus-socket-churn.md`.
 
+## GNOME 51 workarounds audit
+
+Bluefin stays on GNOME 50, so every "GNOME 50" section above is still required.
+The full per-workaround verdict is in `references/gnome-51-audit.md`. Two things
+diverge on GNOME 51 and need a fix/version branch there — Calculator display
+lookup and Text Editor new-document/quit — documented in the audit, not fixed
+here (the fix needs the GNOME 51 AT-SPI tree, which cannot be captured without a
+VM).
+
 ## On-demand references
 
 Load these when you hit the specific topic:
@@ -491,7 +491,7 @@ Load these when you hit the specific topic:
 - [Top-bar interactions and Shell.Eval parsing on GNOME 50+.](references/top-bar.md)
 - [MIME, display, and session configuration in containerized tests.](references/display-config.md)
 - [Deep dive: Preinstalled Flatpak desktop app launch checks](references/preinstalled-flatpak-desktop-app-launch-checks.md)
-- [GNOME 50 workaround audit against GNOME 51 (issue #827)](references/gnome-51-audit.md)
+- [GNOME 50 → 51 workaround audit, live run evidence, and the Calculator / Text Editor divergences.](references/gnome-51-audit.md)
 
 ## Overview, clone paint, and helper fault injection (issue #919)
 
