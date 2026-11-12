@@ -62,6 +62,27 @@ argument, change vendor page policy, seed a user for a GIS profile, swap images,
 or convert the run into a smoke pass. Maintainers approve this admission record
 before runtime implementation is treated as image qualification.
 
+### Admission record: utah:testing (first candidate, #1026)
+
+Inspected 2026-11-12, read-only, from the registry and utah's own sources and
+baselines. No container was run, so anything that needs a boot is marked
+**to confirm by probe** (#1179). Each probe run pins its own digest and
+records it. Treat the digest below as the one inspected, not a fixed pin.
+
+| Field | Record |
+|---|---|
+| Image | `ghcr.io/projectbluefin/utah:testing@sha256:bb9aea734d6a099444067af29c0783057465f0779ffc058bae4014b4a1cd97e0` (manifest digest of `:testing` at inspection) |
+| Disk preparation | `bootc install to-disk` as in `.github/workflows/e2e.yml`, but with **no seeded user, no GDM auto-login and no SSH user**. Only the per-run root key decided on #1026. The bootloader step must succeed; there's no `-kernel` fallback. Disk checksum: recorded per run by the probe |
+| Loader | shim → GRUB via bootupd: `shim-x64` 16.1, `grub2-efi-x64` 2.12, `bootupd` 0.3.2 (utah `baselines/utah/rpms.tsv`; `bootupctl` and `bootloader-update.service` are in `baselines/utah/surface.tsv`). Not systemd-boot. **To confirm by probe:** the ESP contents after install |
+| Display manager | GDM 51.0 (`gdm.service`). The image itself sets no auto-login: utah's `AutomaticLogin` and `custom.conf` edits are in `iso/live/src/configure-live.sh` only, i.e. the live ISO, not an installed disk |
+| Initial regular users | Expected **none** (no uid ≥ 1000). The live ISO's `liveuser` is created by the ISO scripts only. **To confirm by probe** from `/etc/passwd` and `/usr/lib/passwd` on the installed disk, with no shadow data recorded |
+| GIS vendor configuration | **None in the image.** `gnome-initial-setup` 51.1. Utah's `vendor.conf` handling is in `iso/scripts/build-iso.sh` and the live ISO only, and neither utah's `system_files` nor projectbluefin/common ships one. So GIS runs its upstream defaults in new-user mode |
+| Expected pages (upstream 51.1 order) | welcome → language → keyboard → network → privacy → timezone → software → account → password → (parental controls → parent password) → summary, from GIS 51.1's `page_table`. Pages hide themselves at runtime: network when already connected over wire, software when there's nothing to offer, parental controls only if GIS was built with them (utah ships `malcontent` 0.14). **To confirm by probe:** the actual ordered sequence on this disk under QEMU with user-mode networking |
+| Locale and keyboard | `langpacks-en` only, so English. The installed disk's `/etc/locale.conf` and `/etc/vconsole.conf` defaults are **to confirm by probe**. The probe fixes locale and keyboard rather than relying on them |
+| Expected final state | One new regular user (uid ≥ 1000) created by GIS's account and password pages, a GDM greeter login with that password, and a usable GNOME Wayland session, as `desktop-first-login-cases.md` defines |
+
+Dakota, LTS, NVIDIA and other utah variants are not admitted by this record.
+
 ## Minimal fixture contract
 
 Proposed interface, not new reusable workflow inputs:
