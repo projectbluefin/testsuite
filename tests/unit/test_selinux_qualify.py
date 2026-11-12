@@ -645,6 +645,6 @@ def test_canary_script_triggers_denial_and_logs_evidence():
 
 def test_collector_reads_audit_log_and_ring_buffer():
     script = (ROOT / "scripts" / "selinux_collect_avc.sh").read_text()
-    assert "ausearch -m AVC,USER_AVC --raw" in script
+    assert "ausearch --input-logs -m AVC,USER_AVC --raw" in script
     assert "grep -hF 'avc:' /var/log/audit/audit.log*" in script
     assert "dmesg" in script
