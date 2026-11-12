@@ -103,6 +103,89 @@ def wait_for_window(ponytail, timeout=20, delay=0.5):
 
 
 XK_ESCAPE = 0xFF1B
+PONYTAIL_SIGNAL_TIMEOUT = 15
+
+
+def _glib():
+    from gi.repository import GLib
+    return GLib
+
+
+def _signal_call(ponytail, invoke, signal, timeout=PONYTAIL_SIGNAL_TIMEOUT):
+    """Call a Ponytail controller method and wait, bounded, for its signal.
+
+    Ponytail's connectWindow/connectMonitor/disconnect wait on a GLib main
+    loop with no timeout. When the daemon never sent the signal, the probe
+    hung until the step's 90 s limit with no evidence of which call stuck.
+    """
+    glib = _glib()
+    loop = glib.MainLoop()
+    state = {"seen": False, "expired": False}
+
+    def seen(*_):
+        state["seen"] = True
+        loop.quit()
+
+    def expired():
+        state["expired"] = True
+        loop.quit()
+        return False
+
+    iface = ponytail.event_controller_iface
+    ponytail.bus.add_signal_receiver(seen, signal, iface)
+    tag = glib.timeout_add_seconds(timeout, expired)
+    try:
+        invoke(ponytail.event_controller, iface)
+        if not state["seen"]:
+            loop.run()
+    finally:
+        if not state["expired"]:
+            glib.source_remove(tag)
+        ponytail.bus.remove_signal_receiver(seen, signal, iface)
+    if not state["seen"]:
+        raise AssertionError(f"Ponytail never sent {signal} within {timeout}s")
+
+
+def connect_window(ponytail, window_id):
+    _signal_call(ponytail, lambda ctl, iface: ctl.ConnectWindow(window_id, dbus_interface=iface),
+                 "Connected")
+    ponytail.connected = window_id
+
+
+def connect_monitor(ponytail, monitor=""):
+    _signal_call(ponytail, lambda ctl, iface: ctl.ConnectMonitor(monitor, dbus_interface=iface),
+                 "Connected")
+    ponytail.connected = monitor
+
+
+def disconnect(ponytail):
+    _signal_call(ponytail, lambda ctl, iface: ctl.Disconnect(dbus_interface=iface), "Disconnected")
+    ponytail.connected = None
+
+
+def input_method_state(run=subprocess.run):
+    """Whether an input method sits between the virtual keyboard and GTK."""
+    def call(*args):
+        try:
+            done = run(args, capture_output=True, text=True, timeout=15)
+        except (OSError, subprocess.SubprocessError) as error:
+            return f"error: {error}"
+        return (done.stdout or done.stderr).strip()[:500]
+    return {
+        "GTK_IM_MODULE": os.environ.get("GTK_IM_MODULE"),
+        "ibus_daemon": call("pgrep", "-a", "-u", str(os.getuid()), "ibus-daemon"),
+        "input_sources": call("gsettings", "get", "org.gnome.desktop.input-sources", "sources"),
+    }
+
+
+def _ponytail_debug(enabled):
+    """Turn on the Ponytail daemon's g_debug log for the probe (journal only)."""
+    verb = "set-environment" if enabled else "unset-environment"
+    arg = "G_MESSAGES_DEBUG=all" if enabled else "G_MESSAGES_DEBUG"
+    try:
+        command("systemctl", "--user", verb, arg)
+    except (OSError, subprocess.SubprocessError):
+        pass
 
 
 def _focused(ponytail):
@@ -151,13 +234,23 @@ def probe():
     child = subprocess.Popen([sys.executable, __file__, "--entry"],
                              env={**os.environ, "GDK_BACKEND": "wayland", "NO_AT_BRIDGE": "0"})
     ponytail = None
+    evidence["stage"] = "start"
     try:
-        ponytail = Ponytail()
+        # Ponytail is D-Bus activated, so its daemon starts with this debug
+        # log on and the guest journal shows what happens to each event.
+        _ponytail_debug(True)
         try:
+            ponytail = Ponytail()
+        finally:
+            _ponytail_debug(False)
+        try:
+            evidence["stage"] = "window-wait"
             window = wait_for_window(ponytail)
             # getWindowId (focus not required) returns the D-Bus id type
             # ConnectWindow expects, the same value waitFor() would return.
-            ponytail.connectWindow(ponytail.getWindowId(TITLE))
+            evidence["stage"] = "connect-window"
+            connect_window(ponytail, ponytail.getWindowId(TITLE))
+            evidence["stage"] = "focus"
             evidence["focus"] = focus_by_click(ponytail, window)
         except (ValueError, AssertionError):
             # Say what the shell could see, so a timeout explains itself.
@@ -170,8 +263,11 @@ def probe():
         # window-scoped connection never reached the focused entry. ASCII
         # keysyms are their Unicode values. No AT-SPI text setter, shell eval,
         # clipboard or application command is allowed to supply the text.
-        ponytail.disconnect()
-        ponytail.connectMonitor()
+        evidence["stage"] = "disconnect-window"
+        disconnect(ponytail)
+        evidence["stage"] = "connect-monitor"
+        connect_monitor(ponytail)
+        evidence["stage"] = "typing"
         for char in expected:
             ponytail.generateKeysymEvent(ord(char))
         evidence["input"] = "keysym-monitor"
@@ -190,9 +286,12 @@ def probe():
             # entry", and keep a picture of what the window showed.
             evidence["focused_after_typing"] = _focused(ponytail)
             evidence["after_typing_screenshot"] = window_wait_diagnostics(child)["screenshot"]
+            evidence["input_method"] = input_method_state()
             print("gnomeos-canary readback: " + json.dumps(
-                {k: evidence.get(k) for k in ("entry_found", "observed", "focused_after_typing", "focus")}),
+                {k: evidence.get(k) for k in ("entry_found", "observed", "focused_after_typing",
+                                              "focus", "input_method")}),
                 file=sys.stderr, flush=True)
+        evidence["stage"] = "readback"
         assert evidence["observed"] == expected, f"Virtual input was not observed over AT-SPI: {evidence}"
         screenshot = RESULTS / "desktop-canary.png"
         screenshot.unlink(missing_ok=True)
@@ -200,12 +299,20 @@ def probe():
                 "--object-path", "/org/gnome/Shell/Screenshot", "--method",
                 "org.gnome.Shell.Screenshot.Screenshot", "false", "false", str(screenshot))
         assert screenshot.is_file() and screenshot.stat().st_size, "No fresh desktop screenshot"
+        evidence["stage"] = "passed"
+    except AssertionError as error:
+        if str(error).startswith("Ponytail never sent"):
+            print(f"gnomeos-canary stuck at {evidence['stage']}: {error}", file=sys.stderr, flush=True)
+        raise
     finally:
         (RESULTS / "desktop-canary.json").write_text(json.dumps(evidence, indent=2) + "\n")
         child.terminate()
         child.wait(timeout=5)
         if ponytail is not None and ponytail.connected is not None:
-            ponytail.disconnect()
+            try:
+                disconnect(ponytail)
+            except AssertionError:
+                pass  # already failing; don't hide the first error
 
 
 if __name__ == "__main__":

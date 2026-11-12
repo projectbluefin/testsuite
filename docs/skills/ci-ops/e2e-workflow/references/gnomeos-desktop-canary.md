@@ -105,8 +105,13 @@ hook/step errors. The applicable mandatory gate for this suite is
 `Gate suite has passing scenarios` gate explicitly excludes the GNOME OS
 canary. The canary itself rejects a non-GNOME-OS identity, unknown build,
 non-Wayland session or an accessibility address that is merely the
-session-bus fallback. Its child process is bounded to 90 seconds, including
-Ponytail connection waits.
+session-bus fallback. Its child process is bounded to 90 seconds. Ponytail's
+own client waits for its `Connected` and `Disconnected` signals with no
+timeout, so the probe calls the daemon's D-Bus methods itself and waits at
+most 15 seconds for each signal. `desktop-canary.json` records the `stage`
+the probe reached, and a stall prints `gnomeos-canary stuck at <stage>`. The
+daemon is D-Bus activated with `G_MESSAGES_DEBUG=all`, so the guest journal
+shows what happened to each injected event.
 
 ### Session environment under qecore-headless
 
