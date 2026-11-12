@@ -51,11 +51,11 @@ jobs:
           ref: ${{ inputs.test_ref || github.sha }}
           persist-credentials: false
 
-      - name: Free disk space and install QEMU and OVMF
+      - name: Free disk space and install QEMU, qemu-img and OVMF
         uses: projectbluefin/actions/bootc-build/setup-runner@d45359f988daff2bd808e4a977d1275a8a2e6e2d # v1
         with:
           update-podman: "false"
-          apt-packages: qemu-system-x86 ovmf
+          apt-packages: qemu-system-x86 qemu-utils ovmf
 
       - name: Enable KVM access
         run: |
