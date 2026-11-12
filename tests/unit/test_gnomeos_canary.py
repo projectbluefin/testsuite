@@ -87,9 +87,10 @@ def test_actual_gate_requires_process_and_scenarios(tmp_path, process_rc, scenar
 
 class FakePonytail:
     fail_at = None
-    # How the canary window behaves: "focused" when mapped, "click" to take
-    # focus on the first virtual click, "never" to stay unfocused, "absent"
-    # to never be listed by the shell.
+    # How the canary window behaves: "focused" when mapped, "escape" to take
+    # focus once Escape leaves the overview, "click" to take focus on the
+    # first virtual click, "never" to stay unfocused, "absent" to never be
+    # listed by the shell.
     window = "focused"
     instances = []
 
@@ -100,6 +101,7 @@ class FakePonytail:
         self.disconnected = False
         self.keysyms = []
         self.clicks = []
+        self.control = []
         self.focused = self.window == "focused"
         FakePonytail.instances.append(self)
 
@@ -124,6 +126,11 @@ class FakePonytail:
         self.connected = window_id
 
     def generateKeysymEvent(self, keysym):
+        if keysym >= 0xFF00:  # control keys (Escape) aren't typed text
+            self.control.append(keysym)
+            if self.window == "escape":
+                self.focused = True
+            return
         self.keysyms.append(keysym)
 
     def disconnect(self):
@@ -226,9 +233,20 @@ def test_probe_only_disconnects_after_connecting(probe_env, fail_at):
     assert all(not p.disconnected for p in FakePonytail.instances)
 
 
+def test_probe_leaves_the_overview_with_escape_first(probe_env):
+    # A session starts in the Activities overview, which covers the window.
+    FakePonytail.window = "escape"
+    probe_env["probe"]()
+    evidence = probe_env["evidence"]()
+    assert evidence["focus"] == "escape"
+    assert evidence["observed"] == evidence["expected"]
+    ponytail = FakePonytail.instances[-1]
+    assert ponytail.control == [0xFF1B] and ponytail.clicks == []
+
+
 def test_probe_focuses_an_unfocused_window_with_a_real_click(probe_env):
     # On Wayland the shell maps a background-launched window without focus;
-    # Ponytail's waitFor() would time out on it.
+    # Ponytail's waitFor() would time out on it. Escape alone isn't enough here.
     FakePonytail.window = "click"
     probe_env["probe"]()
     evidence = probe_env["evidence"]()

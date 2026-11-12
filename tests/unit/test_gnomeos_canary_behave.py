@@ -128,7 +128,8 @@ def test_window_wait_diagnostics_reports_shell_view_and_child_state():
     assert report["entry_child_returncode"] is None
     assert "GNOME OS desktop canary" in report["introspect_windows"]
     assert "--unsafe-mode" in report["shell_cmdline"]
-    assert seen == ["gdbus", "pgrep"]
+    assert seen == ["gdbus", "pgrep", "gdbus", "gdbus"]
+    assert "overview_visible" in report and "screenshot" in report
 
 
 def test_window_wait_diagnostics_survives_failing_tools():

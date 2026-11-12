@@ -64,6 +64,16 @@ def window_wait_diagnostics(child, run=subprocess.run):
             "--object-path", "/org/gnome/Shell/Introspect",
             "--method", "org.gnome.Shell.Introspect.GetWindows"),
         "shell_cmdline": call("pgrep", "-a", "-u", str(os.getuid()), "gnome-shell"),
+        # Read-only: whether the Activities overview covers the desktop.
+        "overview_visible": call(
+            "gdbus", "call", "--session", "--dest", "org.gnome.Shell",
+            "--object-path", "/org/gnome/Shell", "--method", "org.gnome.Shell.Eval",
+            "Main.overview.visible"),
+        "screenshot": call(
+            "gdbus", "call", "--session", "--dest", "org.gnome.Shell.Screenshot",
+            "--object-path", "/org/gnome/Shell/Screenshot", "--method",
+            "org.gnome.Shell.Screenshot.Screenshot", "false", "false",
+            str(RESULTS / "window-wait.png")),
     }
 
 
@@ -92,21 +102,35 @@ def wait_for_window(ponytail, timeout=20, delay=0.5):
         time.sleep(delay)
 
 
-def focus_by_click(ponytail, window, timeout=10, delay=0.5):
-    """Focus the connected window with a real virtual-pointer click.
+XK_ESCAPE = 0xFF1B
 
-    Clicks low in the window, inside the entry and clear of any title bar,
-    then waits for the shell to report focus. Returns how it got focus.
+
+def _focused(ponytail):
+    current = canary_window(ponytail)
+    return current is not None and bool(current.get("has-focus"))
+
+
+def focus_by_click(ponytail, window, timeout=10, delay=0.5):
+    """Give the connected window keyboard focus with real virtual input.
+
+    A GNOME session starts in the Activities overview, which covers a newly
+    mapped window, so press Escape first to leave it (as a user would). If
+    that isn't enough, click low in the window, inside the entry and clear
+    of any title bar. Waits for the shell to report focus after each step and
+    returns how focus arrived.
     """
     if window.get("has-focus"):
         return "already"
+    ponytail.generateKeysymEvent(XK_ESCAPE)
+    time.sleep(delay * 2)
+    if _focused(ponytail):
+        return "escape"
     x, y = int(window["width"]) // 2, max(1, int(window["height"]) - 30)
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         ponytail.generateButtonEvent(1, x, y)
         time.sleep(delay)
-        current = canary_window(ponytail)
-        if current is not None and current.get("has-focus"):
+        if _focused(ponytail):
             return "click"
     raise AssertionError("Canary window never took keyboard focus after a virtual click")
 
