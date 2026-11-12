@@ -1,0 +1,102 @@
+# PR VM check — boot the suites a pull request affects, before it merges
+#
+# Plans the PR's changed files exactly as the post-merge v1 gate does
+# (scripts/vm_validation_plan.py, scripts/v1_gate.py) and, when a VM is
+# needed, boots those suites through e2e.yml on dakota:testing pinned by
+# digest. A PR that reaches no VM (docs, unit tests, repo tooling) finishes
+# the plan in seconds and boots nothing.
+#
+# Why: e2e.yml only runs when something calls it, and contributor agents may
+# not dispatch workflows, so until now a VM-related change got its first VM
+# run after merge (as a v1 hold) or when a maintainer started a manual run.
+# This gives every such PR its own VM evidence.
+#
+# Advisory for now: not a required check. Fork PRs get a read-only token, so
+# e2e.yml's screenshot push (continue-on-error) is skipped there; nothing else
+# needs a write token or a secret.
+
+name: PR VM check
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-vm-check-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  plan:
+    name: Plan VM check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      action: ${{ steps.plan.outputs.action }}
+      suites: ${{ steps.plan.outputs.suites }}
+      image: ${{ steps.image.outputs.image }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Plan
+        id: plan
+        run: |
+          set -euo pipefail
+          # The checkout is GitHub's merge commit; its first parent is the base,
+          # so this is exactly the PR's own change even if main has moved.
+          git diff --name-only HEAD^1 HEAD > changed.txt
+          python3 scripts/vm_validation_plan.py < changed.txt > plan.json
+          python3 scripts/v1_gate.py < plan.json | tee -a "$GITHUB_OUTPUT" > decision.txt
+          {
+            echo "### PR VM check plan"
+            echo
+            echo '```'
+            cat decision.txt
+            echo '```'
+            echo
+            echo '```json'
+            cat plan.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          # "hold" means a changed path needs a lane e2e.yml cannot boot (the
+          # gnome-e2e composite action, or a suite with no hosted lane); say so
+          # rather than boot something that would not cover it.
+          if grep -q '^action=hold$' decision.txt; then
+            echo "::notice::This PR changes something the VM check cannot boot; validate it by hand (see the plan in the summary)."
+          fi
+
+      - name: Pin dakota:testing by digest
+        id: image
+        if: steps.plan.outputs.action == 'gate'
+        run: |
+          set -euo pipefail
+          NAME=ghcr.io/projectbluefin/dakota:testing
+          DIGEST=$(skopeo inspect --format '{{.Digest}}' "docker://${NAME}")
+          case "${DIGEST}" in
+            sha256:*) ;;
+            *) echo "::error::Could not resolve a digest for ${NAME}"; exit 1 ;;
+          esac
+          echo "image=${NAME}@${DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "VM check image: \`${NAME}@${DIGEST}\`" >> "$GITHUB_STEP_SUMMARY"
+
+  boot:
+    name: Boot affected suites
+    needs: plan
+    if: needs.plan.outputs.action == 'gate'
+    # e2e.yml's jobs ask for packages: write (screenshot push); a called
+    # workflow cannot be granted less than its jobs request.
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/e2e.yml
+    with:
+      image: ${{ needs.plan.outputs.image }}
+      suites: ${{ needs.plan.outputs.suites }}
+      test_ref: ${{ github.sha }}
+      test_repository: ${{ github.repository }}
