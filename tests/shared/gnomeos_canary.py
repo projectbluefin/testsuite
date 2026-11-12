@@ -104,6 +104,16 @@ def wait_for_window(ponytail, timeout=20, delay=0.5):
 
 XK_ESCAPE = 0xFF1B
 
+# XKB keycodes for the lowercase hex digits secrets.token_hex() produces, on a
+# US layout. Ponytail's GenerateKeycodeEvent takes XKB codes and converts them
+# (evdev = XKB - 8, gpd-event-controller.c), so these are the
+# linux/input-event-codes.h values plus 8.
+_EVDEV_HEX = {
+    "1": 2, "2": 3, "3": 4, "4": 5, "5": 6, "6": 7, "7": 8, "8": 9, "9": 10, "0": 11,
+    "a": 30, "b": 48, "c": 46, "d": 32, "e": 18, "f": 33,
+}
+HEX_KEYCODES = {char: code + 8 for char, code in _EVDEV_HEX.items()}
+
 
 def _focused(ponytail):
     current = canary_window(ponytail)
@@ -165,10 +175,13 @@ def probe():
             print("gnomeos-canary window wait: " + json.dumps(evidence["window_wait"]),
                   file=sys.stderr, flush=True)
             raise
-        # ASCII keysyms are their Unicode values; no AT-SPI text setter, shell
-        # eval, clipboard or application command is allowed to supply the text.
+        # Type with evdev keycodes, i.e. physical keys. Keysym events reached
+        # the shell (Escape left the overview) but the characters never got to
+        # the focused entry. No AT-SPI text setter, shell eval, clipboard or
+        # application command is allowed to supply the text.
         for char in expected:
-            ponytail.generateKeysymEvent(ord(char))
+            ponytail.generateKeycodeEvent(HEX_KEYCODES[char])
+        evidence["input"] = "keycode"
         evidence["entry_found"] = False
         deadline = time.monotonic() + 20
         while time.monotonic() < deadline:
