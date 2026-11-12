@@ -96,6 +96,9 @@ jobs:
           # the prepared disk and the firmware templates never change.
           qemu-img create -q -f qcow2 -b disk/disk.raw -F raw overlay.qcow2
           cp /usr/share/OVMF/OVMF_VARS_4M.fd vars.fd
+          # QEMU runs as root; create the serial log as the runner user first
+          # so the probe can read it (QEMU keeps an existing file's owner).
+          : > "${RUN_DIR}/serial.log"
           sudo qemu-system-x86_64 \
             -machine q35,accel=kvm -cpu host -m 4096 -smp 4 \
             -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.fd \

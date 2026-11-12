@@ -161,3 +161,19 @@ def test_probe_fails_when_input_changes_nothing(fake_vm, tmp_path, monkeypatch):
     assert probe.run(tmp_path, "sock", "serial", "key", 1, 1) == 1
     verdict = _verdict(tmp_path)
     assert verdict["checkpoint"] == 2 and "did not change" in verdict["reason"]
+
+
+def test_wait_for_serial_tolerates_an_unreadable_log(tmp_path):
+    serial = tmp_path / "serial.log"
+    serial.write_text("Linux version 6.17\n")
+    serial.chmod(0)
+    clock = Clock()
+    try:
+        assert probe.wait_for_serial(serial, (r"never",), 4, clock, clock.sleep) == ""
+    finally:
+        serial.chmod(0o644)
+
+
+def test_serial_log_is_created_as_the_runner_user_before_boot():
+    boot = _step("Boot through OVMF")["run"]
+    assert boot.index(': > "${RUN_DIR}/serial.log"') < boot.index("qemu-system-x86_64")

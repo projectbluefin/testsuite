@@ -38,7 +38,7 @@ def wait_for_serial(serial, patterns, timeout, clock=time.monotonic, sleep=time.
             for line in Path(serial).read_text(errors="replace").splitlines():
                 if any(c.search(line) for c in compiled):
                     return line.strip()
-        except FileNotFoundError:
+        except OSError:  # not created or not readable yet
             pass
         if clock() >= deadline:
             return ""
