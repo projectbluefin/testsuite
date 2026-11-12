@@ -10,7 +10,7 @@ set -uo pipefail
 
 if [[ -s /var/log/audit/audit.log ]]; then
   if command -v ausearch >/dev/null 2>&1; then
-    ausearch -m AVC,USER_AVC --raw 2>/dev/null || true
+    ausearch --input-logs -m AVC,USER_AVC --raw 2>/dev/null || true
   else
     # auditd without its search tool: the raw log has the same records.
     grep -hF 'avc:' /var/log/audit/audit.log* 2>/dev/null || true
