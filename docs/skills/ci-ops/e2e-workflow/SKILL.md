@@ -66,6 +66,11 @@ It boots a bootc OCI image in a KVM-accelerated QEMU VM on `ubuntu-latest`, star
 
 **No self-hosted runners. Pure GitHub Actions.**
 
+The suite job name uses `GNOME` without a version: callers choose the image,
+so its desktop version cannot be inferred from a fixed workflow label. KDE suites
+retain the `KDE Plasma` label. Job names are also check names; check downstream
+required status checks before changing them.
+
 ## PR validation sidecars
 
 
