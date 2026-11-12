@@ -103,9 +103,11 @@ hook/step errors. The canary itself rejects a non-GNOME-OS identity, unknown
 build, non-Wayland session or an accessibility address that is merely the
 session-bus fallback. Its child process is bounded to 90 seconds, including
 Ponytail connection waits.
-The probe polls Shell's focused-window state rather than relying on Ponytail
-0.0.11's application-change signal; a timeout reports the available windows,
-and D-Bus errors are not hidden as window timeouts.
+The probe uses Shell's `Main.activateWindow` to focus the title and PID of
+its own Wayland child, which has no activation token, then polls Ponytail's
+focused-window state before sending keys. Shell.Eval never supplies probe text.
+A timeout reports the available windows, and D-Bus errors are not hidden as
+window timeouts.
 
 The canary launcher obtains the live Wayland and accessibility addresses inside
 qecore's child process, after qecore has set up the desktop session. The action

@@ -52,6 +52,17 @@ def entry_window():
 def wait_for_focused_window(ponytail, child, timeout=20):
     # Ponytail 0.0.11 only retries on RunningApplicationsChanged. A focus
     # change within an already running application need not emit that signal.
+    # A Wayland window launched by the harness has no activation token, so
+    # presenting it does not guarantee that Mutter will give it focus.
+    from tests.shared.gnome_shell_steps import _eval_bool
+
+    activate = f"""(() => {{
+        const win = global.get_window_actors().map(a => a.get_meta_window()).find(w =>
+            w && w.get_pid() === {child.pid} && w.get_title() === {json.dumps(TITLE)});
+        if (!win) return false;
+        Main.activateWindow(win);
+        return true;
+    }})()"""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if child.poll() is not None:
@@ -59,6 +70,7 @@ def wait_for_focused_window(ponytail, child, timeout=20):
         try:
             return ponytail.getWindowId(TITLE, want_focus=True)
         except ValueError:
+            _eval_bool(activate)
             time.sleep(0.25)
     raise TimeoutError(f"Canary window did not become focused: {ponytail.window_list}")
 

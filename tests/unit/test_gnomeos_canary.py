@@ -113,6 +113,8 @@ class FakePonytail:
 
 
 class FakeChild:
+    pid = 1234
+
     def __init__(self, *args, **kwargs):
         self.terminated = self.waited = False
         FakeChild.last = self
@@ -133,10 +135,14 @@ def probe_env(tmp_path, monkeypatch):
     import sys
     import types
     from tests.shared import gnomeos_canary
+    import importlib
+
+    gnome_shell_steps = importlib.import_module("tests.shared.gnome_shell_steps")
+    monkeypatch.setattr(gnome_shell_steps, "_eval_bool", lambda js: state["activations"].append(js))
 
     FakePonytail.fail_at = None
     FakePonytail.instances = []
-    state = {"readback": lambda expected: expected, "commands": []}
+    state = {"readback": lambda expected: expected, "commands": [], "activations": []}
     node = types.SimpleNamespace(name=gnomeos_canary.ENTRY_NAME, text="")
 
     def find_children(predicate):
@@ -222,4 +228,7 @@ def test_window_wait_observes_focus_without_application_signal(probe_env, monkey
     monkeypatch.setattr(FakePonytail, "getWindowId", lookup)
     probe_env["probe"]()
     assert len(attempts) == 3
+    assert len(probe_env["activations"]) == 2
+    assert all("w.get_pid() === 1234" in js and "Main.activateWindow(win)" in js
+               for js in probe_env["activations"])
     assert FakePonytail.instances[-1].disconnected
