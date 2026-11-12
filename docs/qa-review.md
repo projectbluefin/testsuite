@@ -57,6 +57,7 @@ Run unit tests with `python3 -m pytest tests/unit/ -q`. The `pytest` CI check (`
 | `test_first_login_journey.py` | First-boot journey: admission-record page order (network optional, required pages named when missing), per-page deadlines and bounded Tab focus, the four cases and their named failures, no frames from private pages, password scan and evidence deletion, read-only guest reader |
 | `test_gnomeos_canary_behave.py` | GNOME OS canary wrapper re-reads the live session (Wayland display, session and AT-SPI buses) after qecore's restart, and only the canary uses it |
 | `test_gnomeos_canary.py` | GNOME OS identity/session rejection, AT-SPI fallback rejection, strict result/process gate and evidence wiring |
+| `test_pr_vm_canary.py` | PR canary path routing, workflow dispatch and unchanged post-merge policy |
 | `test_gnome_shell_steps.py` | Shell.Eval, AT-SPI step helpers, ShellEval bool variants |
 | `test_gnome_settings_steps.py` | Settings panel navigation and toggle helpers |
 | `test_lifecycle_steps.py` | bootc upgrade/rollback/migration step helpers |

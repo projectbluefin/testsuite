@@ -41,6 +41,16 @@ FULL = (GUI, SSH, LIFECYCLE)
 # Pseudo-lane: needs a run of the gnome-e2e composite action, not e2e.yml.
 ACTION = "gnome-e2e-action"
 ACTION_LANES = frozenset({ACTION})
+CANARY = "gnomeos-canary"
+PR_CANARY_PATHS = (
+    ".github/workflows/gnomeos-canary.yml",
+    "container/Containerfile.gnomeos-harness",
+    "container/gnomeos-harness-identity.py",
+    "scripts/build-gnomeos-harness.sh",
+    "scripts/configure_gnomeos_canary_shell.py",
+    "tests/shared/gnomeos_canary.py",
+)
+
 
 # Suites e2e.yml can boot on hosted runners (its `suites` input).
 HOSTED_SUITES = frozenset(
@@ -133,7 +143,7 @@ def suites_for_path(path: str) -> tuple[str, ...]:
     return FULL
 
 
-def plan(paths: list[str]) -> dict:
+def plan(paths: list[str], *, pr: bool = False) -> dict:
     """Combine per-path requirements into one minimal plan."""
     reasons: dict[str, list[str]] = {}
     required: set[str] = set()
@@ -141,21 +151,37 @@ def plan(paths: list[str]) -> dict:
         path = raw.strip()
         if not path:
             continue
-        suites = list(suites_for_path(path))
+        normalized = path.removeprefix("./")
+        if pr and normalized == ".github/workflows/pr-vm-check.yml":
+            suites = [*FULL, CANARY]
+        elif pr and normalized in PR_CANARY_PATHS:
+            suites = [CANARY]
+        else:
+            suites = list(suites_for_path(path))
         reasons[path] = suites
         required.update(suites)
-    return {
-        "vm_required": bool(required),
+    vm_required = bool(required)
+    canary = pr and bool(required & {CANARY, ACTION})
+    if pr:
+        required.discard(CANARY)
+        required.discard(ACTION)
+    result = {
+        "vm_required": bool(required) if pr else vm_required,
         "suites": sorted(required & HOSTED_SUITES),
         "no_hosted_lane": sorted(required - HOSTED_SUITES - ACTION_LANES),
         "composite_action": sorted(required & ACTION_LANES),
         "reasons": reasons,
     }
+    if pr:
+        result["canary"] = canary
+    return result
 
 
 def main(argv: list[str]) -> int:
-    paths = argv[1:] if len(argv) > 1 else sys.stdin.read().splitlines()
-    print(json.dumps(plan(paths), indent=2, sort_keys=True))
+    pr = len(argv) > 1 and argv[1] == "--pr"
+    args = argv[2:] if pr else argv[1:]
+    paths = args if args else sys.stdin.read().splitlines()
+    print(json.dumps(plan(paths, pr=pr), indent=2, sort_keys=True))
     return 0
 
 

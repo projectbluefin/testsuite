@@ -1,18 +1,17 @@
 # PR VM check — boot the suites a pull request affects, before it merges
 #
-# Plans the PR's changed files exactly as the post-merge v1 gate does
-# (scripts/vm_validation_plan.py, scripts/v1_gate.py) and, when a VM is
-# needed, boots those suites through e2e.yml on dakota:testing pinned by
-# digest. A PR that reaches no VM (docs, unit tests, repo tooling) finishes
-# the plan in seconds and boots nothing.
+# Plans the PR's changed files using the post-merge v1 policy, with a
+# separate GNOME OS canary lane for PRs. When a VM is needed, it boots
+# affected e2e.yml suites on dakota:testing pinned by digest. A PR that
+# reaches no VM finishes the plan in seconds and boots nothing.
 #
 # Why: e2e.yml only runs when something calls it, and contributor agents may
 # not dispatch workflows, so until now a VM-related change got its first VM
 # run after merge (as a v1 hold) or when a maintainer started a manual run.
 # This gives every such PR its own VM evidence.
 #
-# Advisory for now: not a required check. Fork PRs get a read-only token, so
-# e2e.yml's screenshot push (continue-on-error) is skipped there; nothing else
+# Fork PRs get a read-only token, so e2e.yml's screenshot push
+# (continue-on-error) is skipped there; nothing else
 # needs a write token or a secret.
 
 name: PR VM check
@@ -36,6 +35,7 @@ jobs:
     outputs:
       action: ${{ steps.plan.outputs.action }}
       suites: ${{ steps.plan.outputs.suites }}
+      canary: ${{ steps.plan.outputs.canary }}
       image: ${{ steps.image.outputs.image }}
     steps:
       - name: Checkout
@@ -51,7 +51,8 @@ jobs:
           # The checkout is GitHub's merge commit; its first parent is the base,
           # so this is exactly the PR's own change even if main has moved.
           git diff --name-only HEAD^1 HEAD > changed.txt
-          python3 scripts/vm_validation_plan.py < changed.txt > plan.json
+          python3 scripts/vm_validation_plan.py --pr < changed.txt > plan.json
+          echo "canary=$(python3 -c 'import json; print(str(json.load(open("plan.json"))["canary"]).lower())')" >> "$GITHUB_OUTPUT"
           python3 scripts/v1_gate.py < plan.json | tee -a "$GITHUB_OUTPUT" > decision.txt
           {
             echo "### PR VM check plan"
@@ -64,9 +65,7 @@ jobs:
             cat plan.json
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-          # "hold" means a changed path needs a lane e2e.yml cannot boot (the
-          # gnome-e2e composite action, or a suite with no hosted lane); say so
-          # rather than boot something that would not cover it.
+          # Remaining holds are suites with no hosted PR lane.
           if grep -q '^action=hold$' decision.txt; then
             echo "::notice::This PR changes something the VM check cannot boot; validate it by hand (see the plan in the summary)."
           fi
@@ -100,3 +99,11 @@ jobs:
       suites: ${{ needs.plan.outputs.suites }}
       test_ref: ${{ github.sha }}
       test_repository: ${{ github.repository }}
+
+  canary:
+    name: GNOME OS canary
+    needs: plan
+    if: needs.plan.outputs.canary == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/gnomeos-canary.yml

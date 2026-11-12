@@ -55,25 +55,21 @@ silently costs the full set, and a wrong empty rule silently skips validation.
 ## Running the plan against the PR's own code
 
 Every pull request runs this plan automatically (`pr-vm-check.yml`, "PR VM
-check"): it diffs GitHub's merge commit against its first
-parent, runs `vm_validation_plan.py` and `v1_gate.py`, and when the decision is
-`gate` boots those suites through `e2e.yml` on `dakota:testing` pinned by
-digest, with `test_ref` set to the merge commit. `move` boots nothing; `hold`
-(a lane `e2e.yml` cannot boot, such as the `gnome-e2e` composite action) posts
-a notice and boots nothing. It is not a required check, but the hive merges no
-PR while any check is red. A fork PR's token is read-only, so `e2e.yml`'s
-screenshot push (continue-on-error) is skipped there. Use a manual run (below)
-for another image. The manual run calls `e2e.yml` too, so it cannot cover a
-`hold`:
+check"): it diffs GitHub's merge commit against its first parent and uses the
+planner's `--pr` mode. That mode routes the GNOME OS canary's workflow, harness,
+helper and suite to the canary rather than Dakota, and runs the canary for the
+`gnome-e2e` composite action too. The PR workflow itself also selects the canary
+so changes to its routing exercise it. The post-merge planner remains unchanged.
 
-- a `composite_action` lane (the `gnome-e2e` action, or
-  `scripts/extension_validation.py`, which only the action runs): dispatch
-  `gnomeos-canary.yml` from `main` with `test_ref` set to the PR head commit.
-  It calls the action and its extension-validation gate at that commit, so no
-  fork PR head needs pushing to a branch such as `canary/pr-N` first (issue
-  #1172).
-- a suite without a hosted lane (`no_hosted_lane`, such as `security`): it needs
-  its own hardware, or a hand check of the change.
+The PR check boots planned `e2e.yml` suites on `dakota:testing` pinned by digest
+at the merge commit. Other `no_hosted_lane` suites still produce a notice and
+need their own hardware or a hand check. A fork PR's token is read-only, so
+`e2e.yml`'s screenshot push (continue-on-error) is skipped there.
+
+For a canary re-run, dispatch `gnomeos-canary.yml` from `main` with `test_ref`
+set to the PR head commit. A fork PR head need not be pushed to a repository
+branch first (issue #1172). Use a manual `e2e.yml` run (below) for another
+image; it cannot cover the canary.
 
 Dispatch `manual.yml` **on the PR branch in the fork**. It calls the fork's
 `e2e.yml` revision and passes `test_repository: ${{ github.repository }}` and
