@@ -31,8 +31,9 @@ jobs:
       - name: Checkout
         id: checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        ref: ${{ inputs.test_ref || github.sha }}
-        persist-credentials: false
+        with:
+          ref: ${{ inputs.test_ref || github.sha }}
+          persist-credentials: false
 
       - name: Free disk space
         uses: projectbluefin/actions/bootc-build/setup-runner@46001bf923f11eab3a88fe1cf4540debb050516c # v1

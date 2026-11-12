@@ -56,8 +56,8 @@ def test_test_ref_input_exists_on_both_triggers():
 def test_checkout_uses_test_ref_or_dispatched_commit():
     checkout = _checkout_step(_workflow())
     assert checkout.get("id") == "checkout"
-    assert checkout["ref"] == "${{ inputs.test_ref || github.sha }}"
-    assert checkout["persist-credentials"] is False
+    assert checkout["with"]["ref"] == "${{ inputs.test_ref || github.sha }}"
+    assert checkout["with"]["persist-credentials"] is False
 
 
 def test_testsuite_ref_records_the_checked_out_commit():
