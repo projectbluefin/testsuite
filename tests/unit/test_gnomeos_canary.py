@@ -87,6 +87,10 @@ def test_actual_gate_requires_process_and_scenarios(tmp_path, process_rc, scenar
 
 class FakePonytail:
     fail_at = None
+    # How the canary window behaves: "focused" when mapped, "click" to take
+    # focus on the first virtual click, "never" to stay unfocused, "absent"
+    # to never be listed by the shell.
+    window = "focused"
     instances = []
 
     def __init__(self):
@@ -95,12 +99,26 @@ class FakePonytail:
         self.connected = None
         self.disconnected = False
         self.keysyms = []
+        self.clicks = []
+        self.focused = self.window == "focused"
         FakePonytail.instances.append(self)
 
-    def waitFor(self, title, timeout):
+    @property
+    def window_list(self):
         if self.fail_at == "wait":
             raise RuntimeError("window never appeared")
+        if self.window == "absent":
+            return []
+        return [{"id": 7, "title": "GNOME OS input canary", "width": 480, "height": 157,
+                 "has-focus": self.focused}]
+
+    def getWindowId(self, title, want_focus=False):
         return 7
+
+    def generateButtonEvent(self, button, x=None, y=None):
+        self.clicks.append((button, x, y))
+        if self.window == "click":
+            self.focused = True
 
     def connectWindow(self, window_id):
         self.connected = window_id
@@ -132,6 +150,7 @@ def probe_env(tmp_path, monkeypatch):
     from tests.shared import gnomeos_canary
 
     FakePonytail.fail_at = None
+    FakePonytail.window = "focused"
     FakePonytail.instances = []
     state = {"readback": lambda expected: expected, "commands": []}
     node = types.SimpleNamespace(name=gnomeos_canary.ENTRY_NAME, text="")
@@ -205,3 +224,45 @@ def test_probe_only_disconnects_after_connecting(probe_env, fail_at):
     assert probe_env["evidence"]()["observed"] == ""
     assert FakeChild.last.terminated and FakeChild.last.waited
     assert all(not p.disconnected for p in FakePonytail.instances)
+
+
+def test_probe_focuses_an_unfocused_window_with_a_real_click(probe_env):
+    # On Wayland the shell maps a background-launched window without focus;
+    # Ponytail's waitFor() would time out on it.
+    FakePonytail.window = "click"
+    probe_env["probe"]()
+    evidence = probe_env["evidence"]()
+    assert evidence["focus"] == "click"
+    assert evidence["observed"] == evidence["expected"]
+    ponytail = FakePonytail.instances[-1]
+    assert ponytail.connected == 7
+    (button, x, y), *_ = ponytail.clicks
+    assert button == 1 and x == 240 and 37 < y < 157  # inside the entry, below any title bar
+
+
+def test_probe_skips_the_click_when_the_window_already_has_focus(probe_env):
+    probe_env["probe"]()
+    assert probe_env["evidence"]()["focus"] == "already"
+    assert FakePonytail.instances[-1].clicks == []
+
+
+def test_probe_fails_with_diagnostics_when_focus_never_arrives(probe_env, monkeypatch):
+    from tests.shared import gnomeos_canary
+    FakePonytail.window = "never"
+    monkeypatch.setattr(gnomeos_canary, "window_wait_diagnostics", lambda child: {"seen": "window"})
+    with pytest.raises(AssertionError, match="never took keyboard focus"):
+        probe_env["probe"]()
+    evidence = probe_env["evidence"]()
+    assert evidence["window_wait"] == {"seen": "window"}
+    assert evidence["observed"] == ""
+    assert FakePonytail.instances[-1].clicks  # it did try
+
+
+def test_probe_fails_with_diagnostics_when_the_window_never_maps(probe_env, monkeypatch):
+    from tests.shared import gnomeos_canary
+    FakePonytail.window = "absent"
+    monkeypatch.setattr(gnomeos_canary, "window_wait_diagnostics", lambda child: {"seen": "nothing"})
+    with pytest.raises(ValueError, match="Timeout waiting for Window"):
+        probe_env["probe"]()
+    assert probe_env["evidence"]()["window_wait"] == {"seen": "nothing"}
+    assert FakePonytail.instances[-1].connected is None

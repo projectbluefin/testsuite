@@ -67,6 +67,50 @@ def window_wait_diagnostics(child, run=subprocess.run):
     }
 
 
+def canary_window(ponytail):
+    """The canary window as the shell lists it, or None while it isn't mapped."""
+    for window in ponytail.window_list:
+        if window.get("title") == TITLE:
+            return window
+    return None
+
+
+def wait_for_window(ponytail, timeout=20, delay=0.5):
+    """Wait until the shell lists the canary window. Focus is not required.
+
+    Ponytail's own waitFor() only accepts a focused window, and on Wayland
+    the shell doesn't give focus to a window a background process maps
+    without an activation token, so it timed out with the window on screen.
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        window = canary_window(ponytail)
+        if window is not None:
+            return window
+        if time.monotonic() >= deadline:
+            raise ValueError("Timeout waiting for Window")
+        time.sleep(delay)
+
+
+def focus_by_click(ponytail, window, timeout=10, delay=0.5):
+    """Focus the connected window with a real virtual-pointer click.
+
+    Clicks low in the window, inside the entry and clear of any title bar,
+    then waits for the shell to report focus. Returns how it got focus.
+    """
+    if window.get("has-focus"):
+        return "already"
+    x, y = int(window["width"]) // 2, max(1, int(window["height"]) - 30)
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        ponytail.generateButtonEvent(1, x, y)
+        time.sleep(delay)
+        current = canary_window(ponytail)
+        if current is not None and current.get("has-focus"):
+            return "click"
+    raise AssertionError("Canary window never took keyboard focus after a virtual click")
+
+
 def probe():
     identity = require_gnomeos_wayland(Path("/usr/lib/os-release").read_text(), os.environ)
     from dogtail import tree
@@ -86,14 +130,17 @@ def probe():
     try:
         ponytail = Ponytail()
         try:
-            window_id = ponytail.waitFor(TITLE, timeout=20)
-        except ValueError:
+            window = wait_for_window(ponytail)
+            # getWindowId (focus not required) returns the D-Bus id type
+            # ConnectWindow expects, the same value waitFor() would return.
+            ponytail.connectWindow(ponytail.getWindowId(TITLE))
+            evidence["focus"] = focus_by_click(ponytail, window)
+        except (ValueError, AssertionError):
             # Say what the shell could see, so a timeout explains itself.
             evidence["window_wait"] = window_wait_diagnostics(child)
             print("gnomeos-canary window wait: " + json.dumps(evidence["window_wait"]),
                   file=sys.stderr, flush=True)
             raise
-        ponytail.connectWindow(window_id)
         # ASCII keysyms are their Unicode values; no AT-SPI text setter, shell
         # eval, clipboard or application command is allowed to supply the text.
         for char in expected:
