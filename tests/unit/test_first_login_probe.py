@@ -184,3 +184,24 @@ def test_disk_enables_sshd_with_labelled_host_keys():
     assert "multi-user.target.wants/sshd.service" in DISK_SCRIPT
     assert 'ssh-keygen -A -f "$DEP"' in DISK_SCRIPT
     assert "-name 'ssh_host_*' | tee -a \"$LABEL_LIST\"" in DISK_SCRIPT
+
+
+def test_probe_reports_a_missing_frame_separately(fake_vm, tmp_path, monkeypatch):
+    monkeypatch.setattr(probe, "screendump", lambda sock, path: b"")
+    assert probe.run(tmp_path, "sock", "serial", "key", 1, 1) == 1
+    assert _verdict(tmp_path)["reason"] == "QEMU screendump produced no frame"
+
+
+def test_screendump_sends_qemu_an_absolute_path(tmp_path, monkeypatch):
+    # The daemonized QEMU runs from /, so a relative path would land there.
+    monkeypatch.chdir(tmp_path)
+    sent = []
+
+    def monitor(sock, command):
+        sent.append(command)
+        Path(command.split(" ", 1)[1]).write_bytes(b"P6 frame")
+        return ""
+
+    monkeypatch.setattr(probe, "monitor", monitor)
+    assert probe.screendump("sock", "frame.ppm") == b"P6 frame"
+    assert sent == [f"screendump {tmp_path / 'frame.ppm'}"]

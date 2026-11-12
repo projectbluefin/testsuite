@@ -61,13 +61,15 @@ def monitor(sock_path, command, timeout=10):
 
 def screendump(sock_path, ppm_path):
     """Dump the framebuffer to a PPM and return its bytes ("" if none)."""
-    ppm = Path(ppm_path)
+    # Absolute: the daemonized QEMU runs from /, so a relative path lands there.
+    ppm = Path(ppm_path).resolve()
     ppm.unlink(missing_ok=True)
-    monitor(sock_path, f"screendump {ppm}")
+    reply = monitor(sock_path, f"screendump {ppm}")
     for _ in range(20):
         if ppm.exists() and ppm.stat().st_size > 0:
             return ppm.read_bytes()
         time.sleep(0.25)
+    print(f"first-login probe: screendump wrote nothing: {reply.strip()!r}", file=sys.stderr, flush=True)
     return b""
 
 
@@ -156,6 +158,8 @@ def run(outdir, sock, serial, key, boot_timeout=300, gis_timeout=420):
         time.sleep(1)
     after = screendump(sock, out / "frame-after-input.ppm")
     verdict["frames"] = {"before_bytes": len(before), "after_bytes": len(after)}
+    if not before or not after:
+        return finish("QEMU screendump produced no frame")
     if not frames_differ(before, after):
         return finish("a monitor key press did not change the Initial Setup frame")
     verdict["checkpoint"] = 3
