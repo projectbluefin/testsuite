@@ -386,7 +386,7 @@ def test_parse_sessions_reads_key_value_blocks_in_any_order():
 # --- guest reader, disk fixtures and workflow ---------------------------------
 
 def test_ui_reader_only_reads():
-    code = "\n".join(l for l in UI_STATE.splitlines() if not l.lstrip().startswith("#"))
+    code = "\n".join(line for line in UI_STATE.splitlines() if not line.lstrip().startswith("#"))
     for forbidden in ("get_text(", "set_text", "do_action", "grab_focus", "generate_keyboard_event"):
         assert forbidden not in code
     assert "os.setuid(uid)" in code  # drops to the target session's own user
