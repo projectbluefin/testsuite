@@ -10,6 +10,7 @@ checks that depend on them degrade to a printed WARNING + soft pass while
 the core stability assertions (GNOME Shell stays accessible, no new
 journal errors, no coredump) always run and fail hard.
 """
+import base64
 import random
 import re
 import string
@@ -187,33 +188,67 @@ def _systemd_unit_start_stop(unit: str) -> tuple[bool, bool, str]:
 _SESSION_ENV = "[ -f /tmp/session.env ] && . /tmp/session.env; "
 
 
-def _clipboard_set(text: str) -> None:
-    """Put ``text`` on the clipboard, fed to wl-copy on stdin.
+# GNOME advertises no data-control protocol (ext/zwlr_data_control); a
+# WAYLAND_DEBUG probe on Utah saw only wl_data_device_manager,
+# zwp_primary_selection_device_manager_v1 and wl_seat (run 43336721618).
+# So wl-copy and wl-paste fall back to a 1x1 surface that needs keyboard
+# focus, which GNOME never gives a background client, and wait forever
+# (#1164). The clipboard is set and read inside GNOME Shell instead, with
+# St.Clipboard, which owns the selection like any app copying text would.
+#
+# The payload goes to a file in the user's runtime directory over stdin, not
+# argv: a NUL byte can't go in an argument, and the 1 MB case is far past the
+# 128 KB per-argument limit. GNOME Shell then reads that file.
+_CLIPBOARD_FILE = "bluefin-clipboard.bin"
+_CLIPBOARD_MIME = "text/plain;charset=utf-8"
 
-    On stdin, not argv: a NUL byte cannot go in an argument (Python raises
-    ValueError before running anything). wl-copy forks a child that keeps
-    serving the selection; it inherits wl-copy's stdout and stderr, so with
-    those on the SSH channel ssh waits for the child and hangs to the
-    timeout. Send stdout to /dev/null and stderr to a file, shown only if
-    wl-copy fails.
-    """
-    inner = _SESSION_ENV + (
-        'err=$(mktemp); '
-        'if wl-copy >/dev/null 2>"$err"; then rm -f "$err"; '
-        'else cat "$err" >&2; rm -f "$err"; exit 1; fi'
-    )
+
+def _clipboard_set(text: str) -> None:
+    """Put ``text`` on the clipboard through GNOME Shell's St.Clipboard."""
+    inner = _SESSION_ENV + f'cat >"${{XDG_RUNTIME_DIR:-/run/user/$(id -u)}}/{_CLIPBOARD_FILE}"'
     argv = ssh_argv() + [inner] if _IN_CONTAINER else ["sh", "-c", inner]
     result = subprocess.run(
         argv, input=text.encode("utf-8"), capture_output=True, timeout=30, check=False,
     )
     stderr = result.stderr.decode("utf-8", errors="replace").strip()
-    assert result.returncode == 0, f"wl-copy failed (exit {result.returncode}): {stderr}"
+    assert result.returncode == 0, f"writing the clipboard payload failed (exit {result.returncode}): {stderr}"
+    assert _eval_bool(
+        "(() => { const GLib = imports.gi.GLib, St = imports.gi.St; "
+        f"const path = GLib.build_filenamev([GLib.get_user_runtime_dir(), '{_CLIPBOARD_FILE}']); "
+        "const [ok, data] = GLib.file_get_contents(path); GLib.unlink(path); "
+        "St.Clipboard.get_default().set_content(St.ClipboardType.CLIPBOARD, "
+        f"'{_CLIPBOARD_MIME}', new GLib.Bytes(data)); return ok; }})()"
+    ), "GNOME Shell could not read the clipboard payload file"
 
 
-def _clipboard_get() -> str:
-    stdout, rc, stderr = _run_host(_SESSION_ENV + "wl-paste --no-newline")
-    assert rc == 0, f"wl-paste failed: {stderr or stdout}"
-    return stdout
+def _clipboard_get(timeout: float = 5.0) -> str:
+    """The clipboard's text, read through GNOME Shell's St.Clipboard.
+
+    Reads the raw bytes with get_content, not get_text: get_text returns a
+    C string, which drops a trailing NUL (Utah run 43339782655 read 75 of 76
+    characters).
+    """
+    assert _eval_bool(
+        "(() => { global._bluefinClipboard = null; const St = imports.gi.St; "
+        "St.Clipboard.get_default().get_content(St.ClipboardType.CLIPBOARD, "
+        f"'{_CLIPBOARD_MIME}', "
+        "(clipboard, bytes) => { global._bluefinClipboard = bytes ? bytes.get_data() ?? new Uint8Array() "
+        ": new Uint8Array(); }); return true; })()"
+    ), "GNOME Shell did not start the clipboard read"
+    # get_content answers asynchronously; poll for the base64 of its bytes.
+    deadline = time.monotonic() + timeout
+    while True:
+        out = _shell_eval(
+            "(() => { const b = global._bluefinClipboard; "
+            "if (b === null || b === undefined) return 'pending'; "
+            "return 'b64:' + imports.gi.GLib.base64_encode(b); })()"
+        )
+        match = re.search(r"b64:([A-Za-z0-9+/=]*)", out)
+        if match:
+            return base64.b64decode(match.group(1)).decode("utf-8")
+        assert "pending" in out, f"Shell.Eval could not read the clipboard: {out!r}"
+        assert time.monotonic() < deadline, f"GNOME Shell did not return the clipboard within {timeout}s"
+        sleep(0.2)
 
 
 @step("Clipboard history popover is accessible and interactive via AT-SPI")
