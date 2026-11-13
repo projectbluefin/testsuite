@@ -229,7 +229,7 @@ def upgrade_output_staged(context):
       - New image available: output contains "Queued for next boot: <ref>"
       - Staged deployment already matches the fetched image: output contains
         "Staged update present, not changed" (e.g. an earlier scenario on the
-        same VM, or CI pre-staging via ``bootc switch``, staged it already)
+        same VM staged it without rebooting)
       - Already up-to-date: output contains "No update available."
 
     The first two both leave a staged candidate for the next boot and pass;
@@ -288,9 +288,14 @@ def restore_pre_upgrade_baseline(context):
 
     The first call records the booted digest as the baseline. Later calls
     roll back (and reboot) when the booted digest has moved off the baseline.
-    Nothing is re-staged: if CI pre-staged the candidate via ``bootc switch``,
-    the host spec already tracks that ref, so the scenario's own
-    ``bootc upgrade`` stages the candidate again.
+
+    Nothing is staged here. ``bootc upgrade`` follows the booted deployment's
+    origin, and after a rollback that is the baseline's own digest ref, so the
+    upgrade would be a no-op ("No update available"). In a targeted run
+    (``TARGET_IMAGE``) the step points the booted origin back at the target
+    with ``bootc switch --mutate-in-place``, which rewrites the origin without
+    pulling or staging; the scenario's own ``bootc upgrade`` then fetches and
+    stages the candidate.
 
     Recovery needs the baseline to be the booted or rollback deployment. A
     scenario that moves the VM to a third image (e.g. a migration
@@ -309,9 +314,7 @@ def restore_pre_upgrade_baseline(context):
     if not baseline.get("digest"):
         baseline["digest"] = booted_digest
         print(f"Recorded pre-upgrade baseline: booted={booted_digest}", flush=True)
-        return
-
-    if booted_digest != baseline["digest"]:
+    elif booted_digest != baseline["digest"]:
         rollback_digest = _deployment_digest(status.get("rollback"))
         assert rollback_digest == baseline["digest"], (
             "Cannot restore pre-upgrade baseline: booted digest "
@@ -328,6 +331,44 @@ def restore_pre_upgrade_baseline(context):
             f"{baseline['digest']!r}"
         )
         print(f"Restored pre-upgrade baseline {booted_digest}", flush=True)
+
+    _point_booted_origin_at_target(context, status)
+
+
+def _deployment_ref(deployment):
+    return (((deployment or {}).get("image") or {}).get("image") or {}).get("image", "")
+
+
+def point_origin_command(target):
+    """Shell command that points the booted deployment's origin at ``target``.
+
+    ``bootc switch --mutate-in-place`` rewrites the origin without pulling or
+    staging, but it writes under /sysroot, which a booted system mounts
+    read-only ("Writing origin: Read-only file system", run 43504555365). As
+    ostree's own admin tools do, remount /sysroot read-write in a private
+    mount namespace for that one command; the system's own mount is untouched.
+    """
+    inner = 'mount -o remount,rw /sysroot && exec bootc switch --mutate-in-place "$1"'
+    return f"sudo unshare -m -- sh -c {shlex.quote(inner)} sh {shlex.quote(target)}"
+
+
+def _point_booted_origin_at_target(context, status):
+    """Make the booted deployment's origin track TARGET_IMAGE (targeted runs).
+
+    Skipped when a deployment of the target is already staged: ``bootc
+    upgrade`` then reports "Staged update present" and the gate accepts it.
+    """
+    target = os.environ.get("TARGET_IMAGE", "").strip()
+    if not target:
+        return
+    if _deployment_ref(status.get("booted")) == target:
+        return
+    if _deployment_ref(status.get("staged")) == target:
+        return
+    command = point_origin_command(target)
+    stdout, rc = run_ssh(context, command)
+    assert rc == 0, f"{command} exited {rc}: {stdout!r}"
+    print(f"Pointed the booted deployment's origin at {target}", flush=True)
 
 
 @step('Active image reference contains "{fragment}"')
@@ -428,15 +469,21 @@ def no_staged_deployment_present(context):
     )
 
 
+# The lifecycle VM boots through OVMF and the image's own loader (#1023), and
+# shutdown finalizes the staged deployment first, so a reboot takes longer
+# than the old direct-kernel boot did.
+REBOOT_DEADLINE_S = 300
+
+
 @step("Reboot VM and wait for SSH")
 def reboot_and_wait(context):
-    """Trigger VM reboot via SSH and wait up to 120s for the SSH port to come back."""
+    """Trigger VM reboot via SSH and wait for the SSH port to come back."""
     try:
         run_ssh(context, "sudo reboot")
     except subprocess.TimeoutExpired:
         pass
 
-    deadline = time() + 120
+    deadline = time() + REBOOT_DEADLINE_S
     last_error = "SSH never became reachable after reboot"
     sleep(10)
     while time() < deadline:
@@ -450,15 +497,20 @@ def reboot_and_wait(context):
         sleep(5)
 
     raise AssertionError(
-        f"VM at {context.vm_ip} did not come back over SSH within 120s: {last_error}"
+        f"VM at {context.vm_ip} did not come back over SSH within {REBOOT_DEADLINE_S}s: {last_error}"
     )
+
+
+DEFAULT_MIGRATION_TARGET = "ghcr.io/projectbluefin/dakota:next"
 
 
 def _migration_target():
-    """Return the migration target image ref from MIGRATION_TARGET env var."""
-    return os.environ.get(
-        "MIGRATION_TARGET", "ghcr.io/projectbluefin/dakota:next"
-    )
+    """Return the migration target image ref from MIGRATION_TARGET env var.
+
+    e2e.yml always exports MIGRATION_TARGET, empty when unset, so an empty
+    value falls back to the default too (it used to run ``bootc switch ""``).
+    """
+    return os.environ.get("MIGRATION_TARGET", "").strip() or DEFAULT_MIGRATION_TARGET
 
 
 MIGRATION_SWITCH_TIMEOUT_S = 900

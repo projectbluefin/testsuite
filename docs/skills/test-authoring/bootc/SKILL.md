@@ -78,7 +78,7 @@ passing without doing an upgrade. `bootc upgrade` exits 0 in three cases:
 - a staged deployment already matches the fetched image (output contains
   `Staged update present, not changed`) — **staged, passes**. This happens when
   an earlier scenario on the same VM already staged the upgrade without
-  rebooting, or when CI pre-staged the candidate with `bootc switch`. Digest
+  rebooting. Digest
   identity is still proven by `Capture staged image digest as upgrade target`
   and the post-reboot digest assertions;
 - it is a no-op (output contains `No update available.`) — **fails**.
@@ -112,15 +112,28 @@ is a no-op, which fails the gate above. So every scenario that calls
 ```
 
 The first call records the booted digest as the baseline. Later calls run
-`bootc rollback` + reboot when the booted digest has left the baseline. The
-step does not re-stage anything: after CI pre-stages with `bootc switch
-<target>`, the host spec already tracks `<target>`, so a second `bootc switch`
-is a no-op ("Image specification is unchanged.") and the scenario's own
-`bootc upgrade` stages the candidate. The baseline lives in
+`bootc rollback` + reboot when the booted digest has left the baseline.
+
+The step never stages anything, but it does keep the upgrade pointed at the
+target. `bootc upgrade` follows the booted deployment's origin. After a
+rollback that origin is the baseline's own ref, and with a digest-pinned
+baseline (`utah@sha256:…`) the upgrade is a no-op ("No update available"):
+this failed 9 required scenarios in run 43348477237. So in a targeted run
+(`TARGET_IMAGE`), when neither the booted nor a staged deployment already
+tracks the target, the step runs `bootc switch --mutate-in-place <target>`.
+That rewrites the booted deployment's origin without pulling or staging, and
+the scenario's own `bootc upgrade` then fetches and stages the candidate
+(`Queued for next boot`). `e2e.yml` does the same before the suite starts
+("Point the VM at the target image"); it no longer stages the target with a
+full `bootc switch`, so the first upgrade is a real one and no staged
+deployment is left over for the pin scenario. The baseline lives in
 `context.lifecycle_baseline`, set in `before_all` so it survives across
 scenarios. If neither booted nor rollback deployment is the baseline (for
 example, a migration `bootc switch` ran earlier in the same behave run), the
-step fails — run that scenario on a fresh VM.
+step fails — run that scenario on a fresh VM. That is why the
+`@homed_migration` scenarios skip in targeted runs, with the reason in the
+results, and on non-dakota images without an explicit `MIGRATION_TARGET`
+(`tests/lifecycle/features/environment.py`).
 
 `If bootc upgrade output indicates image was staged, reboot VM and wait for
 SSH` shares the same staged markers (`_UPGRADE_STAGED_MARKERS`) as the gate.
@@ -261,9 +274,10 @@ does not prove that the candidate ever booted.
 These checks establish distinct observed deployments, not fixture provenance.
 Mandatory release qualification still needs independently pinned source/candidate
 refs, verification against the intended candidate rather than just the observed
-staged image, and rejection of stale pre-staging. The existing workflow's
-`bootc switch` pre-staging and the
-external `projectbluefin/actions` upgrade caller do not establish those guarantees
+staged image, and rejection of stale pre-staging. The workflow's target
+pointing (`bootc switch --mutate-in-place`) makes the suite's own `bootc
+upgrade` do the staging, but the
+external `projectbluefin/actions` upgrade caller does not establish those guarantees
 (remaining work in #1023, coordinated with the second-image prerequisite in #706).
 Do not cite a unit test or a Behave dry-run as evidence of a hosted upgrade and
 rollback; retain the real VM's status, digest and reboot evidence separately.

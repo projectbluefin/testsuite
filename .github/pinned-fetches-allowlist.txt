@@ -12,6 +12,7 @@
 # does not fetch a tool from it.
 inputs.target-image
 Full OCI ref to upgrade TO
+Lifecycle only: full OCI ref to upgrade TO
 Pre-stage target image via bootc switch
 OCI image to test (e.g.
 Full OCI image reference (e.g.
@@ -20,6 +21,11 @@ Run bootc switch to target image
 sudo bootc switch '${TARGET_IMAGE}'
 bootc switch completed
 after bootc switch + reboot
+# Lifecycle: `bootc switch --mutate-in-place` only repoints the booted
+# deployment's origin at the caller's target so the suite's own `bootc upgrade`
+# stages it (#1023); it pulls nothing itself.
+Pointing the booted deployment at ${TARGET_IMAGE}
+exec bootc switch --mutate-in-place \"\$1\"' sh $(printf '%q' "${TARGET_IMAGE}")
 
 # Justfile local recipes name the stream a developer wants to run the suite
 # against on their own machine; nothing from CI consumes these lines.

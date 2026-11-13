@@ -21,7 +21,7 @@ on:
         type: string
         default: "ghcr.io/projectbluefin/dakota:testing"
       target-image:
-        description: "Full OCI ref to upgrade TO (optional). When set and lifecycle suite is running, stages this image via bootc switch before the test suite."
+        description: "Full OCI ref to upgrade TO (optional). When set and lifecycle suite is running, points the VM's booted deployment at this image (bootc switch --mutate-in-place) so the suite's bootc upgrade stages it."
         type: string
         default: ""
         required: false
@@ -76,10 +76,11 @@ on:
         default: true
       migration-target:
         description: >
-          Migration target image ref for cross-registry migration scenarios.
-          Only used when the lifecycle suite runs @migration scenarios.
+          Migration target image ref for the lifecycle @homed_migration scenarios.
           Passed as MIGRATION_TARGET env var to behave; when empty the test code
-          falls back to its built-in default (ghcr.io/projectbluefin/bluefin:stable).
+          falls back to ghcr.io/projectbluefin/dakota:next on dakota images and
+          skips the scenarios on other images. They also skip when target-image
+          is set: a migration switch would strand the upgrade scenarios.
         type: string
         default: ""
         required: false
@@ -362,7 +363,8 @@ jobs:
           update-podman: "false"
           # Installed through setup-runner's verified apt cache, so a warm
           # cache needs no Ubuntu mirror (#1155).
-          apt-packages: qemu-system-x86
+          # The lifecycle suite also boots through OVMF (#1023).
+          apt-packages: ${{ matrix.suite == 'lifecycle' && 'qemu-system-x86 ovmf' || 'qemu-system-x86' }}
 
       - name: Enable KVM access
         run: |
@@ -421,9 +423,18 @@ jobs:
           # --karg is also not present in all bootc versions; omit it entirely since
           # systemd.firstboot=no is already included in the QEMU -append KERNEL_ARGS.
           BOOTLOADER_FLAG=""
-          if sudo podman run --rm --quiet "${IMAGE}" bootc install to-disk --help 2>&1 | grep -q "\-\-bootloader"; then
+          # The lifecycle suite reboots into staged deployments, which a
+          # direct -kernel boot can't do: it would boot the first deployment's
+          # kernel again (#1023). It boots through OVMF and the image's own
+          # loader instead, so the install must not override the bootloader
+          # and the bootloader step must succeed.
+          FIRMWARE_BOOT=false
+          if [[ "${SUITE_DIR}" == "lifecycle" ]]; then
+            FIRMWARE_BOOT=true
+          elif sudo podman run --rm --quiet "${IMAGE}" bootc install to-disk --help 2>&1 | grep -q "\-\-bootloader"; then
             BOOTLOADER_FLAG="--bootloader systemd"
           fi
+          echo "FIRMWARE_BOOT=${FIRMWARE_BOOT}" >> "$GITHUB_ENV"
 
           BOOTC_INSTALL_LOG="$(pwd)/bootc-install.log"
           BOOTC_INSTALL_ATTEMPTS=3
@@ -481,6 +492,11 @@ jobs:
             BOOTC_ERROR=$(grep -m1 '^error:' "${BOOTC_INSTALL_LOG}" || true)
             echo "::error title=bootc install wrote no deployment::bootc install to-disk could not deploy ${IMAGE} (${ATTEMPT} attempt(s), last exit ${BOOTC_INSTALL_RC}): ${BOOTC_ERROR:-no error line in bootc-install.log}"
             echo "Full install log of the last attempt:"
+            cat "${BOOTC_INSTALL_LOG}"
+            exit 1
+          fi
+          if [[ ${BOOTC_INSTALL_RC} -ne 0 && "${FIRMWARE_BOOT}" == "true" ]]; then
+            echo "::error title=bootloader not installed::bootc install to-disk exited ${BOOTC_INSTALL_RC} after writing deployment ${DEPLOY}; the lifecycle suite boots through the image's own loader and has no -kernel fallback"
             cat "${BOOTC_INSTALL_LOG}"
             exit 1
           fi
@@ -601,6 +617,26 @@ jobs:
             KERNEL_ARGS="${KERNEL_ARGS} selinux=0"
           fi
           echo "KERNEL_ARGS=${KERNEL_ARGS}" >> "$GITHUB_ENV"
+          # Firmware boot has no -append: put the same arguments on the
+          # installed loader entries, minus root=, rw and ostree=, which bootc
+          # already wrote there. ostree copies the booted deployment's
+          # arguments into each staged deployment, so upgrades keep them.
+          # Rewrite in place with tee so each entry keeps its SELinux label.
+          if [[ "${FIRMWARE_BOOT}" == "true" ]]; then
+            # shellcheck disable=SC2086 # split KERNEL_ARGS into one argument per line
+            CI_KARGS=$(printf '%s\n' ${KERNEL_ARGS} | grep -vE '^(root=|rw$|ostree=)' | tr '\n' ' ')
+            ENTRIES=$(sudo find /mnt/root/boot/loader/entries -maxdepth 1 -name '*.conf' 2>/dev/null)
+            if [[ -z "${ENTRIES}" ]]; then
+              echo "::error title=no loader entries::bootc wrote no /boot/loader/entries/*.conf; nothing to boot through the image's own loader"
+              exit 1
+            fi
+            for ENTRY in ${ENTRIES}; do
+              UPDATED=$(sudo sed -E "s|^options (.*)$|options \\1 ${CI_KARGS% }|" "${ENTRY}")
+              printf '%s\n' "${UPDATED}" | sudo tee "${ENTRY}" >/dev/null
+              echo "--- ${ENTRY#/mnt/root} ---"
+              sudo grep '^options ' "${ENTRY}"
+            done
+          fi
           # SELinux: the guest boots with the candidate's own mode, which must
           # be enforcing whenever the image ships a policy store (#1024).
           # bootc labels everything it installs, but files written below on
@@ -864,14 +900,21 @@ jobs:
           touch "$(pwd)/vm-serial.log"
           chmod 666 "$(pwd)/vm-serial.log"
 
+          BOOT_ARGS=(-kernel ./vmlinuz -initrd ./initramfs.img -append "${KERNEL_ARGS}")
+          if [[ "${FIRMWARE_BOOT}" == "true" ]]; then
+            # OVMF code read-only plus a fresh copy of the variable store; a
+            # guest reboot goes back through the loader to the default entry.
+            cp /usr/share/OVMF/OVMF_VARS_4M.fd ./ovmf-vars.fd
+            BOOT_ARGS=(-drive "if=pflash,format=raw,unit=0,file=/usr/share/OVMF/OVMF_CODE_4M.fd,readonly=on"
+                       -drive "if=pflash,format=raw,unit=1,file=$(pwd)/ovmf-vars.fd")
+          fi
+
           sudo qemu-system-x86_64 \
             -machine  q35,accel=kvm \
             -cpu      host \
             -m        4096 \
             -smp      4 \
-            -kernel   ./vmlinuz \
-            -initrd   ./initramfs.img \
-            -append   "${KERNEL_ARGS}" \
+            "${BOOT_ARGS[@]}" \
             -object   iothread,id=ioth0 \
             -drive    if=none,id=disk,file=disk.raw,format=raw,cache=unsafe,aio=threads,discard=unmap \
             -device   virtio-blk-pci,drive=disk,iothread=ioth0 \
@@ -933,13 +976,24 @@ jobs:
           cat results/selinux/contexts-boot.txt
           python3 scripts/selinux_qualify.py check-mode "${SELINUX_EXPECTED:-enforcing}" "${OBSERVED}"
 
-      - name: Pre-stage target image via bootc switch
+      # Point the booted deployment's origin at the target without pulling or
+      # staging it, so the suite's own `bootc upgrade` performs the real
+      # upgrade (#1023). A full `bootc switch` staged it here instead, which
+      # left a staged deployment before the pin scenario and let the upgrade
+      # scenarios pass on "Staged update present" without upgrading.
+      - name: Point the VM at the target image
         if: ${{ inputs.target-image != '' && contains(inputs.suites, 'lifecycle') && env.SUITE == 'lifecycle' }}
+        env:
+          TARGET_IMAGE: ${{ inputs.target-image }}
         run: |
           SSH_COMMON="-i /tmp/vm_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ControlMaster=auto -o ControlPersist=600 -o ControlPath=/tmp/ssh-ctrl-%C -o ConnectTimeout=3"
-          echo "Pre-staging target image ${{ inputs.target-image }} via bootc switch..."
-          timeout 900 ssh ${SSH_COMMON} -p 2222 bluefin-test@127.0.0.1 \
-            "sudo bootc switch '${{ inputs.target-image }}'"
+          echo "Pointing the booted deployment at ${TARGET_IMAGE} (bootc switch --mutate-in-place)..."
+          # The origin lives under /sysroot, which the booted system mounts
+          # read-only: remount it read-write in a private mount namespace for
+          # this one command, as ostree's admin tools do. Same command as
+          # point_origin_command() in tests/lifecycle/features/steps/steps.py.
+          timeout 120 ssh ${SSH_COMMON} -p 2222 bluefin-test@127.0.0.1 \
+            "sudo unshare -m -- sh -c 'mount -o remount,rw /sysroot && exec bootc switch --mutate-in-place \"\$1\"' sh $(printf '%q' "${TARGET_IMAGE}")"
 
       - name: Dump VM serial log
         if: always()

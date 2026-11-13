@@ -129,13 +129,15 @@ class TestBootcRollbackMatchesOriginal:
 
 
 class TestForceBootcRollbackAndReboot:
+    """run_ssh returns (stdout, rc) and sets no context.command_returncode;
+    the step used to read that attribute and failed on a successful rollback
+    (run 43506113077)."""
+
     def test_returns_once_ssh_comes_back(self, mod):
-        context = MagicMock()
-        context.command_returncode = 0
-        context.command_stdout = ""
+        context = MagicMock(spec=[])
 
         with (
-            patch.object(mod, "run_ssh") as run_ssh,
+            patch.object(mod, "run_ssh", return_value=("Next boot: rollback deployment", 0)) as run_ssh,
             patch.object(mod.time, "sleep"),
         ):
             mod.force_bootc_rollback_and_reboot(context)
@@ -145,40 +147,31 @@ class TestForceBootcRollbackAndReboot:
         assert commands[-1] == "true"
 
     def test_fails_when_rollback_command_errors(self, mod):
-        context = MagicMock()
-        context.command_returncode = 1
-        context.command_stdout = "denied"
-
         with (
-            patch.object(mod, "run_ssh"),
+            patch.object(mod, "run_ssh", return_value=("denied", 1)),
             patch.object(mod.time, "sleep"),
         ):
-            with pytest.raises(AssertionError, match="bootc rollback failed"):
-                mod.force_bootc_rollback_and_reboot(context)
+            with pytest.raises(AssertionError, match="bootc rollback exited 1"):
+                mod.force_bootc_rollback_and_reboot(MagicMock(spec=[]))
 
     def test_tolerates_reboot_disconnect(self, mod):
-        context = MagicMock()
-        context.command_returncode = 0
-        context.command_stdout = ""
-
         def side_effect(_context, cmd, timeout=60):
             if cmd == "sudo systemctl reboot":
                 raise OSError("connection closed")
+            return "", 0
 
         with (
             patch.object(mod, "run_ssh", side_effect=side_effect),
             patch.object(mod.time, "sleep"),
         ):
-            mod.force_bootc_rollback_and_reboot(context)
+            mod.force_bootc_rollback_and_reboot(MagicMock(spec=[]))
 
     def test_raises_when_vm_never_returns(self, mod):
-        context = MagicMock()
-        context.command_stdout = ""
         # rollback succeeds, every later probe fails
         returncodes = iter([0] + [1] * 200)
 
         def side_effect(_context, cmd, timeout=60):
-            context.command_returncode = next(returncodes, 1)
+            return "", next(returncodes, 1)
 
         with (
             patch.object(mod, "run_ssh", side_effect=side_effect),
@@ -186,7 +179,10 @@ class TestForceBootcRollbackAndReboot:
             patch.object(mod.time, "time", side_effect=[0, 1, 2, 10_000]),
         ):
             with pytest.raises(AssertionError, match="did not come back"):
-                mod.force_bootc_rollback_and_reboot(context)
+                mod.force_bootc_rollback_and_reboot(MagicMock(spec=[]))
+
+    def test_waits_as_long_as_the_suite_reboot_deadline(self, mod):
+        assert mod.FORCED_ROLLBACK_REBOOT_DEADLINE_S == 300
 
 
 class TestPendingStubs:

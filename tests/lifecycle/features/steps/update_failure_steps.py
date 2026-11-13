@@ -50,25 +50,33 @@ def bootc_rollback_matches_original(context) -> None:
     )
 
 
+FORCED_ROLLBACK_REBOOT_DEADLINE_S = 300
+
+
 @step("Force bootc rollback and reboot")
 def force_bootc_rollback_and_reboot(context) -> None:
-    """Invoke bootc rollback then reboot and wait for SSH to come back up."""
-    run_ssh(context, "sudo bootc rollback", timeout=60)
-    assert getattr(context, "command_returncode", 1) == 0, (
-        f"bootc rollback failed: {context.command_stdout}"
-    )
+    """Invoke bootc rollback then reboot and wait for SSH to come back up.
+
+    run_ssh returns (stdout, rc); it sets no context.command_returncode, so
+    reading that attribute failed every run, even on a successful rollback
+    ("bootc rollback failed: Next boot: rollback deployment", run 43506113077).
+    """
+    stdout, rc = run_ssh(context, "sudo bootc rollback", timeout=60)
+    assert rc == 0, f"bootc rollback exited {rc}: {stdout!r}"
     # Trigger reboot (accept disconnect)
     try:
         run_ssh(context, "sudo systemctl reboot", timeout=10)
     except Exception:  # noqa: BLE001
         pass
     time.sleep(5)
-    # Wait for SSH to come back (up to 3 minutes)
-    deadline = time.time() + 180
+    # Wait for SSH to come back. A firmware boot plus finalizing the staged
+    # deployment takes longer than a direct-kernel boot, like the 300 s
+    # REBOOT_DEADLINE_S in steps.py.
+    deadline = time.time() + FORCED_ROLLBACK_REBOOT_DEADLINE_S
     while time.time() < deadline:
         try:
-            run_ssh(context, "true", timeout=10)
-            if getattr(context, "command_returncode", 1) == 0:
+            _, rc = run_ssh(context, "true", timeout=10)
+            if rc == 0:
                 return
         except Exception:  # noqa: BLE001
             pass

@@ -28,6 +28,10 @@ on:
         description: "Git ref for tests/ checkout (default: dispatched branch; set to override)"
         required: false
         default: ""
+      target_image:
+        description: "Lifecycle only: full OCI ref to upgrade TO; the suite's own bootc upgrade stages it (empty = none)"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -41,6 +45,7 @@ jobs:
       suites: ${{ github.event.inputs.suites }}
       chunked_enabled: ${{ github.event.inputs.chunked_enabled == 'true' }}
       selinux_enforcing: ${{ github.event.inputs.selinux_enforcing == 'true' }}
+      target-image: ${{ github.event.inputs.target_image }}
       # workflow_dispatch sees the branch selected in the Actions UI. Keep
       # branch resolution here; github.ref_name inside e2e.yml resolves to main.
       test_ref: ${{ github.event.inputs.test_ref || github.ref_name }}
