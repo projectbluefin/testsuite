@@ -6,6 +6,7 @@ stub ``behave``, ``dogtail``, ``steps.gnome_extensions_steps`` and
 journal filtering, memory-bound math, gsettings key parsing, and the
 soft-pass/hard-fail branching used throughout the module.
 """
+import base64
 import sys
 import types
 from unittest.mock import MagicMock, patch
@@ -380,48 +381,89 @@ _SSH = ["ssh", "-i", "/key", "-p", "2222", "bluefin@127.0.0.1"]
 
 
 class TestClipboardSet:
-    def _run(self, mod, text, returncode=0, stderr=b""):
+    def _run(self, mod, text, returncode=0, stderr=b"", eval_ok=True):
         result = MagicMock(returncode=returncode, stderr=stderr, stdout=b"")
         with patch.object(mod, "ssh_argv", return_value=list(_SSH)), \
-             patch.object(mod.subprocess, "run", return_value=result) as run:
+             patch.object(mod.subprocess, "run", return_value=result) as run, \
+             patch.object(mod, "_eval_bool", return_value=eval_ok) as eval_bool:
             mod._clipboard_set(text)
-        return run
+        return run, eval_bool
 
     def test_payload_goes_on_stdin_and_a_nul_byte_survives(self, mod):
         payload = "before \x00 after \r\n\t\x1b[31m"
-        run = self._run(mod, payload)
+        run, _ = self._run(mod, payload)
         argv = run.call_args.args[0]
         assert run.call_args.kwargs["input"] == payload.encode("utf-8")
         assert all("\x00" not in arg for arg in argv)
         assert not any("before" in arg for arg in argv), "the payload must not be on argv"
 
-    def test_argv_is_ssh_with_detached_wl_copy_and_session_env(self, mod):
-        run = self._run(mod, "hello")
+    def test_payload_file_lands_in_the_runtime_dir_over_ssh(self, mod):
+        run, _ = self._run(mod, "hello")
         argv = run.call_args.args[0]
         assert argv[: len(_SSH)] == _SSH
         inner = argv[-1]
-        assert "wl-copy >/dev/null 2>" in inner
-        assert "/tmp/session.env" in inner
+        assert inner.startswith(mod._SESSION_ENV)
+        assert inner.endswith('cat >"${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/bluefin-clipboard.bin"')
         assert run.call_args.kwargs["timeout"] == 30
-        assert run.call_args.kwargs["capture_output"] is True
+
+    def test_never_uses_wl_clipboard(self, mod):
+        # GNOME has no data-control protocol; wl-copy waits forever for focus.
+        run, eval_bool = self._run(mod, "hello")
+        js = eval_bool.call_args.args[0]
+        assert "wl-copy" not in run.call_args.args[0][-1]
+        assert "St.Clipboard.get_default().set_content(St.ClipboardType.CLIPBOARD" in js
+        assert "'bluefin-clipboard.bin'" in js and "GLib.unlink(path)" in js
+        assert "'text/plain;charset=utf-8'" in js
+        assert js.startswith("(() => {") and js.endswith("})()")
+
+    def test_a_large_payload_never_goes_on_argv(self, mod):
+        payload = "A" * (1024 * 1024)
+        run, eval_bool = self._run(mod, payload)
+        assert max(len(a) for a in run.call_args.args[0]) < 1024
+        assert len(eval_bool.call_args.args[0]) < 1024
+
+    def test_a_failed_file_write_reports_stderr(self, mod):
+        with pytest.raises(AssertionError, match="No space left"):
+            self._run(mod, "hello", returncode=1, stderr=b"cat: write error: No space left\n")
+
+    def test_a_shell_that_cannot_read_the_file_fails(self, mod):
+        with pytest.raises(AssertionError, match="could not read the clipboard payload"):
+            self._run(mod, "hello", eval_ok=False)
 
     def test_outside_the_container_runs_sh_locally(self, mod):
         with patch.object(mod, "_IN_CONTAINER", False):
-            run = self._run(mod, "hello")
-        argv = run.call_args.args[0]
-        assert argv[:2] == ["sh", "-c"]
-        assert "wl-copy >/dev/null 2>" in argv[2]
-
-    def test_a_failure_reports_wl_copys_stderr(self, mod):
-        with pytest.raises(AssertionError, match="Failed to connect to a Wayland server"):
-            self._run(mod, "hello", returncode=1, stderr=b"Failed to connect to a Wayland server\n")
+            run, _ = self._run(mod, "hello")
+        assert run.call_args.args[0][:2] == ["sh", "-c"]
 
 
 class TestClipboardGet:
-    def test_reads_with_the_session_env(self, mod):
-        with patch.object(mod, "_run_host", return_value=("pasted", 0, "")) as run_host:
-            assert mod._clipboard_get() == "pasted"
-        cmd = run_host.call_args.args[0]
-        assert cmd.startswith(mod._SESSION_ENV)
-        assert "/tmp/session.env" in cmd
-        assert cmd.endswith("wl-paste --no-newline")
+    def test_reads_the_base64_text_gnome_shell_returns(self, mod):
+        text = "unicode 🚀 漢字 [seq=39]"
+        encoded = base64.b64encode(text.encode("utf-8")).decode()
+        outputs = iter(["(true, \'pending\')", f"(true, \'\"b64:{encoded}\"\')"])
+        with patch.object(mod, "_eval_bool", return_value=True) as eval_bool, \
+             patch.object(mod, "_shell_eval", side_effect=lambda js: next(outputs)), \
+             patch.object(mod, "sleep"):
+            assert mod._clipboard_get() == text
+        js = eval_bool.call_args.args[0]
+        assert "get_content(St.ClipboardType.CLIPBOARD, 'text/plain;charset=utf-8'" in js
+        assert "get_text" not in js  # a C string would drop a NUL
+
+    def test_a_nul_byte_survives_the_read(self, mod):
+        # Utah run 43339782655: get_text read 75 of 76 characters.
+        text = "&quot; \x00"
+        encoded = base64.b64encode(text.encode("utf-8")).decode()
+        with patch.object(mod, "_eval_bool", return_value=True), \
+             patch.object(mod, "_shell_eval", return_value=f"(true, \'b64:{encoded}\')"):
+            assert mod._clipboard_get() == text
+
+    def test_an_empty_clipboard_reads_back_empty(self, mod):
+        with patch.object(mod, "_eval_bool", return_value=True), \
+             patch.object(mod, "_shell_eval", return_value="(true, 'b64:')"):
+            assert mod._clipboard_get() == ""
+
+    def test_a_shell_error_fails_instead_of_waiting(self, mod):
+        with patch.object(mod, "_eval_bool", return_value=True), \
+             patch.object(mod, "_shell_eval", return_value="(false, 'ReferenceError: imports')"):
+            with pytest.raises(AssertionError, match="could not read the clipboard"):
+                mod._clipboard_get()
