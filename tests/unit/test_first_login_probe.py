@@ -205,3 +205,17 @@ def test_screendump_sends_qemu_an_absolute_path(tmp_path, monkeypatch):
     monkeypatch.setattr(probe, "monitor", monitor)
     assert probe.screendump("sock", "frame.ppm") == b"P6 frame"
     assert sent == [f"screendump {tmp_path / 'frame.ppm'}"]
+
+
+def test_screendump_creates_the_frame_file_before_qemu_writes_it(tmp_path, monkeypatch):
+    # QEMU runs as root; a file it creates itself was unreadable to the probe.
+    seen = {}
+
+    def monitor(sock, command):
+        seen["existed"] = Path(command.split(" ", 1)[1]).exists()
+        return "could not open"
+
+    monkeypatch.setattr(probe, "monitor", monitor)
+    monkeypatch.setattr(probe.time, "sleep", lambda s: None)
+    assert probe.screendump("sock", tmp_path / "frame.ppm") == b""
+    assert seen["existed"]

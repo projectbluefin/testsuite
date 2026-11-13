@@ -63,11 +63,16 @@ def screendump(sock_path, ppm_path):
     """Dump the framebuffer to a PPM and return its bytes ("" if none)."""
     # Absolute: the daemonized QEMU runs from /, so a relative path lands there.
     ppm = Path(ppm_path).resolve()
-    ppm.unlink(missing_ok=True)
+    # QEMU runs as root; an existing empty file keeps our owner when QEMU
+    # truncates and fills it, so the probe can read the frame back.
+    ppm.write_bytes(b"")
     reply = monitor(sock_path, f"screendump {ppm}")
     for _ in range(20):
-        if ppm.exists() and ppm.stat().st_size > 0:
-            return ppm.read_bytes()
+        try:
+            if ppm.stat().st_size > 0:
+                return ppm.read_bytes()
+        except OSError:  # not written or not readable yet
+            pass
         time.sleep(0.25)
     print(f"first-login probe: screendump wrote nothing: {reply.strip()!r}", file=sys.stderr, flush=True)
     return b""
