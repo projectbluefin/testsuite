@@ -9,6 +9,11 @@ on:
         type: string
         required: false
         default: ""
+      isolated_session:
+        description: "Run the desktop and tests as an account with no SSH key and no sudo (#908)."
+        type: boolean
+        required: false
+        default: false
   workflow_call:
     inputs:
       test_ref:
@@ -16,6 +21,11 @@ on:
         type: string
         required: false
         default: ""
+      isolated_session:
+        description: "Run the desktop and tests as an account with no SSH key and no sudo (#908)."
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -54,17 +64,20 @@ jobs:
           suite: gnomeos-canary
           testsuite-ref: ${{ steps.checkout.outputs.commit }}
           free-disk-space: 'false'
+          isolated-session: ${{ inputs.isolated_session && 'true' || 'false' }}
 
       - name: Collect guest journal and stop VM
         if: always()
         run: |
           mkdir -p results
+          # The action exports which guest account holds the harness key and sudo.
+          GUEST_USER="${GNOME_E2E_SSH_USER:-bluefin-test}"
           if [[ -f /tmp/gnome_e2e_key ]]; then
             ssh -i /tmp/gnome_e2e_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-              -o BatchMode=yes -o ConnectTimeout=5 -p 2222 bluefin-test@127.0.0.1 \
+              -o BatchMode=yes -o ConnectTimeout=5 -p 2222 "${GUEST_USER}@127.0.0.1" \
               'sudo journalctl -b --no-pager' > results/guest-journal.txt 2>&1 || true
             ssh -i /tmp/gnome_e2e_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-              -o BatchMode=yes -o ConnectTimeout=5 -p 2222 bluefin-test@127.0.0.1 \
+              -o BatchMode=yes -o ConnectTimeout=5 -p 2222 "${GUEST_USER}@127.0.0.1" \
               'cat /opt/gnomeos-harness/packages.txt' > results/harness-packages.txt 2>&1 || true
           fi
           if [[ -f /tmp/gnome_e2e_qemu.pid ]]; then
@@ -82,6 +95,7 @@ jobs:
           name: gnomeos-desktop-canary
           path: |
             results/
+            session-isolation.json
             bootc-install.log
             vm-serial.log
           if-no-files-found: error

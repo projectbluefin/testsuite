@@ -32,6 +32,21 @@ gh workflow run gnomeos-canary.yml -R projectbluefin/testsuite --ref main -f tes
 An empty `test_ref` (the default) tests the commit the workflow was dispatched
 from, exactly as before.
 
+To run the canary in the isolated session the extension lane requires (#908
+Option A: desktop user with no SSH key and no sudo, driven by a separate
+harness account), add `-f isolated_session=true`:
+
+```bash
+gh workflow run gnomeos-canary.yml -R projectbluefin/testsuite --ref main \
+  -f test_ref=<sha> -f isolated_session=true
+```
+
+That run skips qecore-headless, records `session-isolation.json` next to
+`results/`, and fails before any scenario if the guest is not isolated. See
+the security posture in
+[gnome-extensions-validation.md](gnome-extensions-validation.md). The default
+(`false`) keeps the canary's original single-account path.
+
 The workflow already exists on the repository's default branch, so GitHub
 offers manual dispatch directly from any ref (including a fork PR branch).
 It also supports `workflow_call` from an existing workflow for fork
@@ -90,6 +105,8 @@ Download `gnomeos-desktop-canary` from the run:
   version from the matching development build, session/AT-SPI addresses, random
   expected text and text read through AT-SPI.
 - `desktop-canary.png`, Behave results, and `guest-journal.txt`.
+- `session-isolation.json` (isolated runs only): the guest-side proof that
+  the desktop user has no sudo, admin group, password or SSH key.
 
 The base and development image must name the same GNOME build commit; a
 publication race fails the build rather than mixing libraries. The source

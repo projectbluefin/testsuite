@@ -450,7 +450,7 @@ def test_sparse_checkout_includes_tests_init_guard():
 def test_action_copies_tests_init_to_guest_guard():
     action = _action_guard()
     assert (
-        '$SCP "_testsuite/tests/__init__.py" "bluefin-test@127.0.0.1:/tmp/gnome_e2e/tests/__init__.py"'
+        '$SCP "_testsuite/tests/__init__.py" "${GNOME_E2E_SSH_USER}@127.0.0.1:/tmp/gnome_e2e/tests/__init__.py"'
     ) in action
 
 

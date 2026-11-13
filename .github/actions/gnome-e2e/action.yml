@@ -21,6 +21,15 @@
 #       image: ghcr.io/projectbluefin/dakota:latest
 #       suite: smoke
 #
+# Isolated session (#908 Option A; always on for suite: extensions, opt-in via
+# isolated-session for gnomeos-canary): the harness logs in over SSH as
+# gnome-e2e-harness, which alone holds the per-run key and sudo. The desktop
+# account bluefin-test has GDM autologin only: no SSH key, no sudo, locked
+# password. Behave runs as bluefin-test without qecore-headless (which needs
+# sudo), so extension and test code get no guest admin access. It requires the
+# GNOME OS harness overlay (/opt/gnomeos-harness). Later caller steps reach the
+# guest as $GNOME_E2E_SSH_USER.
+#
 # The action writes results to ./results/ and vm-serial.log in the workspace.
 # For most suites the caller decides pass/fail from the behave-rc output; for
 # suite: extensions the action itself fails the job via the mandatory
@@ -55,6 +64,12 @@ inputs:
   free-disk-space:
     description: 'Run projectbluefin/actions bootc-build/setup-runner to free disk space before provisioning'
     default: 'true'
+  isolated-session:
+    description: >
+      Run the desktop and tests as an account with no SSH key and no sudo,
+      driven by a separate harness admin account (#908). Always on for
+      suite: extensions. Requires the GNOME OS harness overlay image.
+    default: 'false'
 
 outputs:
   behave-rc:
@@ -140,9 +155,20 @@ runs:
     # ── SSH keypair ───────────────────────────────────────────────────────────
     - name: Generate SSH keypair
       shell: bash
+      env:
+        GNOME_E2E_ISOLATED_INPUT: ${{ inputs.isolated-session }}
+        GNOME_E2E_SUITE: ${{ inputs.suite }}
       run: |
         ssh-keygen -t ed25519 -f /tmp/gnome_e2e_key -N "" -C "gnome-e2e@gha"
         echo "GNOME_E2E_PUBKEY=$(cat /tmp/gnome_e2e_key.pub)" >> "$GITHUB_ENV"
+        # Extension code must never share an account with the harness (#908).
+        if [[ "${GNOME_E2E_ISOLATED_INPUT}" == "true" || "${GNOME_E2E_SUITE}" == "extensions" ]]; then
+          echo "GNOME_E2E_ISOLATED=true" >> "$GITHUB_ENV"
+          echo "GNOME_E2E_SSH_USER=gnome-e2e-harness" >> "$GITHUB_ENV"
+        else
+          echo "GNOME_E2E_ISOLATED=false" >> "$GITHUB_ENV"
+          echo "GNOME_E2E_SSH_USER=bluefin-test" >> "$GITHUB_ENV"
+        fi
 
     # ── Install OCI image to raw disk and configure for testing ──────────────
     # bootc install to-disk writes the ostree deployment then fails at the
@@ -274,27 +300,34 @@ runs:
           "${D}/etc/systemd/system/multi-user.target.wants/sshd.service"
         sudo ssh-keygen -A -f "${D}" 2>/dev/null || true
 
-        BFT_UID=1001
-        if ! sudo grep -q '^bluefin-test:' "${D}/etc/passwd" 2>/dev/null; then
-          printf 'bluefin-test:x:%d:%d:Bluefin Test:/var/home/bluefin-test:/bin/bash\n' \
-            "${BFT_UID}" "${BFT_UID}" | sudo tee -a "${D}/etc/passwd"
-          printf 'bluefin-test:!:19000:0:99999:7:::\n' | sudo tee -a "${D}/etc/shadow"
-          printf 'bluefin-test:x:%d:\n' "${BFT_UID}" | sudo tee -a "${D}/etc/group"
+        if [[ "${GNOME_E2E_ISOLATED}" == "true" ]]; then
+          # Option A (#908): key and sudo go to a separate harness account;
+          # the autologin desktop account gets neither.
+          sudo python3 _testsuite/scripts/guest_accounts.py "${D}" "${VAR}" \
+            --pubkey /tmp/gnome_e2e_key.pub
+        else
+          BFT_UID=1001
+          if ! sudo grep -q '^bluefin-test:' "${D}/etc/passwd" 2>/dev/null; then
+            printf 'bluefin-test:x:%d:%d:Bluefin Test:/var/home/bluefin-test:/bin/bash\n' \
+              "${BFT_UID}" "${BFT_UID}" | sudo tee -a "${D}/etc/passwd"
+            printf 'bluefin-test:!:19000:0:99999:7:::\n' | sudo tee -a "${D}/etc/shadow"
+            printf 'bluefin-test:x:%d:\n' "${BFT_UID}" | sudo tee -a "${D}/etc/group"
+          fi
+
+          sudo mkdir -p "${VAR}/home/bluefin-test/.ssh"
+          sudo tee "${VAR}/home/bluefin-test/.ssh/authorized_keys" < /tmp/gnome_e2e_key.pub
+          sudo chown -R "${BFT_UID}:${BFT_UID}" "${VAR}/home/bluefin-test"
+          sudo chmod 700 "${VAR}/home/bluefin-test/.ssh"
+          sudo chmod 600 "${VAR}/home/bluefin-test/.ssh/authorized_keys"
+
+          sudo mkdir -p "${D}/etc/ssh/sshd_config.d/"
+          echo 'PermitUserEnvironment yes' | \
+            sudo tee "${D}/etc/ssh/sshd_config.d/99-bluefin-test.conf"
+
+          echo 'bluefin-test ALL=(ALL) NOPASSWD:ALL' | \
+            sudo tee "${D}/etc/sudoers.d/zz-bluefin-test"
+          sudo chmod 440 "${D}/etc/sudoers.d/zz-bluefin-test"
         fi
-
-        sudo mkdir -p "${VAR}/home/bluefin-test/.ssh"
-        sudo tee "${VAR}/home/bluefin-test/.ssh/authorized_keys" < /tmp/gnome_e2e_key.pub
-        sudo chown -R "${BFT_UID}:${BFT_UID}" "${VAR}/home/bluefin-test"
-        sudo chmod 700 "${VAR}/home/bluefin-test/.ssh"
-        sudo chmod 600 "${VAR}/home/bluefin-test/.ssh/authorized_keys"
-
-        sudo mkdir -p "${D}/etc/ssh/sshd_config.d/"
-        echo 'PermitUserEnvironment yes' | \
-          sudo tee "${D}/etc/ssh/sshd_config.d/99-bluefin-test.conf"
-
-        echo 'bluefin-test ALL=(ALL) NOPASSWD:ALL' | \
-          sudo tee "${D}/etc/sudoers.d/zz-bluefin-test"
-        sudo chmod 440 "${D}/etc/sudoers.d/zz-bluefin-test"
 
         sudo mkdir -p "${D}/etc/gdm"
         printf '[daemon]\nAutomaticLoginEnable=True\nAutomaticLogin=bluefin-test\n' | \
@@ -348,7 +381,7 @@ runs:
         SSH_OPTS="-i /tmp/gnome_e2e_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ControlMaster=auto -o ControlPersist=600 -o ControlPath=/tmp/gnome-e2e-ssh-%C -o ConnectTimeout=3"
         DEADLINE=$((SECONDS + 300))
         while [ $SECONDS -lt $DEADLINE ]; do
-          if ssh ${SSH_OPTS} -p 2222 bluefin-test@127.0.0.1 "echo up" 2>/dev/null; then
+          if ssh ${SSH_OPTS} -p 2222 ${GNOME_E2E_SSH_USER}@127.0.0.1 "echo up" 2>/dev/null; then
             echo "SSH ready after ${SECONDS}s"
             exit 0
           fi
@@ -370,17 +403,20 @@ runs:
       shell: bash
       run: |
         SSH_OPTS="-i /tmp/gnome_e2e_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ControlMaster=auto -o ControlPersist=600 -o ControlPath=/tmp/gnome-e2e-ssh-%C -o ConnectTimeout=3"
-        SSH="ssh ${SSH_OPTS} -p 2222 bluefin-test@127.0.0.1"
+        SSH="ssh ${SSH_OPTS} -p 2222 ${GNOME_E2E_SSH_USER}@127.0.0.1"
+        # The isolated harness account cannot read the desktop user's runtime dir.
+        GUEST_SUDO=""
+        [[ "${GNOME_E2E_ISOLATED}" == "true" ]] && GUEST_SUDO="sudo "
         DEADLINE=$((SECONDS + 180))
         while [ $SECONDS -lt $DEADLINE ]; do
-          if $SSH "test -S /run/user/1001/wayland-0" 2>/dev/null; then
+          if $SSH "${GUEST_SUDO}test -S /run/user/1001/wayland-0" 2>/dev/null; then
             echo "GNOME session active after ${SECONDS}s"
             exit 0
           fi
           sleep 3
         done
         echo "ERROR: GNOME session did not start within 3 minutes"
-        $SSH "journalctl -u gdm --no-pager -n 50" 2>/dev/null || true
+        $SSH "${GUEST_SUDO}journalctl -u gdm --no-pager -n 50" 2>/dev/null || true
         exit 1
 
     # ── Install Python test stack inside the VM ───────────────────────────────
@@ -392,7 +428,38 @@ runs:
         GNOME_E2E_SUITE: ${{ inputs.suite }}
       run: |
         SSH_OPTS="-i /tmp/gnome_e2e_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ControlMaster=auto -o ControlPersist=600 -o ControlPath=/tmp/gnome-e2e-ssh-%C -o ConnectTimeout=3"
-        SSH="ssh ${SSH_OPTS} -p 2222 bluefin-test@127.0.0.1"
+        SSH="ssh ${SSH_OPTS} -p 2222 ${GNOME_E2E_SSH_USER}@127.0.0.1"
+
+        if [[ "${GNOME_E2E_ISOLATED}" == "true" ]]; then
+          # Option A (#908): the overlay's tools run as the desktop user; the
+          # harness account only prepares devices and proves the isolation.
+          $SSH "test -x /opt/gnomeos-harness/bin/behave && test -x /opt/gnomeos-harness/bin/python3" || {
+            echo "::error::Isolated session needs the GNOME OS harness overlay (/opt/gnomeos-harness); build it with scripts/build-gnomeos-harness.sh"
+            exit 1
+          }
+          $SSH "sudo modprobe uinput 2>/dev/null || true"
+          $SSH "sudo chmod 0666 /dev/uinput 2>/dev/null || true"
+          # The checker runs as root from the harness home, which the desktop
+          # user cannot write. Its report stays outside results/, which the
+          # guest session fills.
+          $SSH 'mkdir -p "$HOME/gnome_e2e_admin"'
+          scp -i /tmp/gnome_e2e_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            -o ControlPath=/tmp/gnome-e2e-ssh-%C -P 2222 \
+            _testsuite/scripts/guest_session_isolation.py \
+            "${GNOME_E2E_SSH_USER}@127.0.0.1:gnome_e2e_admin/"
+          ISOLATION_RC=0
+          $SSH 'sudo /opt/gnomeos-harness/bin/python3 "$HOME/gnome_e2e_admin/guest_session_isolation.py"' \
+            > session-isolation.json || ISOLATION_RC=$?
+          cat session-isolation.json
+          if [[ ${ISOLATION_RC} -ne 0 ]]; then
+            echo "::error::Desktop session is not isolated from harness administration; see session-isolation.json"
+            exit 1
+          fi
+          # qecore-headless (not used here) normally switches this on.
+          $SSH "sudo -u bluefin-test env XDG_RUNTIME_DIR=/run/user/1001 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1001/bus gsettings set org.gnome.desktop.interface toolkit-accessibility true" \
+            || echo "::warning::could not enable toolkit accessibility for bluefin-test"
+          exit 0
+        fi
 
         if [[ "${GNOME_E2E_SUITE}" == "gnomeos-canary" ]]; then
           $SSH "test -x /opt/gnomeos-harness/bin/qecore-headless"
@@ -448,49 +515,73 @@ runs:
         GNOME_E2E_SUITE: ${{ inputs.suite }}
       run: |
         SSH_OPTS="-i /tmp/gnome_e2e_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ControlMaster=auto -o ControlPersist=600 -o ControlPath=/tmp/gnome-e2e-ssh-%C -o ConnectTimeout=3"
-        SSH="ssh ${SSH_OPTS} -p 2222 bluefin-test@127.0.0.1"
+        SSH="ssh ${SSH_OPTS} -p 2222 ${GNOME_E2E_SSH_USER}@127.0.0.1"
         SCP="scp -i /tmp/gnome_e2e_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ControlPath=/tmp/gnome-e2e-ssh-%C -P 2222 -r"
         mkdir -p results
 
-        # Copy tests/ tree preserving structure so tests.shared imports resolve.
-        # Copy tests/__init__.py too: without it the guest's tests/ is only a
-        # namespace package and another tests package on the path shadows it.
-        $SSH "mkdir -p /tmp/gnome_e2e/tests /tmp/gnome_e2e/results"
-        $SCP "_testsuite/tests/${GNOME_E2E_SUITE}" "bluefin-test@127.0.0.1:/tmp/gnome_e2e/tests/"
-        [[ -d "_testsuite/tests/shared" ]] && \
-          $SCP "_testsuite/tests/shared" "bluefin-test@127.0.0.1:/tmp/gnome_e2e/tests/" || true
-        [[ -f "_testsuite/tests/__init__.py" ]] && \
-          $SCP "_testsuite/tests/__init__.py" "bluefin-test@127.0.0.1:/tmp/gnome_e2e/tests/__init__.py" || true
-
-        # GNOME OS ships a read-only /usr. qecore-headless rewrites the GNOME
-        # Shell unit for --unsafe-mode and, failing to write /usr, falls back to
-        # the writable /etc/systemd/user/. Ensure that directory exists so the
-        # fallback lands instead of the run aborting before any scenario.
-        $SSH "sudo mkdir -p /etc/systemd/user"
-
-        HEADLESS_FLAGS=""
-        BEHAVE_PREFIX=""
-        if [[ "${GNOME_E2E_SUITE}" == "gnomeos-canary" ]]; then
-          HEADLESS_FLAGS="--dont-kill"
-          # qecore-headless replaces its environment with the first
-          # gnome-session's environ, which has no WAYLAND_DISPLAY or session
-          # bus (#1144). The wrapper reads them after qecore's GDM restart and
-          # execs behave. qecore needs the script's first word to be an
-          # executable, so call it through the harness Python checked above.
-          $SCP "_testsuite/scripts/gnomeos_canary_behave.py" "bluefin-test@127.0.0.1:/tmp/gnome_e2e/"
-          BEHAVE_PREFIX="/opt/gnomeos-harness/bin/python3 /tmp/gnome_e2e/gnomeos_canary_behave.py "
-        fi
         BEHAVE_RC=0
-        $SSH "
-          set -e
-          source /tmp/gnome_e2e_session.env
-          export PATH=\$HOME/.local/bin:\$PATH
-          export PYTHONPATH=/tmp/gnome_e2e
-          BEHAVE_BIN=\$(which behave)
-          \$HOME/.local/bin/qecore-headless ${HEADLESS_FLAGS} \"${BEHAVE_PREFIX}\$BEHAVE_BIN /tmp/gnome_e2e/tests/${GNOME_E2E_SUITE}/features/ --format json.pretty --outfile /tmp/gnome_e2e/results/results.json --format pretty --outfile /tmp/gnome_e2e/results/results.txt --format progress --no-capture\"
-        " || BEHAVE_RC=$?
+        if [[ "${GNOME_E2E_ISOLATED}" == "true" ]]; then
+          # A fresh directory: mkdir without -p fails if the desktop session
+          # already put anything, even a symlink, at this name.
+          $SSH "mkdir -m 0755 /tmp/gnome_e2e && mkdir /tmp/gnome_e2e/tests /tmp/gnome_e2e/results"
+          $SCP "_testsuite/tests/${GNOME_E2E_SUITE}" "${GNOME_E2E_SSH_USER}@127.0.0.1:/tmp/gnome_e2e/tests/"
+          $SCP "_testsuite/tests/shared" "${GNOME_E2E_SSH_USER}@127.0.0.1:/tmp/gnome_e2e/tests/"
+          $SCP "_testsuite/tests/__init__.py" "${GNOME_E2E_SSH_USER}@127.0.0.1:/tmp/gnome_e2e/tests/__init__.py"
+          $SCP "_testsuite/scripts/gnomeos_canary_behave.py" "${GNOME_E2E_SSH_USER}@127.0.0.1:/tmp/gnome_e2e/"
+          $SSH "sudo chown -hR bluefin-test:bluefin-test /tmp/gnome_e2e"
+          BEHAVE_USERDATA=""
+          [[ "${GNOME_E2E_SUITE}" == "extensions" ]] && BEHAVE_USERDATA="-D disposable_guest=true"
+          # Behave runs as the desktop user with a clean environment and no
+          # qecore-headless (it needs sudo). The wrapper reads the live
+          # session's display, session bus and accessibility bus itself.
+          $SSH "sudo -u bluefin-test -H -- env -i HOME=/var/home/bluefin-test USER=bluefin-test LOGNAME=bluefin-test LANG=C.UTF-8 \
+            PATH=/opt/gnomeos-harness/bin:/usr/bin:/bin PYTHONPATH=/tmp/gnome_e2e \
+            /opt/gnomeos-harness/bin/python3 /tmp/gnome_e2e/gnomeos_canary_behave.py /opt/gnomeos-harness/bin/behave \
+            /tmp/gnome_e2e/tests/${GNOME_E2E_SUITE}/features/ ${BEHAVE_USERDATA} \
+            --format json.pretty --outfile /tmp/gnome_e2e/results/results.json \
+            --format pretty --outfile /tmp/gnome_e2e/results/results.txt --format progress --no-capture" \
+            || BEHAVE_RC=$?
+        else
+          # Copy tests/ tree preserving structure so tests.shared imports resolve.
+          # Copy tests/__init__.py too: without it the guest's tests/ is only a
+          # namespace package and another tests package on the path shadows it.
+          $SSH "mkdir -p /tmp/gnome_e2e/tests /tmp/gnome_e2e/results"
+          $SCP "_testsuite/tests/${GNOME_E2E_SUITE}" "${GNOME_E2E_SSH_USER}@127.0.0.1:/tmp/gnome_e2e/tests/"
+          [[ -d "_testsuite/tests/shared" ]] && \
+            $SCP "_testsuite/tests/shared" "${GNOME_E2E_SSH_USER}@127.0.0.1:/tmp/gnome_e2e/tests/" || true
+          [[ -f "_testsuite/tests/__init__.py" ]] && \
+            $SCP "_testsuite/tests/__init__.py" "${GNOME_E2E_SSH_USER}@127.0.0.1:/tmp/gnome_e2e/tests/__init__.py" || true
 
-        $SCP "bluefin-test@127.0.0.1:/tmp/gnome_e2e/results/." ./results/ 2>/dev/null || true
+          # GNOME OS ships a read-only /usr. qecore-headless rewrites the GNOME
+          # Shell unit for --unsafe-mode and, failing to write /usr, falls back to
+          # the writable /etc/systemd/user/. Ensure that directory exists so the
+          # fallback lands instead of the run aborting before any scenario.
+          $SSH "sudo mkdir -p /etc/systemd/user"
+
+          HEADLESS_FLAGS=""
+          BEHAVE_PREFIX=""
+          if [[ "${GNOME_E2E_SUITE}" == "gnomeos-canary" ]]; then
+            HEADLESS_FLAGS="--dont-kill"
+            # qecore-headless replaces its environment with the first
+            # gnome-session's environ, which has no WAYLAND_DISPLAY or session
+            # bus (#1144). The wrapper reads them after qecore's GDM restart and
+            # execs behave. qecore needs the script's first word to be an
+            # executable, so call it through the harness Python checked above.
+            $SCP "_testsuite/scripts/gnomeos_canary_behave.py" "${GNOME_E2E_SSH_USER}@127.0.0.1:/tmp/gnome_e2e/"
+            BEHAVE_PREFIX="/opt/gnomeos-harness/bin/python3 /tmp/gnome_e2e/gnomeos_canary_behave.py "
+          fi
+          BEHAVE_RC=0
+          $SSH "
+            set -e
+            source /tmp/gnome_e2e_session.env
+            export PATH=\$HOME/.local/bin:\$PATH
+            export PYTHONPATH=/tmp/gnome_e2e
+            BEHAVE_BIN=\$(which behave)
+            \$HOME/.local/bin/qecore-headless ${HEADLESS_FLAGS} \"${BEHAVE_PREFIX}\$BEHAVE_BIN /tmp/gnome_e2e/tests/${GNOME_E2E_SUITE}/features/ --format json.pretty --outfile /tmp/gnome_e2e/results/results.json --format pretty --outfile /tmp/gnome_e2e/results/results.txt --format progress --no-capture\"
+          " || BEHAVE_RC=$?
+        fi
+
+        $SCP "${GNOME_E2E_SSH_USER}@127.0.0.1:/tmp/gnome_e2e/results/." ./results/ 2>/dev/null || true
         echo "behave_rc=${BEHAVE_RC}" >> "$GITHUB_OUTPUT"
 
     # ── Summarise results to CI log + job summary ─────────────────────────────
