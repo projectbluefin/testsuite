@@ -46,18 +46,19 @@ Version-branch or fix a workaround only after a run proves behavior diverges.
 | 6 | Nautilus AT-SPI app-name handling (`FILES_APP_NAMES`, `_nautilus_app`) | **WORKS ON 51** — Files launched, navigated, and closed; necessity remains unproven | `tests/smoke/features/steps/gnome_files_steps.py` |
 | 7 | Ptyxis window title (`user@host:~`) | **UNEXERCISED on `dakota:testing`** — [smoke-a run 43170644165](https://github.com/projectbluefin/testsuite/actions/runs/43170644165) skipped “Ptyxis terminal launches successfully” because Ptyxis is not installed. A skip does not establish whether the workaround works or is obsolete on 51; retain it for images running GNOME 50. | `tests/smoke/features/steps/gnome_apps_steps.py:34-38` |
 | 8 | ScreenSaver D-Bus `Lock` (not `screenShield.lock(true)`) | **LIKELY-KEEP** — `screen_lock_engages` not in the smoke-a/smoke-b run; still required on 50 | `tests/smoke/features/steps/steps.py`; `SKILL.md` "Screen Lock/Unlock D-Bus calls" |
-| 9 | `Main.overview.visible` reads `false` in QEMU; do not assert it | **LIKELY-KEEP (unverified)** — the scenarios passed, but `overview_is_open` checks `OverviewActive`, not `Main.overview.visible`, so the pass cannot show the workaround is still needed; needs a targeted 51 probe of `Main.overview.visible` | `tests/smoke/features/steps/steps.py`; `SKILL.md` "Activities overview (GNOME 50 QEMU)" |
+| 9 | `Main.overview.visible` reads `false` in QEMU; do not assert it | **OBSOLETE ON 51** — the targeted probe (§Targeted probes) read `Main.overview.visible` as `false`, `true`, `false` across an overview open and close in QEMU on GNOME Shell 51.1, matching `OverviewActive` each time, on `dakota:testing` and `utah:testing`. Keep checking `OverviewActive`: it needs no `Shell.Eval` or unsafe mode | `tests/smoke/features/steps/steps.py`; `SKILL.md` "Activities overview (GNOME 50 QEMU)" |
 | 10 | Notification banner dismissal check | **WORKS ON 51** — `toast_notification_banner_can_be_dismissed` passed; necessity remains unproven | `tests/smoke/features/steps/gnome_notifications_steps.py` |
-| 11 | Panel buttons `showing=False` before overview toggle | **LIKELY-KEEP (unverified)** — panel helpers match role/name without checking `showing`, so the run does not measure this property; needs a targeted 51 probe recording `showing` | `tests/shared/gnome_shell_steps.py` |
+| 11 | Panel buttons `showing=False` before overview toggle | **OBSOLETE ON 51 for Activities; clock and System unverified** — the probe read the Activities toggle as `showing=True` before, during and after the overview toggle on both images, so GNOME 50's "every panel button reports `showing=False`" no longer holds. The clock and System toggles have no accessible name in that tree, so the probe could not single them out; keep role-only matching for them | `tests/shared/gnome_shell_steps.py` |
 | 12 | keyring skip on GDM restart | **LIKELY-KEEP** — GDM restart not exercised by the smoke run; still required on 50 | `tests/smoke/features/environment.py` |
 
 Rows 4, 5, 6, and 10 worked in the run in §Run evidence; a passing scenario
-does not prove that the workaround is required. Rows 9 and 11 remain
-unverified because passing scenarios did not measure the affected properties.
-Rows 1, 2, 3, 8, and 12 were not exercised by the plain GNOME OS
-smoke run and carry `LIKELY-KEEP`. Row 7 was also skipped on `dakota:testing`
-because Ptyxis was absent. **This audit is incomplete**: issue #827 still
-requires evidence for the unverified rows, including targeted probes for 9 and 11.
+does not prove that the workaround is required. Rows 9 and 11 passed scenarios
+that did not measure the affected properties; targeted probes (§Targeted
+probes) have since measured them. Rows 1, 2, 3, 8, and 12 were not exercised by
+the plain GNOME OS smoke run and carry `LIKELY-KEEP`. Row 7 was also skipped on
+`dakota:testing` because Ptyxis was absent. **This audit is incomplete**: issue
+#827 still requires evidence for the rows not yet exercised (1, 2, 3, 7, 8 and
+12) and for the clock and System toggles in row 11.
 
 ## Run target
 
@@ -91,6 +92,21 @@ failures) — extensions, power-status, tailscale, fastfetch, and failed-units a
 expected on plain gnomeos-51 and are **not** GNOME 51 divergences. The two
 genuine divergences are the Calculator and Text Editor scenarios in §Run
 findings.
+
+### Targeted probes (rows 9 and 11)
+
+A temporary smoke scenario (commit `3325e9d7`, removed before merge) read
+`OverviewActive`, `Main.overview.visible` and the AT-SPI `showing` state of the
+panel's buttons with the overview closed, open and closed again, sleeping 1–1.5 s
+after each change. Both runs are `manual.yml`, `smoke-a`, GNOME Shell 51.1:
+
+| Image            | Run                                                                                 | `Main.overview.visible` (closed → open → closed) | Activities `showing` |
+| ---------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------ | -------------------- |
+| `dakota:testing` | [43503238954](https://github.com/projectbluefin/testsuite/actions/runs/43503238954) | `false` → `true` → `false`                       | `True` in all three  |
+| `utah:testing`   | [43503253168](https://github.com/projectbluefin/testsuite/actions/runs/43503253168) | `false` → `true` → `false`                       | `True` in all three  |
+
+`OverviewActive` matched `Main.overview.visible` at every read. The utah run
+failed only at the SELinux denial gate (utah#1198), after the probe passed.
 
 ## Run findings — Calculator and Text Editor divergences
 
