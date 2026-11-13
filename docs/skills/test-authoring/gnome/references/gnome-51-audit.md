@@ -19,12 +19,14 @@ Version-branch or fix a workaround only after a run proves behavior diverges.
 
 ## Status key
 
-- **still required** — the workaround's behavior holds on GNOME 51; the run
-  confirmed it. Keep it on GNOME 51.
+- **works on 51** — a passing scenario exercised the workaround on GNOME 51.
+  This does not establish whether the workaround is still required.
+- **still required** — a targeted comparison shows the workaround is needed
+  on GNOME 51.
 - **broken on 51** — the run proved the workaround no longer works on GNOME 51;
   the step needs a GNOME 51 fix or a version branch.
-- **obsolete** — the workaround targets a GNOME 50 bug that no longer exists on
-  51. (None found yet.)
+- **obsolete** — a targeted comparison shows GNOME 51 no longer needs it.
+  Keep the GNOME 50 path while any tested image needs it.
 - **LIKELY-KEEP** — no run has exercised this workaround on GNOME 51. Treated as
   still required until a run says otherwise. **Do not** promote this to
   "still required" without run evidence.
@@ -39,19 +41,20 @@ Version-branch or fix a workaround only after a run proves behavior diverges.
 | 1 | Re-prepend `global.context.unsafe_mode = true` before every `Shell.Eval` (GNOME 50 reset it) | **LIKELY-KEEP** — not exercised by the smoke-a/smoke-b run (Bluefin-only Shell.Eval reads); still required on 50, assume it holds on 51 until a run says otherwise | `tests/smoke/features/steps/steps.py`; documented in `SKILL.md` "Screen Lock/Unlock" / "Overview search entry" |
 | 2 | Double-quoted `Shell.Eval` results `(true, '"true"')` | **LIKELY-KEEP** — not exercised by the run; the `clutter_text.get_text()` tuple format is unchanged upstream | `tests/smoke/features/steps/steps.py` |
 | 3 | Extension `state=6` via `Shell.Eval` → use `GetExtensionInfo` D-Bus | **LIKELY-KEEP** — no extensions on plain gnomeos, so the state check is not exercised; the D-Bus method is the only public path and still required | `tests/smoke/features/steps/steps.py`; `SKILL.md` "Extension state via D-Bus" |
-| 4 | `filler`/`frame` toplevel-role fallback + require populated subtree | **STILL REQUIRED** — run confirmed: Files, Calculator, Text Editor, and fractional/integer scale windows all resolved their toplevels on 51 | `tests/shared/gnome_shell_steps.py`; `SKILL.md` "Window-role checks must prove the subtree is populated" |
-| 5 | Nautilus sidebar role (`home_folder_is_in_the_sidebar`) | **STILL REQUIRED** — run confirmed: `home_folder_is_in_the_sidebar` passed on 51 | `tests/smoke/features/steps/gnome_files_steps.py` |
-| 6 | Nautilus AT-SPI app-name handling (`FILES_APP_NAMES`, `_nautilus_app`) | **STILL REQUIRED** — run confirmed: Files launched, navigated, and closed cleanly on 51 | `tests/smoke/features/steps/gnome_files_steps.py` |
+| 4 | `filler`/`frame` toplevel-role fallback + require populated subtree | **WORKS ON 51** — Files, Calculator, Text Editor, and fractional/integer scale windows resolved their toplevels; the run does not prove which fallback was needed | `tests/shared/gnome_shell_steps.py`; `SKILL.md` "Window-role checks must prove the subtree is populated" |
+| 5 | Nautilus sidebar role (`home_folder_is_in_the_sidebar`) | **WORKS ON 51** — `home_folder_is_in_the_sidebar` passed; necessity remains unproven | `tests/smoke/features/steps/gnome_files_steps.py` |
+| 6 | Nautilus AT-SPI app-name handling (`FILES_APP_NAMES`, `_nautilus_app`) | **WORKS ON 51** — Files launched, navigated, and closed; necessity remains unproven | `tests/smoke/features/steps/gnome_files_steps.py` |
 | 7 | Ptyxis window title (`user@host:~`) | **UNEXERCISED on `dakota:testing`** — [smoke-a run 43170644165](https://github.com/projectbluefin/testsuite/actions/runs/43170644165) skipped “Ptyxis terminal launches successfully” because Ptyxis is not installed. A skip does not establish whether the workaround works or is obsolete on 51; retain it for images running GNOME 50. | `tests/smoke/features/steps/gnome_apps_steps.py:34-38` |
 | 8 | ScreenSaver D-Bus `Lock` (not `screenShield.lock(true)`) | **LIKELY-KEEP** — `screen_lock_engages` not in the smoke-a/smoke-b run; still required on 50 | `tests/smoke/features/steps/steps.py`; `SKILL.md` "Screen Lock/Unlock D-Bus calls" |
 | 9 | `Main.overview.visible` reads `false` in QEMU; do not assert it | **LIKELY-KEEP (unverified)** — the scenarios passed, but `overview_is_open` checks `OverviewActive`, not `Main.overview.visible`, so the pass cannot show the workaround is still needed; needs a targeted 51 probe of `Main.overview.visible` | `tests/smoke/features/steps/steps.py`; `SKILL.md` "Activities overview (GNOME 50 QEMU)" |
-| 10 | Notification banner dismissal check | **STILL REQUIRED** — run confirmed: `toast_notification_banner_can_be_dismissed` passed on 51 | `tests/smoke/features/steps/gnome_notifications_steps.py` |
+| 10 | Notification banner dismissal check | **WORKS ON 51** — `toast_notification_banner_can_be_dismissed` passed; necessity remains unproven | `tests/smoke/features/steps/gnome_notifications_steps.py` |
 | 11 | Panel buttons `showing=False` before overview toggle | **LIKELY-KEEP (unverified)** — panel helpers match role/name without checking `showing`, so the run does not measure this property; needs a targeted 51 probe recording `showing` | `tests/shared/gnome_shell_steps.py` |
 | 12 | keyring skip on GDM restart | **LIKELY-KEEP** — GDM restart not exercised by the smoke run; still required on 50 | `tests/smoke/features/environment.py` |
 
-Rows 4, 5, 6, and 10 are **confirmed** by the run in §Run evidence. Rows 9 and 11
-passed scenarios that do not measure the affected properties, so they are
-unverified. Rows 1, 2, 3, 8, and 12 were not exercised by the plain GNOME OS
+Rows 4, 5, 6, and 10 worked in the run in §Run evidence; a passing scenario
+does not prove that the workaround is required. Rows 9 and 11 remain
+unverified because passing scenarios did not measure the affected properties.
+Rows 1, 2, 3, 8, and 12 were not exercised by the plain GNOME OS
 smoke run and carry `LIKELY-KEEP`. Row 7 was also skipped on `dakota:testing`
 because Ptyxis was absent. **This audit is incomplete**: issue #827 still
 requires evidence for the unverified rows, including targeted probes for 9 and 11.
