@@ -20,22 +20,21 @@ Never lower the default below 60s.
 
 ---
 
-## A command that forks a background child hangs to the timeout
+## A step that stops at exactly its timeout may be waiting on the desktop
 
-`ssh` doesn't return until every process holding the remote channel's stdin,
-stdout or stderr has let go. A command that forks a long-lived child, for
-example `wl-copy` (its child keeps serving the clipboard selection), passes
-all three to the child, so the step waits for the full timeout even though
-the command itself finished (#1126, #1164).
+A step that always fails at exactly its timeout usually has a command that
+is waiting for something, not one that is slow. Find out what it waits for
+before changing how the command is fed.
 
-Detach every stream the child could inherit. When the input is the payload,
-drain it into a guest file first and give the command that file:
+`wl-copy` and `wl-paste` are the known case (#1164). GNOME advertises no
+Wayland data-control protocol: a `WAYLAND_DEBUG=1` run on Utah saw only
+`wl_data_device_manager`, `zwp_primary_selection_device_manager_v1` and
+`wl_seat`. Without one, `wl-copy` maps a 1x1 surface and waits for keyboard
+focus, which GNOME never gives a background client. Draining its stdin into
+a file first (#1183's first attempt) changed nothing.
 
-```sh
-f=$(mktemp); err=$(mktemp); cat >"$f"
-wl-copy <"$f" >/dev/null 2>"$err"
-```
-
-See `_clipboard_set` in `tests/smoke/features/steps/bluefin_new_extensions_steps.py`.
+Set and read the clipboard inside GNOME Shell instead, with `St.Clipboard`
+through `Shell.Eval`. See `_clipboard_set` and `_clipboard_get` in
+`tests/smoke/features/steps/bluefin_new_extensions_steps.py`.
 
 ---
