@@ -142,9 +142,13 @@ probe and on demand (`image`, `test_ref` inputs). It never gates anything.
   2. GNOME Initial Setup running, from its process and the GDM session over
      root SSH, with no regular user present;
   3. a monitor key press changing the framebuffer. Initial Setup's welcome
-     page cycles its greeting through languages, so the probe first watches
-     the page idle for 10 seconds. Pixel rows that change on their own don't
-     count; the key press must change at least 4 other rows.
+     page cycles its greeting through languages, so the probe first waits
+     for the page to be up (the middle of the screen mostly light: Initial
+     Setup's card, not the dark wallpaper) and still, then watches it idle
+     for 10 seconds. Pixel rows that change on their own don't count; the
+     key press must change at least 4 other rows. On the frames from run
+     43335035900 that is 26 animated rows and 83 input rows (the search box
+     and the focus ring on "Español").
 
   QEMU runs as root, so the probe creates the serial log and each frame file
   itself before QEMU writes to it, and gives QEMU absolute paths (the

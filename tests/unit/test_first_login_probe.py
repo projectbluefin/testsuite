@@ -127,9 +127,11 @@ def test_rows_that_animate_while_idle_do_not_count_as_input():
 
 @pytest.fixture
 def fake_vm(monkeypatch):
-    still, moved = _ppm([0] * 8), _ppm([0, 0, 5, 5, 5, 5, 0, 0])
+    still, moved = _ppm([250] * 8), _ppm([250, 250, 205, 205, 205, 205, 250, 250])
+    # Checkpoint 1 takes one frame and settling two; the settled frame is the
+    # first idle frame.
     state = {"users": [], "gis": True,
-             "frames": [still] * (1 + probe.IDLE_FRAMES) + [moved]}
+             "frames": [still] * (2 + probe.IDLE_FRAMES) + [moved]}
     monkeypatch.setattr(probe, "wait_for_serial", lambda serial, patterns, timeout: "Linux version 6" if probe.KERNEL_PATTERN in patterns else "BdsDxe: starting Boot0001")
     monkeypatch.setattr(probe, "wait_for_ssh", lambda key, timeout: True)
     monkeypatch.setattr(probe, "initial_setup_running", lambda key: {
@@ -168,7 +170,7 @@ def test_probe_fails_when_initial_setup_never_starts(fake_vm, tmp_path):
 
 
 def test_probe_fails_when_input_changes_nothing(fake_vm, tmp_path, monkeypatch):
-    monkeypatch.setattr(probe, "screendump", lambda sock, path: _ppm([0] * 8))
+    monkeypatch.setattr(probe, "screendump", lambda sock, path: _ppm([250] * 8))
     assert probe.run(tmp_path, "sock", "serial", "key", 1, 1) == 1
     verdict = _verdict(tmp_path)
     assert verdict["checkpoint"] == 2 and "did not change" in verdict["reason"]
@@ -233,9 +235,40 @@ def test_screendump_creates_the_frame_file_before_qemu_writes_it(tmp_path, monke
 
 
 def test_probe_fails_when_only_the_animated_greeting_changes(fake_vm, tmp_path, monkeypatch):
-    frames = iter([_ppm([0, g, 0, 0, 0, 0, 0, 0]) for g in range(1 + probe.IDLE_FRAMES + 1)])
+    frames = iter([_ppm([250, 200 + g, 250, 250, 250, 250, 250, 250])
+                   for g in range(probe.IDLE_FRAMES + 3)])
     monkeypatch.setattr(probe, "screendump", lambda sock, path: next(frames))
     assert probe.run(tmp_path, "sock", "serial", "key", 1, 1) == 1
     verdict = _verdict(tmp_path)
     assert verdict["frames"] == {"bytes": len(_ppm([0] * 8)), "animated_rows": 1, "input_rows": 0}
+
     assert "animate on their own" in verdict["reason"]
+
+
+def test_settled_frame_waits_for_the_window_to_finish_appearing(monkeypatch):
+    # Run 43335035900: two identical frames of bare wallpaper (dark) came
+    # before the window mapped, then the whole screen changed.
+    monkeypatch.setattr(probe, "SETTLED_ROWS", 3)
+    frames = iter([_ppm([0] * 8), _ppm([0] * 8), _ppm([250] * 8),
+                   _ppm([250] * 7 + [201]), _ppm([250] * 7 + [202])])
+    monkeypatch.setattr(probe, "screendump", lambda sock, path: next(frames))
+    clock = Clock()
+    monkeypatch.setattr(probe.time, "monotonic", clock)
+    monkeypatch.setattr(probe.time, "sleep", clock.sleep)
+    assert probe.settled_frame("sock", "frame.ppm") == (_ppm([250] * 7 + [201]), True)
+
+
+def test_probe_fails_when_the_page_never_settles(fake_vm, tmp_path, monkeypatch):
+    frames = iter([_ppm([200 + g % 50] * 8) for g in range(200)])
+    monkeypatch.setattr(probe, "screendump", lambda sock, path: next(frames))
+    clock = Clock()
+    monkeypatch.setattr(probe.time, "monotonic", clock)
+    monkeypatch.setattr(probe.time, "sleep", clock.sleep)
+    monkeypatch.setattr(probe, "SETTLED_ROWS", 3)
+    assert probe.run(tmp_path, "sock", "serial", "key", 1, 1) == 1
+    assert _verdict(tmp_path)["reason"] == "the Initial Setup page never appeared or never stopped changing"
+
+
+def test_page_visible_tells_the_card_from_dark_wallpaper():
+    assert probe.page_visible(_ppm([250] * 16, width=16))
+    assert not probe.page_visible(_ppm([40] * 16, width=16))

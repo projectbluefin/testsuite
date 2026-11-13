@@ -81,6 +81,7 @@ def screendump(sock_path, ppm_path):
 
 IDLE_FRAMES = 6  # 10 s of idle frames, 2 s apart
 MIN_INPUT_ROWS = 4
+SETTLED_ROWS = 200  # the greeting and caret change ~80 of 800 rows on their own
 
 
 def ppm_rows(ppm):
@@ -110,6 +111,47 @@ def changed_rows(before, after):
     if len(a) != len(b):
         raise ValueError("frames differ in size")
     return {y for y, (ra, rb) in enumerate(zip(a, b)) if ra != rb}
+
+
+def page_visible(ppm):
+    """True when the middle of the screen is mostly light: Initial Setup's card.
+
+    Calibrated on runs 43333610574 and 43335035900: 0.97 of the sampled
+    pixels are light with the page up, 0.00 on the boot screen and the bare
+    wallpaper shown before the window maps.
+    """
+    rows = ppm_rows(ppm)
+    height, width = len(rows), len(rows[0]) // 3
+    light = total = 0
+    for y in range(height * 3 // 16, height * 13 // 16, 4):
+        row = rows[y]
+        for x in range(width * 5 // 16, width * 11 // 16, 4):
+            r, g, b = row[3 * x:3 * x + 3]
+            total += 1
+            light += (r + g + b) // 3 >= 200
+    return total > 0 and light / total >= 0.5
+
+
+def settled_frame(sock, path, timeout=60):
+    """Wait until the page is up and stops drawing: two frames 2 s apart that
+    both show it and differ in fewer than SETTLED_ROWS rows. A fixed wait
+    wasn't enough, and two identical frames can be the bare wallpaper before
+    the window maps (run 43335035900).
+
+    Returns (frame, settled); frame is empty when QEMU produced none.
+    """
+    prev = screendump(sock, path)
+    deadline = time.monotonic() + timeout
+    while prev and time.monotonic() < deadline:
+        time.sleep(2)
+        cur = screendump(sock, path)
+        if not cur:
+            return b"", False
+        if (page_visible(prev) and page_visible(cur)
+                and len(changed_rows(prev, cur)) < SETTLED_ROWS):
+            return cur, True
+        prev = cur
+    return prev, False
 
 
 def input_changed_rows(idle_frames, after):
@@ -195,8 +237,12 @@ def run(outdir, sock, serial, key, boot_timeout=300, gis_timeout=420):
     verdict["checkpoint"] = 2
 
     # 3. A real key press changes the page (e.g. moves the language selection).
-    time.sleep(10)  # let the first page settle before comparing frames
-    idle = [screendump(sock, out / "frame-gis.ppm")]
+    first, settled = settled_frame(sock, out / "frame-gis.ppm")
+    if not first:
+        return finish("QEMU screendump produced no frame")
+    if not settled:
+        return finish("the Initial Setup page never appeared or never stopped changing")
+    idle = [first]
     for n in range(1, IDLE_FRAMES):  # watch the page idle to learn what animates
         time.sleep(2)
         idle.append(screendump(sock, out / f"frame-idle-{n}.ppm"))
