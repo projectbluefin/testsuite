@@ -12,6 +12,7 @@
 # does not fetch a tool from it.
 inputs.target-image
 Full OCI ref to upgrade TO
+Lifecycle only: full OCI ref to upgrade TO
 Pre-stage target image via bootc switch
 OCI image to test (e.g.
 Full OCI image reference (e.g.
