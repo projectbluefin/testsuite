@@ -29,7 +29,7 @@ on:
         required: false
         default: ""
       target_image:
-        description: "Lifecycle only: full OCI ref to upgrade TO, staged with bootc switch before the suite (empty = none)"
+        description: "Lifecycle only: full OCI ref to upgrade TO; the suite's own bootc upgrade stages it (empty = none)"
         required: false
         default: ""
 

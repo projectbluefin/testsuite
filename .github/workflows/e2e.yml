@@ -21,7 +21,7 @@ on:
         type: string
         default: "ghcr.io/projectbluefin/dakota:testing"
       target-image:
-        description: "Full OCI ref to upgrade TO (optional). When set and lifecycle suite is running, stages this image via bootc switch before the test suite."
+        description: "Full OCI ref to upgrade TO (optional). When set and lifecycle suite is running, points the VM's booted deployment at this image (bootc switch --mutate-in-place) so the suite's bootc upgrade stages it."
         type: string
         default: ""
         required: false
@@ -76,10 +76,11 @@ on:
         default: true
       migration-target:
         description: >
-          Migration target image ref for cross-registry migration scenarios.
-          Only used when the lifecycle suite runs @migration scenarios.
+          Migration target image ref for the lifecycle @homed_migration scenarios.
           Passed as MIGRATION_TARGET env var to behave; when empty the test code
-          falls back to its built-in default (ghcr.io/projectbluefin/bluefin:stable).
+          falls back to ghcr.io/projectbluefin/dakota:next on dakota images and
+          skips the scenarios on other images. They also skip when target-image
+          is set: a migration switch would strand the upgrade scenarios.
         type: string
         default: ""
         required: false
@@ -975,13 +976,20 @@ jobs:
           cat results/selinux/contexts-boot.txt
           python3 scripts/selinux_qualify.py check-mode "${SELINUX_EXPECTED:-enforcing}" "${OBSERVED}"
 
-      - name: Pre-stage target image via bootc switch
+      # Point the booted deployment's origin at the target without pulling or
+      # staging it, so the suite's own `bootc upgrade` performs the real
+      # upgrade (#1023). A full `bootc switch` staged it here instead, which
+      # left a staged deployment before the pin scenario and let the upgrade
+      # scenarios pass on "Staged update present" without upgrading.
+      - name: Point the VM at the target image
         if: ${{ inputs.target-image != '' && contains(inputs.suites, 'lifecycle') && env.SUITE == 'lifecycle' }}
+        env:
+          TARGET_IMAGE: ${{ inputs.target-image }}
         run: |
           SSH_COMMON="-i /tmp/vm_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ControlMaster=auto -o ControlPersist=600 -o ControlPath=/tmp/ssh-ctrl-%C -o ConnectTimeout=3"
-          echo "Pre-staging target image ${{ inputs.target-image }} via bootc switch..."
-          timeout 900 ssh ${SSH_COMMON} -p 2222 bluefin-test@127.0.0.1 \
-            "sudo bootc switch '${{ inputs.target-image }}'"
+          echo "Pointing the booted deployment at ${TARGET_IMAGE} (bootc switch --mutate-in-place)..."
+          timeout 120 ssh ${SSH_COMMON} -p 2222 bluefin-test@127.0.0.1 \
+            "sudo bootc switch --mutate-in-place $(printf '%q' "${TARGET_IMAGE}")"
 
       - name: Dump VM serial log
         if: always()

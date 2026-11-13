@@ -18,6 +18,37 @@ except Exception:  # noqa: BLE001
         return None
 
 
+# Same default as steps.py's _migration_target().
+DEFAULT_MIGRATION_TARGET = "ghcr.io/projectbluefin/dakota:next"
+
+
+def homed_migration_skip_reason(environ=None):
+    """Why the homed migration scenarios cannot run in this run, or None.
+
+    - A targeted run (TARGET_IMAGE) is release qualification: its upgrade
+      scenarios restore a pre-upgrade baseline before each upgrade, and a
+      migration ``bootc switch`` to a third image leaves that baseline
+      unreachable for the scenarios after it. Migration runs separately.
+    - The default target is dakota:next, so on another image family the
+      scenarios need an explicit MIGRATION_TARGET (a utah VM must not be
+      switched to dakota).
+    """
+    env = os.environ if environ is None else environ
+    if env.get("TARGET_IMAGE", "").strip():
+        return (
+            "homed migration is not part of targeted upgrade qualification: it "
+            "switches the VM to a third image, which the upgrade scenarios' "
+            "baseline restore cannot recover. Run it in an untargeted lifecycle "
+            "run (e2e.yml extra-tags: homed_migration)."
+        )
+    if not env.get("MIGRATION_TARGET", "").strip() and "/dakota" not in env.get("IMAGE", ""):
+        return (
+            "no MIGRATION_TARGET set and this is not a dakota image; the default "
+            f"target {DEFAULT_MIGRATION_TARGET} only applies to dakota."
+        )
+    return None
+
+
 def before_all(context):
     """Set up SSH connection parameters from environment."""
     context.vm_ip = os.environ.get("VM_IP", "")
@@ -39,6 +70,12 @@ def before_scenario(context, scenario):
 
     if skip_quarantine(scenario):
         return
+    if "homed_migration" in scenario.effective_tags:
+        reason = homed_migration_skip_reason()
+        if reason:
+            print(f"SKIP Scenario {scenario.name}: {reason}", flush=True)
+            scenario.skip(reason)
+            return
     context.scenario = scenario
     context.command_stdout = ""
     context.ssh_rc = None

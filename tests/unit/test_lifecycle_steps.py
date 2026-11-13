@@ -341,7 +341,7 @@ class TestMaybeRebootAfterUpgrade:
         reboot.assert_not_called()
 
 
-def _bootc_status(booted, rollback=None, staged=None, staged_ref=None):
+def _bootc_status(booted, rollback=None, staged=None, staged_ref=None, booted_ref=None):
     def deployment(digest, ref=None):
         if digest is None:
             return None
@@ -355,7 +355,7 @@ def _bootc_status(booted, rollback=None, staged=None, staged_ref=None):
     return json.dumps(
         {
             "status": {
-                "booted": deployment(booted),
+                "booted": deployment(booted, booted_ref),
                 "rollback": deployment(rollback),
                 "staged": deployment(staged, staged_ref),
             }
@@ -366,6 +366,10 @@ def _bootc_status(booted, rollback=None, staged=None, staged_ref=None):
 class TestRestorePreUpgradeBaseline:
     """Lifecycle scenarios share one VM; each gated upgrade scenario must start
     from the pre-upgrade baseline so its bootc upgrade is a real upgrade."""
+
+    @pytest.fixture(autouse=True)
+    def _untargeted(self, monkeypatch):
+        monkeypatch.delenv("TARGET_IMAGE", raising=False)
 
     def setup_method(self):
         self.mod = _import_lifecycle_steps()
@@ -438,17 +442,18 @@ class TestRestorePreUpgradeBaseline:
         reboot.assert_called_once_with(context)
         assert not any("bootc switch" in c for c in self.commands)
 
-    def test_does_not_restage_prestaged_candidate_after_rollback(self, monkeypatch):
-        # bootc switch to the ref the host spec already tracks is a no-op
-        # ("Image specification is unchanged."); the scenario's own
-        # bootc upgrade stages the candidate instead.
+    def test_targeted_run_points_booted_origin_at_target_after_rollback(self, monkeypatch):
+        # After a rollback the booted origin is the baseline's own digest ref,
+        # so bootc upgrade would be a no-op (run 43348477237). The step points
+        # the origin back at the target without staging it.
+        monkeypatch.setenv("TARGET_IMAGE", "ghcr.io/x@sha256:cand")
         monkeypatch.setattr(
             self.mod,
             "run_ssh",
             self._fake_run_ssh(
                 [
-                    _bootc_status("sha256:cand", rollback="sha256:base"),
-                    _bootc_status("sha256:base", rollback="sha256:cand"),
+                    _bootc_status("sha256:cand", rollback="sha256:base", booted_ref="ghcr.io/x@sha256:cand"),
+                    _bootc_status("sha256:base", rollback="sha256:cand", booted_ref="ghcr.io/x@sha256:base"),
                 ]
             ),
         )
@@ -457,8 +462,78 @@ class TestRestorePreUpgradeBaseline:
 
         self.mod.restore_pre_upgrade_baseline(context)
 
-        assert self.commands[-1] == "sudo bootc status --format=json"
+        switches = [c for c in self.commands if "bootc switch" in c]
+        assert switches == ["sudo bootc switch --mutate-in-place ghcr.io/x@sha256:cand"]
+        assert self.commands[-1] == switches[0]
+
+    def test_targeted_run_points_origin_on_first_call(self, monkeypatch):
+        monkeypatch.setenv("TARGET_IMAGE", "ghcr.io/x@sha256:cand")
+        monkeypatch.setattr(
+            self.mod,
+            "run_ssh",
+            self._fake_run_ssh([_bootc_status("sha256:base", booted_ref="ghcr.io/x@sha256:base")]),
+        )
+        monkeypatch.setattr(self.mod, "reboot_and_wait", MagicMock())
+        context = self._context({})
+
+        self.mod.restore_pre_upgrade_baseline(context)
+
+        assert context.lifecycle_baseline == {"digest": "sha256:base"}
+        assert self.commands[-1] == "sudo bootc switch --mutate-in-place ghcr.io/x@sha256:cand"
+
+    def test_targeted_run_leaves_origin_already_on_target(self, monkeypatch):
+        monkeypatch.setenv("TARGET_IMAGE", "ghcr.io/x@sha256:cand")
+        monkeypatch.setattr(
+            self.mod,
+            "run_ssh",
+            self._fake_run_ssh([_bootc_status("sha256:base", booted_ref="ghcr.io/x@sha256:cand")]),
+        )
+        monkeypatch.setattr(self.mod, "reboot_and_wait", MagicMock())
+        context = self._context({"digest": "sha256:base"})
+
+        self.mod.restore_pre_upgrade_baseline(context)
+
         assert not any("bootc switch" in c for c in self.commands)
+
+    def test_targeted_run_leaves_a_staged_target_alone(self, monkeypatch):
+        monkeypatch.setenv("TARGET_IMAGE", "ghcr.io/x@sha256:cand")
+        monkeypatch.setattr(
+            self.mod,
+            "run_ssh",
+            self._fake_run_ssh(
+                [
+                    _bootc_status(
+                        "sha256:base",
+                        booted_ref="ghcr.io/x@sha256:base",
+                        staged="sha256:cand",
+                        staged_ref="ghcr.io/x@sha256:cand",
+                    )
+                ]
+            ),
+        )
+        monkeypatch.setattr(self.mod, "reboot_and_wait", MagicMock())
+        context = self._context({"digest": "sha256:base"})
+
+        self.mod.restore_pre_upgrade_baseline(context)
+
+        assert not any("bootc switch" in c for c in self.commands)
+
+    def test_failed_origin_switch_fails_the_step(self, monkeypatch):
+        monkeypatch.setenv("TARGET_IMAGE", "ghcr.io/x@sha256:cand")
+        statuses = [_bootc_status("sha256:base", booted_ref="ghcr.io/x@sha256:base")]
+
+        def run_ssh(context, cmd, timeout=60):
+            self.commands.append(cmd)
+            if cmd.startswith("sudo bootc status"):
+                context.command_stdout = statuses.pop(0)
+                return context.command_stdout, 0
+            return "error: unknown flag", 2
+
+        monkeypatch.setattr(self.mod, "run_ssh", run_ssh)
+        context = self._context({"digest": "sha256:base"})
+
+        with pytest.raises(AssertionError, match="mutate-in-place"):
+            self.mod.restore_pre_upgrade_baseline(context)
 
     def test_fails_when_baseline_is_unreachable(self, monkeypatch):
         monkeypatch.setattr(
