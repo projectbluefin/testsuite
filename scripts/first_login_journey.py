@@ -74,6 +74,11 @@ OPTIONAL_PAGES = frozenset({"network"})
 PRIVATE_PAGES = frozenset({"account", "password", "summary"})
 
 FULL_NAME = "Firstboot"  # artificial; GIS derives the username from it
+# The image sets no system keyboard layout, so GIS 51.1 preselects none and
+# Next stays insensitive until one is chosen. Its chooser filters by word
+# prefix and sorts by name, so this puts "English (US)" first.
+KEYBOARD_SEARCH = "english us"
+ROW_ROLES = ("list item", "row", "table row")
 TIMEZONE_SEARCH = "London"
 PAGE_TIMEOUT = 120
 MAX_TABS = 25
@@ -201,14 +206,23 @@ def wait_for(predicate, timeout, guest, interval=3):
 
 
 def focus(guest, target, wanted, what):
-    """Press Tab until the focused widget satisfies ``wanted(focused)``."""
+    """Press Tab until the focused widget satisfies ``wanted(focused)``.
+
+    On failure the reason lists what Tab did reach (widget roles and names,
+    never entry text), so the next run knows where focus went.
+    """
+    reached = []
     for _ in range(MAX_TABS):
         state = guest.ui_state(target)
         focused = (state or {}).get("focused") or {}
         if state.get("ok") and wanted(focused):
             return focused
+        stop = f"{focused.get('role', '-')}:{focused.get('name', '')}"[:60]
+        if stop not in reached:
+            reached.append(stop)
         guest.press("tab", pause=0.5)
-    raise JourneyFailure("unrecognized-screen", f"could not focus {what}")
+    raise JourneyFailure("unrecognized-screen",
+                         f"could not focus {what}; Tab reached {reached[:12]}")
 
 
 TEXT_ROLES = ("text", "entry", "password text")
@@ -240,7 +254,15 @@ def button_sensitive(state, name):
 
 
 def act_on_page(guest, page, password):
-    if page in ("language", "keyboard", "privacy"):
+    if page in ("language", "privacy"):
+        press_next(guest, page)
+    elif page == "keyboard":
+        if not button_sensitive(guest.ui_state("gis"), "Next"):
+            focus(guest, "gis", is_text, "the keyboard search")
+            guest.type_text(KEYBOARD_SEARCH)
+            guest.sleep(2)
+            focus(guest, "gis", lambda f: f.get("role") in ROW_ROLES, "the first layout row")
+            guest.press("ret", pause=2)
         press_next(guest, page)
     elif page == "network":
         state = guest.ui_state("gis")

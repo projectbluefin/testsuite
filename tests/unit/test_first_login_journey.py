@@ -27,7 +27,7 @@ class FakeGuest:
     """GNOME Initial Setup, the new account and the greeter, by key press."""
 
     def __init__(self, tmp_path, pages=UTAH_PAGES, loader=True, timezone_set=True,
-                 autologin=False, handoff=True):
+                 autologin=False, handoff=True, keyboard_set=False):
         self.serial = tmp_path / "serial.log"
         self.serial.write_text("BdsDxe: loading Boot0001\nLinux version 6.18\n" if loader else
                                "BdsDxe: failed to load Boot0001\n")
@@ -35,6 +35,8 @@ class FakeGuest:
         self.pages = list(pages)
         self.index = 0
         self.timezone_set = timezone_set
+        self.keyboard_set = keyboard_set  # utah: no system layout, none preselected
+        self.searched = ""
         self.autologin = autologin
         self.handoff = handoff
         self.now = 0.0
@@ -73,6 +75,9 @@ class FakeGuest:
             self.focus_ring = [NEXT, {"role": "password text", "name": "Password"},
                                {"role": "password text", "name": "Confirm Password"}]
             self.fields = ["", ""]
+        elif page == "keyboard" and not self.keyboard_set:
+            self.focus_ring = [{"role": "text", "name": "Search keyboards and input methods"},
+                               {"role": "list item", "name": "English (US)"}, NEXT]
         elif page == "timezone" and not self.timezone_set:
             self.focus_ring = [NEXT, {"role": "text", "name": "Search"}]
         elif page == "summary":
@@ -86,6 +91,8 @@ class FakeGuest:
             return self.fields[0] != "" and self.fields[0] == self.fields[1]
         if self.page == "timezone":
             return self.timezone_set
+        if self.page == "keyboard":
+            return self.keyboard_set
         return True
 
     def _focused(self):
@@ -131,6 +138,8 @@ class FakeGuest:
             f = self._focused()
             if self.page == "timezone" and f.get("role") == "text":
                 self.timezone_set = True
+            elif self.page == "keyboard" and f.get("role") == "list item":
+                self.keyboard_set = self.searched == journey.KEYBOARD_SEARCH
             elif f.get("name") == "Next" and f["sensitive"]:
                 self.index += 1
                 self._enter_page()
@@ -146,6 +155,8 @@ class FakeGuest:
             self.greeter_text = text
             return
         f = self._focused()
+        if self.page == "keyboard" and f.get("role") == "text":
+            self.searched = text
         if self.page == "password" and f.get("role") == "password text":
             self.fields[self.focus_at - 1] = text
             self.fields_final = text
@@ -204,6 +215,27 @@ def test_network_page_is_optional_but_handled_when_shown(tmp_path):
     rc, verdict, _ = run_case(tmp_path, "happy", FakeGuest(tmp_path, pages=pages))
     assert rc == 0, verdict
     assert verdict["pages"] == pages
+
+
+def test_keyboard_layout_is_chosen_when_none_is_preselected(tmp_path):
+    guest = FakeGuest(tmp_path, keyboard_set=False)
+    rc, verdict, _ = run_case(tmp_path, "happy", guest)
+    assert rc == 0, verdict
+    assert guest.keyboard_set
+
+
+def test_a_preselected_keyboard_layout_is_kept(tmp_path):
+    guest = FakeGuest(tmp_path, keyboard_set=True)
+    rc, verdict, _ = run_case(tmp_path, "happy", guest)
+    assert rc == 0, verdict
+    assert guest.searched == ""
+
+
+def test_focus_failure_names_what_tab_reached(tmp_path):
+    guest = FakeGuest(tmp_path)
+    with pytest.raises(journey.JourneyFailure) as failure:
+        journey.focus(guest, "gis", lambda f: False, "nothing")
+    assert "push button:Next" in failure.value.reason
 
 
 def test_timezone_without_a_location_is_searched_by_keyboard(tmp_path):
