@@ -55,25 +55,23 @@ silently costs the full set, and a wrong empty rule silently skips validation.
 ## Running the plan against the PR's own code
 
 Every pull request runs this plan automatically (`pr-vm-check.yml`, "PR VM
-check"): it diffs GitHub's merge commit against its first
-parent, runs `vm_validation_plan.py` and `v1_gate.py`, and when the decision is
-`gate` boots those suites through `e2e.yml` on `dakota:testing` pinned by
-digest, with `test_ref` set to the merge commit. `move` boots nothing; `hold`
-(a lane `e2e.yml` cannot boot, such as the `gnome-e2e` composite action) posts
-a notice and boots nothing. It is not a required check, but the hive merges no
-PR while any check is red. A fork PR's token is read-only, so `e2e.yml`'s
-screenshot push (continue-on-error) is skipped there. Use a manual run (below)
-for another image. The manual run calls `e2e.yml` too, so it cannot cover a
-`hold`:
+check"): it diffs GitHub's merge commit against its first parent and uses the
+planner's `--pr` mode. That mode routes the GNOME OS canary's workflow, harness,
+helper and suite to the canary rather than Dakota, and runs the canary for the
+`gnome-e2e` composite action too, under the same coverage rule as the `v1` gate
+below (one `canary` output from `scripts/v1_gate.py`; changed action steps the
+canary skips still hold). The PR workflow itself also selects the canary so
+changes to its routing exercise it.
 
-- a `composite_action` lane (the `gnome-e2e` action, or
-  `scripts/extension_validation.py`, which only the action runs): dispatch
-  `gnomeos-canary.yml` from `main` with `test_ref` set to the PR head commit.
-  It calls the action and its extension-validation gate at that commit, so no
-  fork PR head needs pushing to a branch such as `canary/pr-N` first (issue
-  #1172).
-- a suite without a hosted lane (`no_hosted_lane`, such as `security`): it needs
-  its own hardware, or a hand check of the change.
+The PR check boots planned `e2e.yml` suites on `dakota:testing` pinned by digest
+at the merge commit. Other `no_hosted_lane` suites still produce a notice and
+need their own hardware or a hand check. A fork PR's token is read-only, so
+`e2e.yml`'s screenshot push (continue-on-error) is skipped there.
+
+For a canary re-run, dispatch `gnomeos-canary.yml` from `main` with `test_ref`
+set to the PR head commit. A fork PR head need not be pushed to a repository
+branch first (issue #1172). Use a manual `e2e.yml` run (below) for another
+image; it cannot cover the canary.
 
 Dispatch `manual.yml` **on the PR branch in the fork**. It calls the fork's
 `e2e.yml` revision and passes `test_repository: ${{ github.repository }}` and
@@ -108,7 +106,8 @@ and `.../check-runs`.
    used to hold `v1` every time (#1127, #1140). Any other change in the file,
    or a ref that is not a full SHA on both sides, keeps it in the plan. The run
    summary lists the dropped files. This is the gate's version of the hive's
-   pin-only rule; it goes once the gate boots the canary itself (#1144).
+   pin-only rule. The gate can now run the canary (below), but pin-only
+   bumps still skip it: nothing they change needs a 15-minute GNOME OS boot.
 2. Turns the plan into an action with `scripts/v1_gate.py`:
    - `move`: nothing reaches a VM (docs, unit tests, repo tooling).
    - `gate`: boot the planned suites through `e2e.yml` at the merged SHA,
@@ -121,8 +120,22 @@ and `.../check-runs`.
      scenario also fails at `v1`. A new failing scenario, a suite that
      failed without a failing scenario recorded, or a missing baseline
      holds `v1`. The gate catches testsuite regressions, not image bugs.
-   - `hold`: the plan needs a lane `e2e.yml` cannot boot (`composite_action`
-     or `no_hosted_lane`).
+   - `canary`: every lane `e2e.yml` cannot boot is one the canary runs: the
+     `gnome-e2e` action itself (`.github/actions/gnome-e2e/`),
+     `scripts/extension_validation.py` (the action runs it for the canary
+     suite), or the canary's own suite (`tests/gnomeos-canary/`). The gate calls
+     `gnomeos-canary.yml` at the merged SHA, which drives that action end to
+     end, and moves `v1` only if it passes. With suites to boot as well, the
+     action is `gate` with `canary=true` and both must pass. Before this, each
+     such change held `v1` until a maintainer ran the canary by hand and
+     forced the move (#1140, #1188).
+   - `hold`: the plan needs a lane neither can cover. That is an action-lane
+     script the canary does not run (`scripts/assert_passed.py`: its action
+     step skips the canary suite), a changed action step whose `if:` excludes
+     the canary suite (`scripts/v1_gate_canary_scope.py` lists them; the run
+     summary names them), or a `no_hosted_lane` suite. The hold is flagged for
+     a maintainer at once. The step check does not split suite branches inside
+     a shell step the canary does run.
 3. On a hold or a failed gate, fails the run and opens (or comments on) the
    issue **"v1 tag held by the post-merge VM gate"** naming the held SHA. The
    next successful move closes it. Three holds are a maintainer's problem

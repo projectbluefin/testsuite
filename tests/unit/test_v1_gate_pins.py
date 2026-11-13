@@ -124,6 +124,7 @@ def test_cli_drops_a_pin_only_action_change_and_the_gate_moves(tmp_path):
 
 
 def test_cli_keeps_an_action_change_that_is_more_than_a_pin(tmp_path):
+    # Kept for the gate, which runs the GNOME OS canary on it (not a move).
     _git(tmp_path, "init", "-q")
     previous = _commit(tmp_path, {ACTION: _action(OLD)})
     sha = _commit(tmp_path, {ACTION: _action(NEW, extra=" there")})
@@ -131,7 +132,7 @@ def test_cli_keeps_an_action_change_that_is_more_than_a_pin(tmp_path):
     result = _run_filter(tmp_path, previous, sha, [ACTION])
 
     assert result.stdout.split() == [ACTION]
-    assert decide(plan(result.stdout.split()))["action"] == "hold"
+    assert decide(plan(result.stdout.split()))["action"] == "canary"
 
 
 def test_cli_leaves_pin_bumps_outside_the_action_to_the_plan(tmp_path):

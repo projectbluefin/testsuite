@@ -146,3 +146,49 @@ def test_move_closes_the_held_issue_without_labels(tmp_path):
     assert _labels(calls) == set()
     assert any(c.startswith("gh issue close 1149") for c in calls)
     assert any(c.startswith("gh api -X PATCH") for c in calls)
+
+
+def _moved(calls: list[str]) -> bool:
+    return any(c.startswith("gh api -X PATCH") for c in calls)
+
+
+def test_passed_canary_moves_v1_and_closes_the_held_issue(tmp_path):
+    calls = _run(
+        tmp_path,
+        ACTION="canary",
+        CANARY="true",
+        CANARY_RESULT="success",
+        STUB_HELD="1149",
+    )
+    assert _moved(calls)
+    assert any(c.startswith("gh issue close 1149") for c in calls)
+    summary = (tmp_path / "summary.md").read_text()
+    assert "GNOME OS desktop canary passed" in summary
+
+
+def test_failed_canary_holds_v1(tmp_path):
+    calls = _run(tmp_path, ACTION="canary", CANARY="true", CANARY_RESULT="failure")
+    assert not _moved(calls)
+    assert any(c.startswith("gh issue create") for c in calls)
+
+
+def test_passed_gate_with_failed_canary_holds_v1(tmp_path):
+    calls = _run(
+        tmp_path,
+        ACTION="gate",
+        GATE_RESULT="success",
+        CANARY="true",
+        CANARY_RESULT="failure",
+    )
+    assert not _moved(calls)
+
+
+def test_passed_gate_waits_for_a_passing_canary(tmp_path):
+    calls = _run(
+        tmp_path,
+        ACTION="gate",
+        GATE_RESULT="success",
+        CANARY="true",
+        CANARY_RESULT="success",
+    )
+    assert _moved(calls)
