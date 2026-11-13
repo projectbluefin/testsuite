@@ -105,13 +105,22 @@ hook/step errors. The applicable mandatory gate for this suite is
 `Gate suite has passing scenarios` gate explicitly excludes the GNOME OS
 canary. The canary itself rejects a non-GNOME-OS identity, unknown build,
 non-Wayland session or an accessibility address that is merely the
-session-bus fallback. Its child process is bounded to 90 seconds. Ponytail's
+session-bus fallback. Its child process is bounded to 150 seconds. Ponytail's
 own client waits for its `Connected` and `Disconnected` signals with no
 timeout, so the probe calls the daemon's D-Bus methods itself and waits at
 most 15 seconds for each signal. `desktop-canary.json` records the `stage`
 the probe reached, and a stall prints `gnomeos-canary stuck at <stage>`. The
 daemon is D-Bus activated with `G_MESSAGES_DEBUG=all`, so the guest journal
 shows what happened to each injected event.
+
+The probe types XKB keycodes, not keysyms. Ponytail 0.0.11 sends a bogus key
+0 before every unmodified keysym (its modifier guard tests the wrong
+variable), which the shell logs as `Unknown/invalid virtual device key 0x0
+pressed`; the real key still follows, so Escape works. When typed text isn't
+read back, the probe records the input-method state, reopens the entry with
+`GTK_IM_MODULE=gtk-im-context-simple`, types again and records the result
+under `without_input_method`. The canary still fails; the retry only shows
+whether the input method is where the keys are lost.
 
 ### Session environment under qecore-headless
 

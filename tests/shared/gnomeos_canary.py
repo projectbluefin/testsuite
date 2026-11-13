@@ -105,6 +105,19 @@ def wait_for_window(ponytail, timeout=20, delay=0.5):
 XK_ESCAPE = 0xFF1B
 PONYTAIL_SIGNAL_TIMEOUT = 15
 
+# XKB keycodes for the lowercase hex digits secrets.token_hex() produces, on a
+# US layout. Ponytail's GenerateKeycodeEvent takes XKB codes and converts them
+# (evdev = XKB - 8, gpd-event-controller.c), so these are the
+# linux/input-event-codes.h values plus 8. Keysyms are avoided: Ponytail
+# 0.0.11 sends a bogus key 0 before every unmodified keysym, which the shell
+# logs as "Unknown/invalid virtual device key 0x0 pressed"
+# (gpd-ei-client.c tests key_keycode where it means modifier_keycode).
+_EVDEV_HEX = {
+    "1": 2, "2": 3, "3": 4, "4": 5, "5": 6, "6": 7, "7": 8, "8": 9, "9": 10, "0": 11,
+    "a": 30, "b": 48, "c": 46, "d": 32, "e": 18, "f": 33,
+}
+HEX_KEYCODES = {char: code + 8 for char, code in _EVDEV_HEX.items()}
+
 
 def _glib():
     from gi.repository import GLib
@@ -150,12 +163,6 @@ def connect_window(ponytail, window_id):
     _signal_call(ponytail, lambda ctl, iface: ctl.ConnectWindow(window_id, dbus_interface=iface),
                  "Connected")
     ponytail.connected = window_id
-
-
-def connect_monitor(ponytail, monitor=""):
-    _signal_call(ponytail, lambda ctl, iface: ctl.ConnectMonitor(monitor, dbus_interface=iface),
-                 "Connected")
-    ponytail.connected = monitor
 
 
 def disconnect(ponytail):
@@ -218,6 +225,57 @@ def focus_by_click(ponytail, window, timeout=10, delay=0.5):
     raise AssertionError("Canary window never took keyboard focus after a virtual click")
 
 
+def launch_entry(extra_env=None):
+    return subprocess.Popen([sys.executable, __file__, "--entry"],
+                            env={**os.environ, "GDK_BACKEND": "wayland", "NO_AT_BRIDGE": "0",
+                                 **(extra_env or {})})
+
+
+def type_hex(ponytail, text):
+    for char in text:
+        ponytail.generateKeycodeEvent(HEX_KEYCODES[char])
+
+
+def read_entry(tree, expected, timeout=10):
+    """Whether AT-SPI found the entry, and the text it last reported."""
+    found, text = False, ""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        matches = tree.root.findChildren(lambda node: node.name == ENTRY_NAME)
+        if matches:
+            found, text = True, matches[0].text
+            if text == expected:
+                break
+        time.sleep(0.25)
+    return found, text
+
+
+def retry_without_input_method(ponytail, tree, children, expected):
+    """Evidence only: does the same typing arrive when GTK skips the input method?
+
+    The keys reach the shell without errors and the entry has focus, yet no
+    text arrives, which points at the input-method path between them. Reopen
+    the entry with GTK's built-in simple context and type again. The canary
+    still fails either way; this only says where the keys are lost.
+    """
+    try:
+        children[-1].terminate()
+        children[-1].wait(timeout=5)
+        disconnect(ponytail)
+        deadline = time.monotonic() + 5
+        while canary_window(ponytail) is not None and time.monotonic() < deadline:
+            time.sleep(0.25)
+        children.append(launch_entry({"GTK_IM_MODULE": "gtk-im-context-simple"}))
+        window = wait_for_window(ponytail)
+        connect_window(ponytail, ponytail.getWindowId(TITLE))
+        focus = focus_by_click(ponytail, window)
+        type_hex(ponytail, expected)
+        found, text = read_entry(tree, expected)
+        return {"focus": focus, "entry_found": found, "observed": text, "matched": text == expected}
+    except (ValueError, AssertionError, subprocess.SubprocessError) as error:
+        return {"error": str(error)}
+
+
 def probe():
     identity = require_gnomeos_wayland(Path("/usr/lib/os-release").read_text(), os.environ)
     from dogtail import tree
@@ -231,8 +289,8 @@ def probe():
                 "session_bus": os.environ["DBUS_SESSION_BUS_ADDRESS"],
                 "atspi_bus": os.environ["AT_SPI_BUS_ADDRESS"]}
     assert evidence["shell"] and evidence["gjs"] and evidence["mutter_build_version"], "Unknown desktop versions"
-    child = subprocess.Popen([sys.executable, __file__, "--entry"],
-                             env={**os.environ, "GDK_BACKEND": "wayland", "NO_AT_BRIDGE": "0"})
+    children = [launch_entry()]
+    child = children[0]
     ponytail = None
     evidence["stage"] = "start"
     try:
@@ -258,29 +316,14 @@ def probe():
             print("gnomeos-canary window wait: " + json.dumps(evidence["window_wait"]),
                   file=sys.stderr, flush=True)
             raise
-        # Type through a monitor connection, as dogtail does for keyboard input
-        # (ponytail_helper.ponytail_check_connection): keys sent through a
-        # window-scoped connection never reached the focused entry. ASCII
-        # keysyms are their Unicode values. No AT-SPI text setter, shell eval,
+        # Type physical keys through the window connection. Escape sent that
+        # way reached the shell; reconnecting to the monitor instead stalled
+        # Ponytail (run 43332133969). No AT-SPI text setter, shell eval,
         # clipboard or application command is allowed to supply the text.
-        evidence["stage"] = "disconnect-window"
-        disconnect(ponytail)
-        evidence["stage"] = "connect-monitor"
-        connect_monitor(ponytail)
         evidence["stage"] = "typing"
-        for char in expected:
-            ponytail.generateKeysymEvent(ord(char))
-        evidence["input"] = "keysym-monitor"
-        evidence["entry_found"] = False
-        deadline = time.monotonic() + 20
-        while time.monotonic() < deadline:
-            matches = tree.root.findChildren(lambda node: node.name == ENTRY_NAME)
-            if matches:
-                evidence["entry_found"] = True
-                evidence["observed"] = matches[0].text
-                if evidence["observed"] == expected:
-                    break
-            time.sleep(0.25)
+        type_hex(ponytail, expected)
+        evidence["input"] = "keycode-window"
+        evidence["entry_found"], evidence["observed"] = read_entry(tree, expected)
         if evidence["observed"] != expected:
             # Separate "the text never arrived" from "AT-SPI never found the
             # entry", and keep a picture of what the window showed.
@@ -291,6 +334,11 @@ def probe():
                 {k: evidence.get(k) for k in ("entry_found", "observed", "focused_after_typing",
                                               "focus", "input_method")}),
                 file=sys.stderr, flush=True)
+            evidence["stage"] = "retry-without-input-method"
+            evidence["without_input_method"] = retry_without_input_method(
+                ponytail, tree, children, expected)
+            print("gnomeos-canary without input method: "
+                  + json.dumps(evidence["without_input_method"]), file=sys.stderr, flush=True)
         evidence["stage"] = "readback"
         assert evidence["observed"] == expected, f"Virtual input was not observed over AT-SPI: {evidence}"
         screenshot = RESULTS / "desktop-canary.png"
@@ -306,8 +354,9 @@ def probe():
         raise
     finally:
         (RESULTS / "desktop-canary.json").write_text(json.dumps(evidence, indent=2) + "\n")
-        child.terminate()
-        child.wait(timeout=5)
+        for each in children:
+            each.terminate()
+            each.wait(timeout=5)
         if ponytail is not None and ponytail.connected is not None:
             try:
                 disconnect(ponytail)

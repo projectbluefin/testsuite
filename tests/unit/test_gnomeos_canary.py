@@ -191,12 +191,19 @@ class FakePonytail:
             return
         self.keysyms.append(keysym)
 
+    def generateKeycodeEvent(self, keycode):
+        from tests.shared.gnomeos_canary import HEX_KEYCODES
+        char, = [c for c, code in HEX_KEYCODES.items() if code == keycode]
+        self.keysyms.append(ord(char))
+
 
 
 class FakeChild:
     def __init__(self, *args, **kwargs):
         self.terminated = self.waited = False
+        self.env = kwargs.get("env", {})
         FakeChild.last = self
+        FakeChild.all.append(self)
 
     def terminate(self):
         self.terminated = True
@@ -217,6 +224,7 @@ def probe_env(tmp_path, monkeypatch):
     FakePonytail.silent = ()
     FakePonytail.instances = []
     FakeGLib.timers = {}
+    FakeChild.all = []
     monkeypatch.setattr(gnomeos_canary, "_glib", lambda: FakeGLib)
     state = {"readback": lambda expected: expected, "commands": []}
     node = types.SimpleNamespace(name=gnomeos_canary.ENTRY_NAME, text="")
@@ -286,6 +294,13 @@ def test_probe_writes_evidence_when_readback_never_matches(probe_env, monkeypatc
     assert evidence["after_typing_screenshot"] == "saved"
     assert evidence["input_method"] == {"ibus_daemon": ""}
     assert evidence["stage"] == "readback"
+    # One evidence-only retry with GTK's simple input context; still a failure.
+    retry = evidence["without_input_method"]
+    assert retry["matched"] is False and retry["entry_found"] is True
+    first, second = FakeChild.all
+    assert "GTK_IM_MODULE" not in first.env
+    assert second.env["GTK_IM_MODULE"] == "gtk-im-context-simple"
+    assert first.terminated and second.terminated
     assert not any("org.gnome.Shell.Screenshot.Screenshot" in c for c in probe_env["commands"])
     assert FakeChild.last.terminated and FakeChild.last.waited
     assert FakePonytail.instances[-1].disconnected
@@ -354,19 +369,25 @@ def test_probe_fails_with_diagnostics_when_the_window_never_maps(probe_env, monk
     assert FakePonytail.instances[-1].windows == []
 
 
-def test_probe_types_through_a_monitor_connection(probe_env):
-    # dogtail types through connectMonitor(); keys sent through the window
-    # connection never reached the entry on GNOME OS.
+def test_probe_types_keycodes_through_the_window_connection(probe_env):
+    # Reconnecting to the monitor stalled Ponytail (run 43332133969), and its
+    # keysym path sends a bogus key 0 first, so type keycodes where Escape worked.
     probe_env["probe"]()
     evidence = probe_env["evidence"]()
-    assert evidence["input"] == "keysym-monitor" and evidence["observed"] == evidence["expected"]
-    assert FakePonytail.instances[-1].monitor_connected
+    assert evidence["input"] == "keycode-window" and evidence["observed"] == evidence["expected"]
+    ponytail = FakePonytail.instances[-1]
+    assert not ponytail.monitor_connected and ponytail.windows == [7]
+    assert "without_input_method" not in evidence and len(FakeChild.all) == 1
+
+
+def test_hex_keycodes_cover_token_hex():
+    from tests.shared.gnomeos_canary import HEX_KEYCODES
+    assert sorted(HEX_KEYCODES) == sorted("0123456789abcdef")
+    assert HEX_KEYCODES["a"] == 38 and HEX_KEYCODES["1"] == 10  # XKB = evdev + 8
 
 
 @pytest.mark.parametrize("method, stage, signal", [
     ("ConnectWindow", "connect-window", "Connected"),
-    ("Disconnect", "disconnect-window", "Disconnected"),
-    ("ConnectMonitor", "connect-monitor", "Connected"),
 ])
 def test_probe_names_the_stage_when_ponytail_never_signals(probe_env, monkeypatch, method, stage, signal):
     # Ponytail's own client waits for these signals forever; run 43328291065
@@ -388,3 +409,15 @@ def test_probe_starts_ponytail_with_its_debug_log_and_clears_it(probe_env):
     assert systemctl == [("systemctl", "--user", "set-environment", "G_MESSAGES_DEBUG=all"),
                          ("systemctl", "--user", "unset-environment", "G_MESSAGES_DEBUG")]
     assert probe_env["evidence"]()["stage"] == "passed"
+
+
+def test_retry_reports_a_stalled_reconnect_instead_of_hanging(probe_env, monkeypatch):
+    from tests.shared import gnomeos_canary
+    monkeypatch.setattr(gnomeos_canary, "window_wait_diagnostics", lambda child: {"screenshot": ""})
+    monkeypatch.setattr(gnomeos_canary, "input_method_state", lambda: {})
+    probe_env["readback"] = lambda typed: ""
+    FakePonytail.silent = ("Disconnect",)
+    with pytest.raises(AssertionError, match="not observed over AT-SPI"):
+        probe_env["probe"]()
+    retry = probe_env["evidence"]()["without_input_method"]
+    assert retry == {"error": "Ponytail never sent Disconnected within 15s"}

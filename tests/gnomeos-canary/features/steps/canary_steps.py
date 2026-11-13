@@ -33,7 +33,8 @@ def input_canary(context):
     script = Path(__file__).resolve().parents[3] / "shared/gnomeos_canary.py"
     child = subprocess.Popen([sys.executable, str(script)], start_new_session=True)
     try:
-        assert child.wait(timeout=90) == 0, "GNOME OS input/accessibility probe failed"
+        # Room for one diagnostic retry when typed text isn't read back.
+        assert child.wait(timeout=150) == 0, "GNOME OS input/accessibility probe failed"
     finally:
         # A blocked Ponytail connection must not leave its GTK child behind.
         try:
