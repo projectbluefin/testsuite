@@ -82,7 +82,7 @@ else
       "python3 /tmp/bluefin-tests/tests/shared/behave_retry.py ..."  (inside VM)
 ```
 
-When `target-image` is set and the `lifecycle` suite is running, the **"Pre-stage target image via bootc switch"** step SSHes into the VM and runs `sudo bootc switch '<target-image>'` before the behave run begins, staging the upgrade target.
+When `target-image` is set and the `lifecycle` suite is running, the **"Pre-stage target image via bootc switch"** step SSHes into the VM and runs `sudo bootc switch '<target-image>'` before the behave run begins, staging the upgrade target. The lifecycle VM boots through OVMF and the image's own loader, so the suite's reboots land on that staged deployment (#1023); a reboot may take up to 300 s.
 
 After the lifecycle suite finishes, a separate **"Capture post-upgrade desktop screenshot"** step re-SSHes with `ControlMaster=no` (fresh connection after reboot), waits up to 60 s for the Wayland socket at `/run/user/1001/wayland-0`, and calls `org.gnome.Shell.Eval` via gdbus to capture a screenshot. The screenshot is saved to `results/screenshot_lifecycle_upgrade_final.png` and uploaded in the `e2e-results-*` artifact.
 

@@ -428,15 +428,21 @@ def no_staged_deployment_present(context):
     )
 
 
+# The lifecycle VM boots through OVMF and the image's own loader (#1023), and
+# shutdown finalizes the staged deployment first, so a reboot takes longer
+# than the old direct-kernel boot did.
+REBOOT_DEADLINE_S = 300
+
+
 @step("Reboot VM and wait for SSH")
 def reboot_and_wait(context):
-    """Trigger VM reboot via SSH and wait up to 120s for the SSH port to come back."""
+    """Trigger VM reboot via SSH and wait for the SSH port to come back."""
     try:
         run_ssh(context, "sudo reboot")
     except subprocess.TimeoutExpired:
         pass
 
-    deadline = time() + 120
+    deadline = time() + REBOOT_DEADLINE_S
     last_error = "SSH never became reachable after reboot"
     sleep(10)
     while time() < deadline:
@@ -450,7 +456,7 @@ def reboot_and_wait(context):
         sleep(5)
 
     raise AssertionError(
-        f"VM at {context.vm_ip} did not come back over SSH within 120s: {last_error}"
+        f"VM at {context.vm_ip} did not come back over SSH within {REBOOT_DEADLINE_S}s: {last_error}"
     )
 
 
