@@ -58,7 +58,7 @@ def window_wait_diagnostics(child, run=subprocess.run):
             return f"error: {error}"
         return (done.stdout or done.stderr).strip()[:2000]
     return {
-        "entry_child_returncode": child.poll(),
+        "entry_child_returncode": child.poll() if child is not None else None,
         "introspect_windows": call(
             "gdbus", "call", "--session", "--dest", "org.gnome.Shell.Introspect",
             "--object-path", "/org/gnome/Shell/Introspect",
@@ -225,18 +225,35 @@ def focus_by_click(ponytail, window, timeout=10, delay=0.5):
     raise AssertionError("Canary window never took keyboard focus after a virtual click")
 
 
-# The entry uses GTK's built-in input context, not IBus. In the harness
-# session, keys that reach the shell without errors never got through IBus to
-# a focused entry, while the same keys arrived exactly with this context (run
-# 43334774167). The canary proves Ponytail -> Mutter -> GTK -> AT-SPI; the
-# IBus path is tracked separately and recorded as evidence here.
-ENTRY_IM_MODULE = "gtk-im-context-simple"
-
-
 def launch_entry():
     return subprocess.Popen([sys.executable, __file__, "--entry"],
-                            env={**os.environ, "GDK_BACKEND": "wayland", "NO_AT_BRIDGE": "0",
-                                 "GTK_IM_MODULE": ENTRY_IM_MODULE})
+                            env={**os.environ, "GDK_BACKEND": "wayland", "NO_AT_BRIDGE": "0"})
+
+
+def leave_overview(ponytail):
+    """Leave the startup Activities overview with a throwaway window first.
+
+    Keys typed into a window that was mapped under the overview and focused
+    by pressing Escape never arrived, through IBus or GTK's simple input
+    context (runs 43334774167, 43337304054). A window opened after the
+    overview was gone took focus by itself and received the same keys
+    exactly. So open one window, press Escape (a real key, as a user would),
+    close it, and type only into a window mapped on the plain desktop.
+    Returns how the throwaway window got focus.
+    """
+    child = launch_entry()
+    try:
+        window = wait_for_window(ponytail)
+        connect_window(ponytail, ponytail.getWindowId(TITLE))
+        return focus_by_click(ponytail, window)
+    finally:
+        if ponytail.connected is not None:
+            disconnect(ponytail)
+        child.terminate()
+        child.wait(timeout=5)
+        deadline = time.monotonic() + 5
+        while canary_window(ponytail) is not None and time.monotonic() < deadline:
+            time.sleep(0.25)
 
 
 def type_hex(ponytail, text):
@@ -271,10 +288,9 @@ def probe():
                 "session_bus": os.environ["DBUS_SESSION_BUS_ADDRESS"],
                 "atspi_bus": os.environ["AT_SPI_BUS_ADDRESS"]}
     assert evidence["shell"] and evidence["gjs"] and evidence["mutter_build_version"], "Unknown desktop versions"
-    child = launch_entry()
-    evidence["entry_im_module"] = ENTRY_IM_MODULE
     evidence["input_method"] = input_method_state()
     ponytail = None
+    child = None
     evidence["stage"] = "start"
     try:
         # Ponytail is D-Bus activated, so its daemon starts with this debug
@@ -285,6 +301,9 @@ def probe():
         finally:
             _ponytail_debug(False)
         try:
+            evidence["stage"] = "leave-overview"
+            evidence["overview"] = leave_overview(ponytail)
+            child = launch_entry()
             evidence["stage"] = "window-wait"
             window = wait_for_window(ponytail)
             # getWindowId (focus not required) returns the D-Bus id type
@@ -331,8 +350,9 @@ def probe():
         raise
     finally:
         (RESULTS / "desktop-canary.json").write_text(json.dumps(evidence, indent=2) + "\n")
-        child.terminate()
-        child.wait(timeout=5)
+        if child is not None:
+            child.terminate()
+            child.wait(timeout=5)
         if ponytail is not None and ponytail.connected is not None:
             try:
                 disconnect(ponytail)

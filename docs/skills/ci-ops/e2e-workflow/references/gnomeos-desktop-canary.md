@@ -118,13 +118,16 @@ The probe types XKB keycodes, not keysyms. Ponytail 0.0.11 sends a bogus key
 variable), which the shell logs as `Unknown/invalid virtual device key 0x0
 pressed`; the real key still follows, so Escape works.
 
-The canary entry runs with `GTK_IM_MODULE=gtk-im-context-simple`, its only
-input path. In the harness session IBus (`ibus-daemon --panel disable`, US
-layout) was running, the entry had focus and the keys reached the shell
-without errors, yet no text arrived through IBus; the same keys arrived
-exactly with GTK's simple context (run 43334774167). The canary proves
-Ponytail, Mutter, GTK and AT-SPI. It records the IBus state as
-`input_method` evidence, and the IBus path is tracked separately.
+A GNOME session starts in the Activities overview. Keys typed into a window
+that was mapped under the overview and focused by pressing Escape never
+arrived, whether through IBus or GTK's simple input context (runs
+43334774167 and 43337304054). A window opened after the overview was gone
+took focus by itself and received the same keys exactly. So the probe first
+opens a throwaway window, presses Escape to leave the overview, closes it,
+and then types once into a fresh canary window on the plain desktop
+(`overview` and `focus` in the evidence say how each got focus). The entry
+uses the session's normal input method; its state is recorded as
+`input_method`.
 
 ### Session environment under qecore-headless
 

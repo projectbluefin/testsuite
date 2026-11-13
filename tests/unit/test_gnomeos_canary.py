@@ -293,7 +293,7 @@ def test_probe_writes_evidence_when_readback_never_matches(probe_env, monkeypatc
     assert evidence["focused_after_typing"] is True
     assert evidence["after_typing_screenshot"] == "saved"
     assert evidence["stage"] == "readback"
-    assert len(FakeChild.all) == 1  # no second attempt, no fallback path
+    assert len(FakeChild.all) == 2  # the throwaway window, then one typing attempt
     assert not any("org.gnome.Shell.Screenshot.Screenshot" in c for c in probe_env["commands"])
     assert FakeChild.last.terminated and FakeChild.last.waited
     assert FakePonytail.instances[-1].disconnected
@@ -314,7 +314,7 @@ def test_probe_leaves_the_overview_with_escape_first(probe_env):
     FakePonytail.window = "escape"
     probe_env["probe"]()
     evidence = probe_env["evidence"]()
-    assert evidence["focus"] == "escape"
+    assert evidence["overview"] == "escape"
     assert evidence["observed"] == evidence["expected"]
     ponytail = FakePonytail.instances[-1]
     assert ponytail.control == [0xFF1B] and ponytail.clicks == []
@@ -326,10 +326,10 @@ def test_probe_focuses_an_unfocused_window_with_a_real_click(probe_env):
     FakePonytail.window = "click"
     probe_env["probe"]()
     evidence = probe_env["evidence"]()
-    assert evidence["focus"] == "click"
+    assert evidence["overview"] == "click" and evidence["focus"] == "already"
     assert evidence["observed"] == evidence["expected"]
     ponytail = FakePonytail.instances[-1]
-    assert ponytail.windows == [7]  # clicked through the window connection
+    assert ponytail.windows == [7, 7]  # clicked through the window connection
     (button, x, y), *_ = ponytail.clicks
     assert button == 1 and x == 240 and 37 < y < 157  # inside the entry, below any title bar
 
@@ -369,18 +369,21 @@ def test_probe_types_keycodes_through_the_window_connection(probe_env):
     evidence = probe_env["evidence"]()
     assert evidence["input"] == "keycode-window" and evidence["observed"] == evidence["expected"]
     ponytail = FakePonytail.instances[-1]
-    assert not ponytail.monitor_connected and ponytail.windows == [7]
-    assert len(FakeChild.all) == 1
+    assert not ponytail.monitor_connected and ponytail.windows == [7, 7]
 
 
-def test_entry_uses_gtks_simple_input_context_and_records_ibus(probe_env):
-    # Keys never got through IBus in the harness session; the simple context
-    # is the canary's only input path, not a fallback.
+def test_probe_leaves_the_overview_with_a_throwaway_window_first(probe_env):
+    # Keys typed into a window focused by leaving the overview never arrived;
+    # a window mapped after the overview was gone received them (#1145).
+    FakePonytail.window = "escape"
     probe_env["probe"]()
-    child, = FakeChild.all
-    assert child.env["GTK_IM_MODULE"] == "gtk-im-context-simple"
     evidence = probe_env["evidence"]()
-    assert evidence["entry_im_module"] == "gtk-im-context-simple"
+    assert evidence["overview"] == "escape" and evidence["focus"] == "already"
+    throwaway, canary = FakeChild.all
+    assert throwaway.terminated and canary.terminated
+    ponytail = FakePonytail.instances[-1]
+    assert ponytail.keysyms and ponytail.control == [0xFF1B]  # one Escape, then the text
+    assert "GTK_IM_MODULE" not in canary.env  # the session's normal input method
     assert evidence["input_method"] == {"ibus_daemon": "1 ibus-daemon"}
 
 
@@ -391,7 +394,7 @@ def test_hex_keycodes_cover_token_hex():
 
 
 @pytest.mark.parametrize("method, stage, signal", [
-    ("ConnectWindow", "connect-window", "Connected"),
+    ("ConnectWindow", "leave-overview", "Connected"),
 ])
 def test_probe_names_the_stage_when_ponytail_never_signals(probe_env, monkeypatch, method, stage, signal):
     # Ponytail's own client waits for these signals forever; run 43328291065
