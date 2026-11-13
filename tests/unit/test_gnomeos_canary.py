@@ -85,8 +85,51 @@ def test_actual_gate_requires_process_and_scenarios(tmp_path, process_rc, scenar
     assert result.returncode == expected_rc, result.stdout + result.stderr
 
 
+class FakeBus:
+    def __init__(self):
+        self.receivers = {}
+
+    def add_signal_receiver(self, handler, signal, iface):
+        self.receivers[signal] = handler
+
+    def remove_signal_receiver(self, handler, signal, iface):
+        self.receivers.pop(signal, None)
+
+
+class FakeGLib:
+    """Just enough GLib for the probe's bounded signal waits."""
+    timers = {}
+
+    class MainLoop:
+        def run(self):
+            # Nothing else will arrive, so the pending timeout fires.
+            for tag, callback in list(FakeGLib.timers.items()):
+                FakeGLib.timers.pop(tag)
+                callback()
+
+        def quit(self):
+            pass
+
+    @staticmethod
+    def timeout_add_seconds(seconds, callback):
+        tag = len(FakeGLib.timers) + 1
+        FakeGLib.timers[tag] = callback
+        return tag
+
+    @staticmethod
+    def source_remove(tag):
+        FakeGLib.timers.pop(tag)
+
+
 class FakePonytail:
     fail_at = None
+    # Controller methods whose signal never arrives (the daemon stalls).
+    silent = ()
+    # How the canary window behaves: "focused" when mapped, "escape" to take
+    # focus once Escape leaves the overview, "click" to take focus on the
+    # first virtual click, "never" to stay unfocused, "absent" to never be
+    # listed by the shell.
+    window = "focused"
     instances = []
 
     def __init__(self):
@@ -95,27 +138,72 @@ class FakePonytail:
         self.connected = None
         self.disconnected = False
         self.keysyms = []
+        self.clicks = []
+        self.control = []
+        self.windows = []
+        self.monitor_connected = False
+        self.focused = self.window == "focused"
+        self.bus = FakeBus()
+        self.event_controller = self
+        self.event_controller_iface = "org.gnome.Ponytail.EventController"
         FakePonytail.instances.append(self)
 
-    def waitFor(self, title, timeout):
+    def _emit(self, method, signal):
+        if method not in self.silent:
+            self.bus.receivers[signal]()
+
+    @property
+    def window_list(self):
         if self.fail_at == "wait":
             raise RuntimeError("window never appeared")
+        if self.window == "absent":
+            return []
+        return [{"id": 7, "title": "GNOME OS input canary", "width": 480, "height": 157,
+                 "has-focus": self.focused}]
+
+    def getWindowId(self, title, want_focus=False):
         return 7
 
-    def connectWindow(self, window_id):
-        self.connected = window_id
+    def generateButtonEvent(self, button, x=None, y=None):
+        self.clicks.append((button, x, y))
+        if self.window == "click":
+            self.focused = True
+
+    # Ponytail's D-Bus controller methods. The probe calls these itself, with
+    # a bounded wait, instead of the client's unbounded connect/disconnect.
+    def ConnectWindow(self, window_id, dbus_interface):
+        self.windows.append(window_id)
+        self._emit("ConnectWindow", "Connected")
+
+    def ConnectMonitor(self, monitor, dbus_interface):
+        self.monitor_connected = True
+        self._emit("ConnectMonitor", "Connected")
+
+    def Disconnect(self, dbus_interface):
+        self.disconnected = True
+        self._emit("Disconnect", "Disconnected")
 
     def generateKeysymEvent(self, keysym):
+        if keysym >= 0xFF00:  # control keys (Escape) aren't typed text
+            self.control.append(keysym)
+            if self.window == "escape":
+                self.focused = True
+            return
         self.keysyms.append(keysym)
 
-    def disconnect(self):
-        self.disconnected = True
+    def generateKeycodeEvent(self, keycode):
+        from tests.shared.gnomeos_canary import HEX_KEYCODES
+        char, = [c for c, code in HEX_KEYCODES.items() if code == keycode]
+        self.keysyms.append(ord(char))
+
 
 
 class FakeChild:
     def __init__(self, *args, **kwargs):
         self.terminated = self.waited = False
+        self.env = kwargs.get("env", {})
         FakeChild.last = self
+        FakeChild.all.append(self)
 
     def terminate(self):
         self.terminated = True
@@ -132,7 +220,13 @@ def probe_env(tmp_path, monkeypatch):
     from tests.shared import gnomeos_canary
 
     FakePonytail.fail_at = None
+    FakePonytail.window = "focused"
+    FakePonytail.silent = ()
     FakePonytail.instances = []
+    FakeGLib.timers = {}
+    FakeChild.all = []
+    monkeypatch.setattr(gnomeos_canary, "_glib", lambda: FakeGLib)
+    monkeypatch.setattr(gnomeos_canary, "input_method_state", lambda: {"ibus_daemon": "1 ibus-daemon"})
     state = {"readback": lambda expected: expected, "commands": []}
     node = types.SimpleNamespace(name=gnomeos_canary.ENTRY_NAME, text="")
 
@@ -186,12 +280,20 @@ def test_probe_records_typed_value_and_screenshot(probe_env):
     assert FakePonytail.instances[-1].disconnected
 
 
-def test_probe_writes_evidence_when_readback_never_matches(probe_env):
+def test_probe_writes_evidence_when_readback_never_matches(probe_env, monkeypatch):
+    from tests.shared import gnomeos_canary
+    monkeypatch.setattr(gnomeos_canary, "window_wait_diagnostics",
+                        lambda child: {"screenshot": "saved"})
     probe_env["readback"] = lambda expected: expected[:-1]
     with pytest.raises(AssertionError, match="not observed over AT-SPI"):
         probe_env["probe"]()
     evidence = probe_env["evidence"]()
     assert evidence["observed"] == evidence["expected"][:-1]
+    assert evidence["entry_found"] is True
+    assert evidence["focused_after_typing"] is True
+    assert evidence["after_typing_screenshot"] == "saved"
+    assert evidence["stage"] == "readback"
+    assert len(FakeChild.all) == 2  # the throwaway window, then one typing attempt
     assert not any("org.gnome.Shell.Screenshot.Screenshot" in c for c in probe_env["commands"])
     assert FakeChild.last.terminated and FakeChild.last.waited
     assert FakePonytail.instances[-1].disconnected
@@ -205,3 +307,113 @@ def test_probe_only_disconnects_after_connecting(probe_env, fail_at):
     assert probe_env["evidence"]()["observed"] == ""
     assert FakeChild.last.terminated and FakeChild.last.waited
     assert all(not p.disconnected for p in FakePonytail.instances)
+
+
+def test_probe_leaves_the_overview_with_escape_first(probe_env):
+    # A session starts in the Activities overview, which covers the window.
+    FakePonytail.window = "escape"
+    probe_env["probe"]()
+    evidence = probe_env["evidence"]()
+    assert evidence["overview"] == "escape"
+    assert evidence["observed"] == evidence["expected"]
+    ponytail = FakePonytail.instances[-1]
+    assert ponytail.control == [0xFF1B] and ponytail.clicks == []
+
+
+def test_probe_focuses_an_unfocused_window_with_a_real_click(probe_env):
+    # On Wayland the shell maps a background-launched window without focus;
+    # Ponytail's waitFor() would time out on it. Escape alone isn't enough here.
+    FakePonytail.window = "click"
+    probe_env["probe"]()
+    evidence = probe_env["evidence"]()
+    assert evidence["overview"] == "click" and evidence["focus"] == "already"
+    assert evidence["observed"] == evidence["expected"]
+    ponytail = FakePonytail.instances[-1]
+    assert ponytail.windows == [7, 7]  # clicked through the window connection
+    (button, x, y), *_ = ponytail.clicks
+    assert button == 1 and x == 240 and 37 < y < 157  # inside the entry, below any title bar
+
+
+def test_probe_skips_the_click_when_the_window_already_has_focus(probe_env):
+    probe_env["probe"]()
+    assert probe_env["evidence"]()["focus"] == "already"
+    assert FakePonytail.instances[-1].clicks == []
+
+
+def test_probe_fails_with_diagnostics_when_focus_never_arrives(probe_env, monkeypatch):
+    from tests.shared import gnomeos_canary
+    FakePonytail.window = "never"
+    monkeypatch.setattr(gnomeos_canary, "window_wait_diagnostics", lambda child: {"seen": "window"})
+    with pytest.raises(AssertionError, match="never took keyboard focus"):
+        probe_env["probe"]()
+    evidence = probe_env["evidence"]()
+    assert evidence["window_wait"] == {"seen": "window"}
+    assert evidence["observed"] == ""
+    assert FakePonytail.instances[-1].clicks  # it did try
+
+
+def test_probe_fails_with_diagnostics_when_the_window_never_maps(probe_env, monkeypatch):
+    from tests.shared import gnomeos_canary
+    FakePonytail.window = "absent"
+    monkeypatch.setattr(gnomeos_canary, "window_wait_diagnostics", lambda child: {"seen": "nothing"})
+    with pytest.raises(ValueError, match="Timeout waiting for Window"):
+        probe_env["probe"]()
+    assert probe_env["evidence"]()["window_wait"] == {"seen": "nothing"}
+    assert FakePonytail.instances[-1].windows == []
+
+
+def test_probe_types_keycodes_through_the_window_connection(probe_env):
+    # Reconnecting to the monitor stalled Ponytail (run 43332133969), and its
+    # keysym path sends a bogus key 0 first, so type keycodes where Escape worked.
+    probe_env["probe"]()
+    evidence = probe_env["evidence"]()
+    assert evidence["input"] == "keycode-window" and evidence["observed"] == evidence["expected"]
+    ponytail = FakePonytail.instances[-1]
+    assert not ponytail.monitor_connected and ponytail.windows == [7, 7]
+
+
+def test_probe_leaves_the_overview_with_a_throwaway_window_first(probe_env):
+    # Keys typed into a window focused by leaving the overview never arrived;
+    # a window mapped after the overview was gone received them (#1145).
+    FakePonytail.window = "escape"
+    probe_env["probe"]()
+    evidence = probe_env["evidence"]()
+    assert evidence["overview"] == "escape" and evidence["focus"] == "already"
+    throwaway, canary = FakeChild.all
+    assert throwaway.terminated and canary.terminated
+    ponytail = FakePonytail.instances[-1]
+    assert ponytail.keysyms and ponytail.control == [0xFF1B]  # one Escape, then the text
+    assert "GTK_IM_MODULE" not in canary.env  # the session's normal input method
+    assert evidence["input_method"] == {"ibus_daemon": "1 ibus-daemon"}
+
+
+def test_hex_keycodes_cover_token_hex():
+    from tests.shared.gnomeos_canary import HEX_KEYCODES
+    assert sorted(HEX_KEYCODES) == sorted("0123456789abcdef")
+    assert HEX_KEYCODES["a"] == 38 and HEX_KEYCODES["1"] == 10  # XKB = evdev + 8
+
+
+@pytest.mark.parametrize("method, stage, signal", [
+    ("ConnectWindow", "leave-overview", "Connected"),
+])
+def test_probe_names_the_stage_when_ponytail_never_signals(probe_env, monkeypatch, method, stage, signal):
+    # Ponytail's own client waits for these signals forever; run 43328291065
+    # hit the step's 90 s limit with no evidence of which call stuck.
+    from tests.shared import gnomeos_canary
+    monkeypatch.setattr(gnomeos_canary, "window_wait_diagnostics", lambda child: {})
+    FakePonytail.silent = (method,)
+    with pytest.raises(AssertionError, match=f"never sent {signal} within 15s"):
+        probe_env["probe"]()
+    evidence = probe_env["evidence"]()
+    assert evidence["stage"] == stage and evidence["observed"] == ""
+    assert FakeChild.last.terminated and FakeChild.last.waited
+    assert FakeGLib.timers == {}  # no timeout left behind
+
+
+def test_probe_starts_ponytail_with_its_debug_log_and_clears_it(probe_env):
+    probe_env["probe"]()
+    systemctl = [c for c in probe_env["commands"] if c[0] == "systemctl"]
+    assert systemctl == [("systemctl", "--user", "set-environment", "G_MESSAGES_DEBUG=all"),
+                         ("systemctl", "--user", "unset-environment", "G_MESSAGES_DEBUG")]
+    assert probe_env["evidence"]()["stage"] == "passed"
+

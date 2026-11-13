@@ -427,3 +427,55 @@ def test_other_suites_are_gated_on_passing_scenarios():
     assert "GNOME_E2E_BEHAVE_RC" in step
     assert 'exit 1' in step
 
+
+
+# ── Blocker guards (projectbluefin/testsuite#1144): tests.shared import +
+#    read-only /usr fallback ────────────────────────────────────────────────────
+# These live alongside the results-summary guard above; the helper is renamed
+# to avoid colliding with `_action_text()` in that section.
+
+
+def _action_guard() -> str:
+    return (
+        Path(__file__).parents[2] / ".github" / "actions" / "gnome-e2e" / "action.yml"
+    ).read_text()
+
+
+def test_sparse_checkout_includes_tests_init_guard():
+    action = _action_guard()
+    sparse = action.partition("sparse-checkout: |")[2].partition("sparse-checkout-cone-mode")[0]
+    assert "tests/__init__.py" in sparse
+
+
+def test_action_copies_tests_init_to_guest_guard():
+    action = _action_guard()
+    assert (
+        '$SCP "_testsuite/tests/__init__.py" "bluefin-test@127.0.0.1:/tmp/gnome_e2e/tests/__init__.py"'
+    ) in action
+
+
+def test_action_precreates_systemd_user_for_immutable_usr_guard():
+    action = _action_guard()
+    assert "sudo mkdir -p /etc/systemd/user" in action
+
+
+def test_qemu_pidfile_read_with_sudo_guard():
+    action = _action_guard()
+    assert "sudo cat /tmp/gnome_e2e_qemu.pid" in action
+
+
+# The boot message in the action reads the root-owned pidfile with sudo, but
+# the workflow's cleanup step (#1144) did the same read without sudo and
+# aborted on "Permission denied" before signalling QEMU. Guard the cleanup
+# read in the workflow, not only the action's boot message.
+def _canary_workflow() -> str:
+    return (
+        Path(__file__).parents[2] / ".github" / "workflows" / "gnomeos-canary.yml"
+    ).read_text()
+
+
+def test_gnomeos_canary_cleanup_reads_pidfile_with_sudo_guard():
+    workflow = _canary_workflow()
+    assert (
+        'sudo kill "$(sudo cat /tmp/gnome_e2e_qemu.pid)"' in workflow
+    )
