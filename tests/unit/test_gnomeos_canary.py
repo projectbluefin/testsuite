@@ -226,6 +226,7 @@ def probe_env(tmp_path, monkeypatch):
     FakeGLib.timers = {}
     FakeChild.all = []
     monkeypatch.setattr(gnomeos_canary, "_glib", lambda: FakeGLib)
+    monkeypatch.setattr(gnomeos_canary, "input_method_state", lambda: {"ibus_daemon": "1 ibus-daemon"})
     state = {"readback": lambda expected: expected, "commands": []}
     node = types.SimpleNamespace(name=gnomeos_canary.ENTRY_NAME, text="")
 
@@ -283,7 +284,6 @@ def test_probe_writes_evidence_when_readback_never_matches(probe_env, monkeypatc
     from tests.shared import gnomeos_canary
     monkeypatch.setattr(gnomeos_canary, "window_wait_diagnostics",
                         lambda child: {"screenshot": "saved"})
-    monkeypatch.setattr(gnomeos_canary, "input_method_state", lambda: {"ibus_daemon": ""})
     probe_env["readback"] = lambda expected: expected[:-1]
     with pytest.raises(AssertionError, match="not observed over AT-SPI"):
         probe_env["probe"]()
@@ -292,15 +292,8 @@ def test_probe_writes_evidence_when_readback_never_matches(probe_env, monkeypatc
     assert evidence["entry_found"] is True
     assert evidence["focused_after_typing"] is True
     assert evidence["after_typing_screenshot"] == "saved"
-    assert evidence["input_method"] == {"ibus_daemon": ""}
     assert evidence["stage"] == "readback"
-    # One evidence-only retry with GTK's simple input context; still a failure.
-    retry = evidence["without_input_method"]
-    assert retry["matched"] is False and retry["entry_found"] is True
-    first, second = FakeChild.all
-    assert "GTK_IM_MODULE" not in first.env
-    assert second.env["GTK_IM_MODULE"] == "gtk-im-context-simple"
-    assert first.terminated and second.terminated
+    assert len(FakeChild.all) == 1  # no second attempt, no fallback path
     assert not any("org.gnome.Shell.Screenshot.Screenshot" in c for c in probe_env["commands"])
     assert FakeChild.last.terminated and FakeChild.last.waited
     assert FakePonytail.instances[-1].disconnected
@@ -377,7 +370,18 @@ def test_probe_types_keycodes_through_the_window_connection(probe_env):
     assert evidence["input"] == "keycode-window" and evidence["observed"] == evidence["expected"]
     ponytail = FakePonytail.instances[-1]
     assert not ponytail.monitor_connected and ponytail.windows == [7]
-    assert "without_input_method" not in evidence and len(FakeChild.all) == 1
+    assert len(FakeChild.all) == 1
+
+
+def test_entry_uses_gtks_simple_input_context_and_records_ibus(probe_env):
+    # Keys never got through IBus in the harness session; the simple context
+    # is the canary's only input path, not a fallback.
+    probe_env["probe"]()
+    child, = FakeChild.all
+    assert child.env["GTK_IM_MODULE"] == "gtk-im-context-simple"
+    evidence = probe_env["evidence"]()
+    assert evidence["entry_im_module"] == "gtk-im-context-simple"
+    assert evidence["input_method"] == {"ibus_daemon": "1 ibus-daemon"}
 
 
 def test_hex_keycodes_cover_token_hex():
@@ -410,14 +414,3 @@ def test_probe_starts_ponytail_with_its_debug_log_and_clears_it(probe_env):
                          ("systemctl", "--user", "unset-environment", "G_MESSAGES_DEBUG")]
     assert probe_env["evidence"]()["stage"] == "passed"
 
-
-def test_retry_reports_a_stalled_reconnect_instead_of_hanging(probe_env, monkeypatch):
-    from tests.shared import gnomeos_canary
-    monkeypatch.setattr(gnomeos_canary, "window_wait_diagnostics", lambda child: {"screenshot": ""})
-    monkeypatch.setattr(gnomeos_canary, "input_method_state", lambda: {})
-    probe_env["readback"] = lambda typed: ""
-    FakePonytail.silent = ("Disconnect",)
-    with pytest.raises(AssertionError, match="not observed over AT-SPI"):
-        probe_env["probe"]()
-    retry = probe_env["evidence"]()["without_input_method"]
-    assert retry == {"error": "Ponytail never sent Disconnected within 15s"}

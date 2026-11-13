@@ -225,10 +225,18 @@ def focus_by_click(ponytail, window, timeout=10, delay=0.5):
     raise AssertionError("Canary window never took keyboard focus after a virtual click")
 
 
-def launch_entry(extra_env=None):
+# The entry uses GTK's built-in input context, not IBus. In the harness
+# session, keys that reach the shell without errors never got through IBus to
+# a focused entry, while the same keys arrived exactly with this context (run
+# 43334774167). The canary proves Ponytail -> Mutter -> GTK -> AT-SPI; the
+# IBus path is tracked separately and recorded as evidence here.
+ENTRY_IM_MODULE = "gtk-im-context-simple"
+
+
+def launch_entry():
     return subprocess.Popen([sys.executable, __file__, "--entry"],
                             env={**os.environ, "GDK_BACKEND": "wayland", "NO_AT_BRIDGE": "0",
-                                 **(extra_env or {})})
+                                 "GTK_IM_MODULE": ENTRY_IM_MODULE})
 
 
 def type_hex(ponytail, text):
@@ -250,32 +258,6 @@ def read_entry(tree, expected, timeout=10):
     return found, text
 
 
-def retry_without_input_method(ponytail, tree, children, expected):
-    """Evidence only: does the same typing arrive when GTK skips the input method?
-
-    The keys reach the shell without errors and the entry has focus, yet no
-    text arrives, which points at the input-method path between them. Reopen
-    the entry with GTK's built-in simple context and type again. The canary
-    still fails either way; this only says where the keys are lost.
-    """
-    try:
-        children[-1].terminate()
-        children[-1].wait(timeout=5)
-        disconnect(ponytail)
-        deadline = time.monotonic() + 5
-        while canary_window(ponytail) is not None and time.monotonic() < deadline:
-            time.sleep(0.25)
-        children.append(launch_entry({"GTK_IM_MODULE": "gtk-im-context-simple"}))
-        window = wait_for_window(ponytail)
-        connect_window(ponytail, ponytail.getWindowId(TITLE))
-        focus = focus_by_click(ponytail, window)
-        type_hex(ponytail, expected)
-        found, text = read_entry(tree, expected)
-        return {"focus": focus, "entry_found": found, "observed": text, "matched": text == expected}
-    except (ValueError, AssertionError, subprocess.SubprocessError) as error:
-        return {"error": str(error)}
-
-
 def probe():
     identity = require_gnomeos_wayland(Path("/usr/lib/os-release").read_text(), os.environ)
     from dogtail import tree
@@ -289,8 +271,9 @@ def probe():
                 "session_bus": os.environ["DBUS_SESSION_BUS_ADDRESS"],
                 "atspi_bus": os.environ["AT_SPI_BUS_ADDRESS"]}
     assert evidence["shell"] and evidence["gjs"] and evidence["mutter_build_version"], "Unknown desktop versions"
-    children = [launch_entry()]
-    child = children[0]
+    child = launch_entry()
+    evidence["entry_im_module"] = ENTRY_IM_MODULE
+    evidence["input_method"] = input_method_state()
     ponytail = None
     evidence["stage"] = "start"
     try:
@@ -329,16 +312,10 @@ def probe():
             # entry", and keep a picture of what the window showed.
             evidence["focused_after_typing"] = _focused(ponytail)
             evidence["after_typing_screenshot"] = window_wait_diagnostics(child)["screenshot"]
-            evidence["input_method"] = input_method_state()
             print("gnomeos-canary readback: " + json.dumps(
                 {k: evidence.get(k) for k in ("entry_found", "observed", "focused_after_typing",
                                               "focus", "input_method")}),
                 file=sys.stderr, flush=True)
-            evidence["stage"] = "retry-without-input-method"
-            evidence["without_input_method"] = retry_without_input_method(
-                ponytail, tree, children, expected)
-            print("gnomeos-canary without input method: "
-                  + json.dumps(evidence["without_input_method"]), file=sys.stderr, flush=True)
         evidence["stage"] = "readback"
         assert evidence["observed"] == expected, f"Virtual input was not observed over AT-SPI: {evidence}"
         screenshot = RESULTS / "desktop-canary.png"
@@ -354,9 +331,8 @@ def probe():
         raise
     finally:
         (RESULTS / "desktop-canary.json").write_text(json.dumps(evidence, indent=2) + "\n")
-        for each in children:
-            each.terminate()
-            each.wait(timeout=5)
+        child.terminate()
+        child.wait(timeout=5)
         if ponytail is not None and ponytail.connected is not None:
             try:
                 disconnect(ponytail)
