@@ -288,10 +288,10 @@ def act_on_page(guest, page, password):
     elif page == "password":
         focus(guest, "gis", is_password_field, "the password field")
         guest.type_text(password)
+        # Tab past the first field and anything after it (its show-password
+        # toggle) to the next password field: the confirmation.
         guest.press("tab", pause=0.5)
-        focused = (guest.ui_state("gis").get("focused") or {})
-        if not is_password_field(focused):
-            raise JourneyFailure("unrecognized-screen", "no password confirmation field")
+        focus(guest, "gis", is_password_field, "the password confirmation field")
         guest.type_text(password)
         guest.sleep(1)
         press_next(guest, page)

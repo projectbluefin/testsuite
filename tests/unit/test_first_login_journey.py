@@ -72,7 +72,9 @@ class FakeGuest:
         if page == "account":
             self.focus_ring = [{"role": "text", "name": "Full Name"}, NEXT]
         elif page == "password":
+            # GTK's password entries put a show-password toggle in Tab order.
             self.focus_ring = [NEXT, {"role": "password text", "name": "Password"},
+                               {"role": "toggle button", "name": "Show Password"},
                                {"role": "password text", "name": "Confirm Password"}]
             self.fields = ["", ""]
         elif page == "keyboard" and not self.keyboard_set:
@@ -158,7 +160,7 @@ class FakeGuest:
         if self.page == "keyboard" and f.get("role") == "text":
             self.searched = text
         if self.page == "password" and f.get("role") == "password text":
-            self.fields[self.focus_at - 1] = text
+            self.fields[0 if f["name"] == "Password" else 1] = text
             self.fields_final = text
 
     def screendump(self, path):
