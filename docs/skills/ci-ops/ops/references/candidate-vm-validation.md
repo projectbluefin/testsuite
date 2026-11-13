@@ -58,9 +58,10 @@ Every pull request runs this plan automatically (`pr-vm-check.yml`, "PR VM
 check"): it diffs GitHub's merge commit against its first parent and uses the
 planner's `--pr` mode. That mode routes the GNOME OS canary's workflow, harness,
 helper and suite to the canary rather than Dakota, and runs the canary for the
-`gnome-e2e` composite action too. The PR workflow itself also selects the canary
-so changes to its routing exercise it. The post-merge planner is unchanged; the
-`v1` gate below runs the same canary for the action and the canary's suite.
+`gnome-e2e` composite action too, under the same coverage rule as the `v1` gate
+below (one `canary` output from `scripts/v1_gate.py`; changed action steps the
+canary skips still hold). The PR workflow itself also selects the canary so
+changes to its routing exercise it.
 
 The PR check boots planned `e2e.yml` suites on `dakota:testing` pinned by digest
 at the merge commit. Other `no_hosted_lane` suites still produce a notice and
@@ -119,17 +120,22 @@ and `.../check-runs`.
      scenario also fails at `v1`. A new failing scenario, a suite that
      failed without a failing scenario recorded, or a missing baseline
      holds `v1`. The gate catches testsuite regressions, not image bugs.
-   - `canary`: the only lanes `e2e.yml` cannot boot are a change to the
-     `gnome-e2e` action itself (`.github/actions/gnome-e2e/`) or to the
-     canary's own suite (`tests/gnomeos-canary/`). The gate calls
+   - `canary`: every lane `e2e.yml` cannot boot is one the canary runs: the
+     `gnome-e2e` action itself (`.github/actions/gnome-e2e/`),
+     `scripts/extension_validation.py` (the action runs it for the canary
+     suite), or the canary's own suite (`tests/gnomeos-canary/`). The gate calls
      `gnomeos-canary.yml` at the merged SHA, which drives that action end to
      end, and moves `v1` only if it passes. With suites to boot as well, the
      action is `gate` with `canary=true` and both must pass. Before this, each
      such change held `v1` until a maintainer ran the canary by hand and
      forced the move (#1140, #1188).
-   - `hold`: the plan needs a lane neither can cover (an action-lane script
-     the canary does not run, such as `scripts/extension_validation.py`, or a
-     `no_hosted_lane` suite). The hold is flagged for a maintainer at once.
+   - `hold`: the plan needs a lane neither can cover. That is an action-lane
+     script the canary does not run (`scripts/assert_passed.py`: its action
+     step skips the canary suite), a changed action step whose `if:` excludes
+     the canary suite (`scripts/v1_gate_canary_scope.py` lists them; the run
+     summary names them), or a `no_hosted_lane` suite. The hold is flagged for
+     a maintainer at once. The step check does not split suite branches inside
+     a shell step the canary does run.
 3. On a hold or a failed gate, fails the run and opens (or comments on) the
    issue **"v1 tag held by the post-merge VM gate"** naming the held SHA. The
    next successful move closes it. Three holds are a maintainer's problem

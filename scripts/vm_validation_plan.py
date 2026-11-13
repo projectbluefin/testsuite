@@ -160,13 +160,14 @@ def plan(paths: list[str], *, pr: bool = False) -> dict:
             suites = list(suites_for_path(path))
         reasons[path] = suites
         required.update(suites)
-    vm_required = bool(required)
-    canary = pr and bool(required & {CANARY, ACTION})
+    # The canary's own files flag the canary directly. Action-lane paths stay
+    # in composite_action so scripts/v1_gate.py applies the same coverage rule
+    # on a PR as after merge (canary_covers, canary gaps).
+    canary = pr and CANARY in required
     if pr:
         required.discard(CANARY)
-        required.discard(ACTION)
     result = {
-        "vm_required": bool(required) if pr else vm_required,
+        "vm_required": bool(required),
         "suites": sorted(required & HOSTED_SUITES),
         "no_hosted_lane": sorted(required - HOSTED_SUITES - ACTION_LANES),
         "composite_action": sorted(required & ACTION_LANES),

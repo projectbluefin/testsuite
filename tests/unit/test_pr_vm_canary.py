@@ -31,9 +31,22 @@ def test_composite_action_runs_canary_without_losing_other_suites():
     path = ".github/actions/gnome-e2e/action.yml"
     assert suites_for_path(path) == (ACTION,)
     result = plan([path, "tests/smoke/features/test.feature"], pr=True)
-    assert result["canary"] is True
+    # The action lane stays in the plan; the gate applies the same coverage
+    # rule on a PR as after merge.
+    assert result["composite_action"] == [ACTION]
     assert result["suites"] == ["smoke"]
-    assert decide(result)["action"] == "gate"
+    decision = decide(result)
+    assert decision["action"] == "gate"
+    assert decision["canary"] == "true"
+
+
+def test_pr_and_post_merge_agree_on_action_lane_scripts():
+    for path, action in (
+        ("scripts/extension_validation.py", "canary"),
+        ("scripts/assert_passed.py", "hold"),
+    ):
+        assert decide(plan([path], pr=True))["action"] == action
+        assert decide(plan([path]))["action"] == action
 
 
 def test_unrelated_and_unhosted_paths_do_not_run_canary():

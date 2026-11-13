@@ -8,15 +8,18 @@ This script turns the plan into one of four actions:
 - ``move``: nothing in the range reaches a VM; move ``v1`` straight away.
 - ``gate``: boot the listed ``e2e.yml`` suites first; move ``v1`` only if
   every suite passes (the #1022 fail-closed verdict inside ``e2e.yml``).
-- ``canary``: the only change ``e2e.yml`` cannot boot is the gnome-e2e
-  composite action itself (``.github/actions/gnome-e2e/``); run the GNOME OS
-  desktop canary, which drives that action end to end, and move ``v1`` only
-  if it passes. With suites to boot as well, the action is ``gate`` and
-  ``canary=true``: both must pass.
-- ``hold``: the plan needs a lane neither can cover (a script that only the
-  extensions lane runs, such as ``scripts/extension_validation.py``, or a
-  suite with no hosted lane). Keep ``v1`` where it is and alert; a maintainer
-  validates by hand and moves it with the workflow's manual ``force`` run.
+- ``canary``: every change ``e2e.yml`` cannot boot is one the GNOME OS
+  desktop canary runs: the gnome-e2e composite action
+  (``.github/actions/gnome-e2e/``) outside steps that skip the canary suite,
+  ``scripts/extension_validation.py``, or the canary's own suite. Run the
+  canary and move ``v1`` only if it passes. With suites to boot as well, the
+  action is ``gate`` and ``canary=true``: both must pass.
+- ``hold``: the plan needs a lane neither can cover: an action-lane script or
+  step the canary skips (``scripts/assert_passed.py``, or a changed step whose
+  ``if:`` excludes the canary suite, from ``scripts/v1_gate_canary_scope.py``),
+  or a suite with no hosted lane. Keep ``v1`` where it is and alert; a
+  maintainer validates by hand and moves it with the workflow's manual
+  ``force`` run.
 
 Suites in ``UNGATED_SUITES`` are left out of the boot because they cannot pass
 on a single image yet: every ``lifecycle`` upgrade scenario needs a second,
@@ -34,36 +37,52 @@ reason, canary.
 from __future__ import annotations
 
 import json
+import os
 import sys
 
 # Requested by the plan but not booted by the gate (see the module docstring).
 UNGATED_SUITES = frozenset({"lifecycle"})
 
-# Paths whose composite-action lane the GNOME OS canary covers: the action
-# definition itself. Other action-lane paths (extension_validation.py, ...)
-# only run in lanes the canary does not exercise, so they still hold.
+# Composite-action-lane paths a GNOME OS canary run exercises: the action
+# itself (steps the canary skips are caught by scripts/v1_gate_canary_scope.py)
+# and scripts/extension_validation.py, which the action runs for the canary
+# suite. Other action-lane paths, such as scripts/assert_passed.py (its step
+# skips the canary suite), still hold.
 CANARY_COVERED_PREFIX = ".github/actions/gnome-e2e/"
+CANARY_COVERED_PATHS = frozenset({"scripts/extension_validation.py"})
 ACTION_LANE = "gnome-e2e-action"
 CANARY_SUITE = "gnomeos-canary"
 
 
+def _canary_runs(path: str) -> bool:
+    path = path.removeprefix("./")
+    return path.startswith(CANARY_COVERED_PREFIX) or path in CANARY_COVERED_PATHS
+
+
 def canary_covers(plan: dict) -> bool:
-    """True when every path needing the composite-action lane is the action itself."""
+    """True when the canary runs every path that needs the composite-action lane."""
     action_paths = [
         path for path, lanes in plan.get("reasons", {}).items() if ACTION_LANE in lanes
     ]
-    return bool(action_paths) and all(
-        path.startswith(CANARY_COVERED_PREFIX) for path in action_paths
-    )
+    return bool(action_paths) and all(_canary_runs(path) for path in action_paths)
 
 
-def decide(plan: dict, ungated: frozenset[str] = UNGATED_SUITES) -> dict[str, str]:
-    """Return the gate decision for one validation plan."""
+def decide(
+    plan: dict,
+    ungated: frozenset[str] = UNGATED_SUITES,
+    canary_gaps: tuple[str, ...] = (),
+) -> dict[str, str]:
+    """Return the gate decision for one validation plan.
+
+    ``canary_gaps`` lists changed action steps the canary skips
+    (scripts/v1_gate_canary_scope.py); any of them keeps the action lane a
+    blocker, because a canary pass would not have run them.
+    """
     requested = list(plan.get("suites", []))
     boot = [s for s in requested if s not in ungated]
     skipped = [s for s in requested if s in ungated]
     composite = set(plan.get("composite_action", []))
-    canary = bool(composite) and canary_covers(plan)
+    canary = bool(composite) and canary_covers(plan) and not canary_gaps
     if canary:
         composite = set()
     # The canary's own suite (tests/gnomeos-canary/) has no e2e.yml lane;
@@ -90,6 +109,11 @@ def decide(plan: dict, ungated: frozenset[str] = UNGATED_SUITES) -> dict[str, st
             f"the change needs lanes e2e.yml cannot boot ({', '.join(blockers)}); "
             "validate them by hand, then run this workflow with force"
         )
+        if canary_gaps:
+            decision["reason"] += (
+                "; the GNOME OS canary skips these changed action steps: "
+                + ", ".join(canary_gaps)
+            )
     elif canary and not boot:
         decision["action"] = "canary"
         decision["reason"] = (
@@ -119,7 +143,10 @@ def decide(plan: dict, ungated: frozenset[str] = UNGATED_SUITES) -> dict[str, st
 
 def main(argv: list[str]) -> int:
     plan = json.loads(sys.stdin.read())
-    for key, value in decide(plan).items():
+    # One step per line or comma, from scripts/v1_gate_canary_scope.py.
+    raw = os.environ.get("V1_GATE_CANARY_GAPS", "")
+    gaps = tuple(g.strip() for g in raw.replace(",", "\n").splitlines() if g.strip())
+    for key, value in decide(plan, canary_gaps=gaps).items():
         print(f"{key}={value}")
     return 0
 

@@ -66,16 +66,53 @@ def test_composite_action_and_suite_change_boots_and_runs_the_canary():
 
 
 def test_action_lane_script_the_canary_does_not_run_still_holds():
-    # extension_validation.py only runs in the extensions lane, which the
-    # GNOME OS canary does not exercise.
+    # The action's assert_passed.py gate step skips the gnomeos-canary suite
+    # (action.yml `if: ... inputs.suite != 'gnomeos-canary'`), so a canary pass
+    # says nothing about it.
     for paths in (
-        ["scripts/extension_validation.py"],
-        [".github/actions/gnome-e2e/action.yml", "scripts/extension_validation.py"],
+        ["scripts/assert_passed.py"],
+        [".github/actions/gnome-e2e/action.yml", "scripts/assert_passed.py"],
     ):
         d = decide(plan(paths))
         assert d["action"] == "hold"
         assert d["canary"] == "false"
         assert "gnome-e2e-action" in d["reason"]
+
+
+def test_extension_validation_is_covered_by_the_canary():
+    # action.yml runs scripts/extension_validation.py for the canary suite too.
+    d = decide(plan(["scripts/extension_validation.py"]))
+    assert d["action"] == "canary"
+    assert d["canary"] == "true"
+
+
+def test_changed_steps_the_canary_skips_keep_the_hold():
+    d = decide(
+        plan([".github/actions/gnome-e2e/action.yml"]),
+        canary_gaps=("Mandatory-coverage gate",),
+    )
+    assert d["action"] == "hold"
+    assert d["canary"] == "false"
+    assert "Mandatory-coverage gate" in d["reason"]
+
+
+def test_leading_dot_slash_paths_are_still_covered():
+    d = decide(plan(["./.github/actions/gnome-e2e/action.yml"]))
+    assert d["canary"] == "true"
+
+
+def test_cli_reads_canary_gaps_from_the_environment():
+    plan_json = json.dumps(plan([".github/actions/gnome-e2e/action.yml"]))
+    result = subprocess.run(
+        [sys.executable, str(REPO_ROOT / "scripts/v1_gate.py")],
+        input=plan_json,
+        capture_output=True,
+        text=True,
+        check=True,
+        env={"V1_GATE_CANARY_GAPS": "Mandatory-coverage gate\nOther step", "PATH": "/usr/bin:/bin"},
+    )
+    assert "action=hold" in result.stdout.splitlines()
+    assert "Other step" in result.stdout
 
 
 def test_no_canary_without_an_action_change():

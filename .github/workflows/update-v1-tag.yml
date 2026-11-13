@@ -119,12 +119,16 @@ jobs:
             # swaps in `uses:` lines (Renovate digest bumps) needs no VM.
             git diff --name-only "${PREVIOUS}" "${SHA}" \
               | python3 scripts/v1_gate_pins.py "${PREVIOUS}" "${SHA}" 2> pins.txt > changed.txt
+            # Changed action steps the GNOME OS canary skips: a canary pass
+            # does not cover them, so they keep the hold.
+            python3 scripts/v1_gate_canary_scope.py "${PREVIOUS}" "${SHA}" > canary-gaps.txt
           else
             # No v1 yet, or v1 is not behind main: plan the full set (fail-closed).
             echo "unknown-base" > changed.txt
           fi
           python3 scripts/vm_validation_plan.py < changed.txt > plan.json
-          python3 scripts/v1_gate.py < plan.json | tee -a "$GITHUB_OUTPUT"
+          V1_GATE_CANARY_GAPS="$(cat canary-gaps.txt 2>/dev/null || true)" \
+            python3 scripts/v1_gate.py < plan.json | tee -a "$GITHUB_OUTPUT"
 
           {
             echo "### v1 gate plan"
