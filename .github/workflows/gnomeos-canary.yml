@@ -39,11 +39,12 @@ jobs:
         uses: projectbluefin/actions/bootc-build/setup-runner@3adf1194c894fe7b1ae54e583c56306c6a2382ee # v1
         with:
           update-podman: "false"
+          # Installed through setup-runner's verified apt cache, so a warm
+          # cache needs no Ubuntu mirror (#1155).
+          apt-packages: skopeo
 
       - name: Build native harness over pinned official GNOME OS
         run: |
-          sudo apt-get update -q
-          sudo apt-get install -y --no-install-recommends skopeo
           sudo bash scripts/build-gnomeos-harness.sh results
           sudo chown -R "$(id -u):$(id -g)" results
 
