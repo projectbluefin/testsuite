@@ -106,7 +106,7 @@ runs:
     # ── Free disk space ───────────────────────────────────────────────────────
     - name: Free disk space
       if: inputs.free-disk-space == 'true'
-      uses: projectbluefin/actions/bootc-build/setup-runner@46001bf923f11eab3a88fe1cf4540debb050516c # v1
+      uses: projectbluefin/actions/bootc-build/setup-runner@3adf1194c894fe7b1ae54e583c56306c6a2382ee # v1
       with:
         update-podman: "false"
 
