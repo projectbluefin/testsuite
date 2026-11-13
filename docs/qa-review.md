@@ -54,6 +54,7 @@ Run unit tests with `python3 -m pytest tests/unit/ -q`. The `pytest` CI check (`
 |---|---|
 | `test_selinux_collect_avc.py` | Piped SELinux collector preserves audit, journal, and kernel records |
 | `test_first_login_probe.py` | First-login probe: image's own loader (no `--bootloader`, no `-kernel`), no seeded user or auto-login, key-only root, fresh OVMF vars, private key never uploaded, and checkpoint logic |
+| `test_first_login_journey.py` | First-boot journey: admission-record page order (network optional, required pages named when missing), per-page deadlines and bounded Tab focus, the four cases and their named failures, no frames from private pages, password scan and evidence deletion, read-only guest reader |
 | `test_gnomeos_canary_behave.py` | GNOME OS canary wrapper re-reads the live session (Wayland display, session and AT-SPI buses) after qecore's restart, and only the canary uses it |
 | `test_gnomeos_canary.py` | GNOME OS identity/session rejection, AT-SPI fallback rejection, strict result/process gate and evidence wiring |
 | `test_gnome_shell_steps.py` | Shell.Eval, AT-SPI step helpers, ShellEval bool variants |

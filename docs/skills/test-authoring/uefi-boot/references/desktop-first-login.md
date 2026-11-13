@@ -182,6 +182,11 @@ Checkpoint 2 uses process evidence, not a committed reference frame. The
 probe's first runs capture the frames that a recognition step (#1180) can be
 calibrated against.
 
+### First-boot journey (step 3, #1180)
+
+The same workflow now drives the whole journey and its controlled failures:
+see [desktop-first-login-journey.md](desktop-first-login-journey.md).
+
 Test content and reusable GitHub Actions code belong in testsuite; lab resources
 belong in projectbluefin/lab. No runtime coverage box in #1026 is checked by
 merging this design alone.

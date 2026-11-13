@@ -2,7 +2,15 @@
 # Prepare a disk for the first-login probe (#1179, design in
 # docs/skills/test-authoring/uefi-boot/references/desktop-first-login.md).
 #
-# Usage: first_login_disk.sh IMAGE@sha256:DIGEST OUTDIR PUBKEY_FILE
+# Usage: first_login_disk.sh IMAGE@sha256:DIGEST OUTDIR PUBKEY_FILE [FIXTURE]
+#
+# FIXTURE (default none) breaks this disposable disk on purpose for the
+# first-boot journey's controlled failures (#1180):
+#   none          the supported disk
+#   no-loader     the ESP's EFI directory is removed after install, so the
+#                 firmware has no loader to hand off to
+#   missing-page  /etc/gnome-initial-setup/vendor.conf also skips privacy, so
+#                 a page the admission record requires never appears
 #
 # Unlike e2e.yml's smoke disk, this one must reach the image's real first-boot
 # journey:
@@ -20,6 +28,8 @@ set -euo pipefail
 IMAGE=${1:?image@sha256:digest}
 OUTDIR=${2:?output directory}
 PUBKEY=${3:?public key file}
+FIXTURE=${4:-none}
+case "$FIXTURE" in none|no-loader|missing-page) ;; *) echo "::error::unknown fixture: $FIXTURE"; exit 2 ;; esac
 [[ "$IMAGE" == *@sha256:* ]] || { echo "::error::image must be digest-pinned: $IMAGE"; exit 2; }
 [[ -s "$PUBKEY" ]] || { echo "::error::public key file missing: $PUBKEY"; exit 2; }
 mkdir -p "$OUTDIR"
@@ -95,6 +105,13 @@ grep -qi '^./EFI/BOOT/BOOTX64.EFI$' "$OUTDIR/esp.txt" || {
   printf '{"verdict": "unreachable", "reason": "no UEFI fallback loader on the ESP"}\n' > "$OUTDIR/disk.json"
   exit 1
 }
+if [[ "$FIXTURE" == no-loader ]]; then
+  # Controlled failure: the loader the install wrote is checked above, then
+  # taken away, so only the handoff can fail.
+  sudo mount "$ESP" "$ESPMNT"
+  sudo rm -rf "$ESPMNT/EFI"
+  sudo umount "$ESPMNT"
+fi
 
 STATEROOT="$ROOTMNT/ostree/deploy/default"
 : > "$OUTDIR/disk-users.txt"
@@ -117,6 +134,16 @@ for DEP in "$STATEROOT"/deploy/*/; do
   printf '%s\n' "$DEP/etc/ssh/sshd_config.d/00-ci-root.conf" "$DEP/etc/ssh/ci-authorized-keys" \
     "$DEP/etc/systemd/system/multi-user.target.wants/sshd.service" >> "$LABEL_LIST"
   sudo find "$DEP/etc/ssh" -maxdepth 1 -name 'ssh_host_*' | tee -a "$LABEL_LIST" >/dev/null
+  if [[ "$FIXTURE" == missing-page ]]; then
+    # Controlled failure: the shipped policy is `skip=software`; also skip
+    # privacy. Rewritten in place, so the file keeps its SELinux label.
+    VENDOR="$DEP/etc/gnome-initial-setup/vendor.conf"
+    if [[ ! -f "$VENDOR" ]]; then
+      sudo mkdir -p "${VENDOR%/*}"
+      echo "$VENDOR" >> "$LABEL_LIST"
+    fi
+    printf '[pages]\nskip=software;privacy\n' | sudo tee "$VENDOR" >/dev/null
+  fi
   # Regular users the disk would start with (names and uids only; no shadow).
   for passwd in "$DEP/etc/passwd" "$DEP/usr/lib/passwd"; do
     [[ -f "$passwd" ]] && sudo awk -F: -v src="${passwd#"$DEP"}" '$3 >= 1000 && $3 < 60000 {print src ": " $1 " " $3}' "$passwd"
@@ -135,13 +162,13 @@ if [[ -n "$POLICY" ]]; then
       -f /harness/list/list "/harness/root${DEP#"$ROOTMNT"}/etc/selinux/$POLICY/contexts/files/file_contexts"
 fi
 
-python3 - "$IMAGE" "$OUTDIR" "$(basename "$DEP")" "${#KARGS[@]}" <<'PY'
+python3 - "$IMAGE" "$OUTDIR" "$(basename "$DEP")" "${#KARGS[@]}" "$FIXTURE" <<'PY'
 import json, sys
-image, out, deploy, kargs = sys.argv[1:5]
+image, out, deploy, kargs, fixture = sys.argv[1:6]
 users = [l for l in open(f"{out}/disk-users.txt").read().splitlines() if l.strip()]
 json.dump({"verdict": "prepared", "image": image, "deployment": deploy,
            "kargs": ["console=ttyS0,115200", "systemd.firstboot=no"] if int(kargs) else [],
-           "regular_users": users,
+           "regular_users": users, "fixture": fixture,
            "loader": "EFI/BOOT/BOOTX64.EFI present"}, open(f"{out}/disk.json", "w"), indent=2)
 PY
 echo "Disk prepared: $(jq -c . "$OUTDIR/disk.json" 2>/dev/null || cat "$OUTDIR/disk.json")"
