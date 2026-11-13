@@ -222,19 +222,26 @@ def _clipboard_set(text: str) -> None:
 
 
 def _clipboard_get(timeout: float = 5.0) -> str:
-    """The clipboard's text, read through GNOME Shell's St.Clipboard."""
+    """The clipboard's text, read through GNOME Shell's St.Clipboard.
+
+    Reads the raw bytes with get_content, not get_text: get_text returns a
+    C string, which drops a trailing NUL (Utah run 43339782655 read 75 of 76
+    characters).
+    """
     assert _eval_bool(
-        "(() => { global._bluefinClipboard = null; "
-        "imports.gi.St.Clipboard.get_default().get_text(imports.gi.St.ClipboardType.CLIPBOARD, "
-        "(clipboard, text) => { global._bluefinClipboard = text ?? ''; }); return true; })()"
+        "(() => { global._bluefinClipboard = null; const St = imports.gi.St; "
+        "St.Clipboard.get_default().get_content(St.ClipboardType.CLIPBOARD, "
+        f"'{_CLIPBOARD_MIME}', "
+        "(clipboard, bytes) => { global._bluefinClipboard = bytes ? bytes.get_data() ?? new Uint8Array() "
+        ": new Uint8Array(); }); return true; })()"
     ), "GNOME Shell did not start the clipboard read"
-    # get_text answers asynchronously; poll for the base64 of its UTF-8 text.
+    # get_content answers asynchronously; poll for the base64 of its bytes.
     deadline = time.monotonic() + timeout
     while True:
         out = _shell_eval(
-            "(() => { const t = global._bluefinClipboard; "
-            "if (t === null || t === undefined) return 'pending'; "
-            "return 'b64:' + imports.gi.GLib.base64_encode(new TextEncoder().encode(t)); })()"
+            "(() => { const b = global._bluefinClipboard; "
+            "if (b === null || b === undefined) return 'pending'; "
+            "return 'b64:' + imports.gi.GLib.base64_encode(b); })()"
         )
         match = re.search(r"b64:([A-Za-z0-9+/=]*)", out)
         if match:

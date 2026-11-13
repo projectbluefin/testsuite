@@ -445,7 +445,17 @@ class TestClipboardGet:
              patch.object(mod, "_shell_eval", side_effect=lambda js: next(outputs)), \
              patch.object(mod, "sleep"):
             assert mod._clipboard_get() == text
-        assert "get_text(imports.gi.St.ClipboardType.CLIPBOARD" in eval_bool.call_args.args[0]
+        js = eval_bool.call_args.args[0]
+        assert "get_content(St.ClipboardType.CLIPBOARD, 'text/plain;charset=utf-8'" in js
+        assert "get_text" not in js  # a C string would drop a NUL
+
+    def test_a_nul_byte_survives_the_read(self, mod):
+        # Utah run 43339782655: get_text read 75 of 76 characters.
+        text = "&quot; \x00"
+        encoded = base64.b64encode(text.encode("utf-8")).decode()
+        with patch.object(mod, "_eval_bool", return_value=True), \
+             patch.object(mod, "_shell_eval", return_value=f"(true, \'b64:{encoded}\')"):
+            assert mod._clipboard_get() == text
 
     def test_an_empty_clipboard_reads_back_empty(self, mod):
         with patch.object(mod, "_eval_bool", return_value=True), \
