@@ -360,6 +360,9 @@ jobs:
         uses: projectbluefin/actions/bootc-build/setup-runner@3adf1194c894fe7b1ae54e583c56306c6a2382ee # v1
         with:
           update-podman: "false"
+          # Installed through setup-runner's verified apt cache, so a warm
+          # cache needs no Ubuntu mirror (#1155).
+          apt-packages: qemu-system-x86
 
       - name: Enable KVM access
         run: |
@@ -368,8 +371,8 @@ jobs:
           sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
           ls -la /dev/kvm
 
-      # Pull OCI image in background while apt installs QEMU — saves ~2 min
-      - name: Install QEMU and pull OCI image
+      # QEMU is installed by setup-runner above; pull both images in parallel.
+      - name: Pull OCI image
         run: |
           # The composed run-scoped image may be a private GHCR package
           # (fresh packages default to private) — authenticate before pulling.
@@ -383,8 +386,6 @@ jobs:
           # Suite type selects the GNOME/qecore runner or the KDE/Appium runner.
           sudo podman pull "${RUNNER_IMAGE}" &
           RUNNER_PID=$!
-          sudo apt-get update -q
-          sudo apt-get install -y --no-install-recommends qemu-system-x86
           wait $PULL_PID
           wait $RUNNER_PID
 
