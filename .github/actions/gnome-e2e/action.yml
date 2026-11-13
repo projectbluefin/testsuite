@@ -489,10 +489,15 @@ runs:
           export PATH=\$HOME/.local/bin:\$PATH
           export PYTHONPATH=/tmp/gnome_e2e
           if [[ -n \"$WRAPPER\" ]]; then
-            \"$WRAPPER\"
+            # qecore-headless is the desktop/input-daemon supervisor. Pass the
+            # wrapper as its command argument so qecore owns the session
+            # lifecycle; it runs /bin/bash -c on the guest, whose first word
+            # (/bin/bash) is an executable as qecore requires. $WRAPPER is set
+            # on the runner, so it expands there and the guest gets the path.
+            \$HOME/.local/bin/qecore-headless ${HEADLESS_FLAGS} \"$WRAPPER\"
           else
             BEHAVE_BIN=\$(which behave)
-            \"$BEHAVE_BIN\" /tmp/gnome_e2e/tests/${GNOME_E2E_SUITE}/features/ --format json.pretty --outfile /tmp/gnome_e2e/results/results.json --format pretty --outfile /tmp/gnome_e2e/results/results.txt --format progress --no-capture
+            \$HOME/.local/bin/qecore-headless ${HEADLESS_FLAGS} \"\$BEHAVE_BIN /tmp/gnome_e2e/tests/${GNOME_E2E_SUITE}/features/ --format json.pretty --outfile /tmp/gnome_e2e/results/results.json --format pretty --outfile /tmp/gnome_e2e/results/results.txt --format progress --no-capture\"
           fi
         " || BEHAVE_RC=$?
 
