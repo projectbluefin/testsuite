@@ -87,6 +87,9 @@ jobs:
         uses: projectbluefin/actions/bootc-build/setup-runner@3adf1194c894fe7b1ae54e583c56306c6a2382ee # v1
         with:
           update-podman: "false"
+          # Installed through setup-runner's verified apt cache, so a warm
+          # cache needs no Ubuntu mirror (#1155).
+          apt-packages: qemu-system-x86
 
       - name: Enable KVM access
         run: |
@@ -95,12 +98,10 @@ jobs:
           sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
           ls -la /dev/kvm
 
-      - name: Install QEMU and pull OCI image
+      - name: Pull OCI image
         run: |
           sudo podman pull "${IMAGE}" &
           PULL_PID=$!
-          sudo apt-get update -q
-          sudo apt-get install -y --no-install-recommends qemu-system-x86
           wait $PULL_PID
           ssh-keygen -t ed25519 -f /tmp/vm_key -N "" -C "startup@gha"
 
