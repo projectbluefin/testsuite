@@ -1,0 +1,270 @@
+#!/usr/bin/env python3
+"""First-login probe (#1179): checkpoints on a running first-boot VM.
+
+The VM was booted by the workflow from a disk prepared by
+scripts/first_login_disk.sh, through OVMF and the disk's own loader (no
+-kernel). This script observes it through three host-side channels only:
+the serial log, the QEMU monitor (framebuffer dumps and key presses), and the
+per-run root SSH key. It never authenticates as a desktop user.
+
+Checkpoints (docs/skills/test-authoring/uefi-boot/references/desktop-first-login.md):
+  1. firmware handed off to the disk's loader (serial);
+  2. GNOME Initial Setup is the running session (root SSH: its process and
+     the GDM session), with framebuffer evidence;
+  3. a monitor key press changes the Initial Setup page: rows that stayed
+     still while the page idled (its greeting animates) change after input.
+Writes OUTDIR/verdict.json with the last checkpoint reached.
+
+Usage: first_login_probe.py OUTDIR MONITOR_SOCKET SERIAL_LOG SSH_KEY
+Standard library only.
+"""
+import json
+import re
+import socket
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+LOADER_PATTERNS = (r"BdsDxe: (loading|starting) Boot\d+", r"GRUB", r"shim")
+KERNEL_PATTERN = r"Linux version \d"
+
+
+def wait_for_serial(serial, patterns, timeout, clock=time.monotonic, sleep=time.sleep):
+    """Return the first serial line matching any pattern, or "" at the deadline."""
+    deadline = clock() + timeout
+    compiled = [re.compile(p) for p in patterns]
+    while True:
+        try:
+            for line in Path(serial).read_text(errors="replace").splitlines():
+                if any(c.search(line) for c in compiled):
+                    return line.strip()
+        except OSError:  # not created or not readable yet
+            pass
+        if clock() >= deadline:
+            return ""
+        sleep(2)
+
+
+def monitor(sock_path, command, timeout=10):
+    """Send one human-monitor command and return its reply text."""
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+        s.settimeout(timeout)
+        s.connect(str(sock_path))
+        s.recv(4096)  # greeting
+        s.sendall((command + "\n").encode())
+        time.sleep(0.5)
+        try:
+            return s.recv(65536).decode(errors="replace")
+        except socket.timeout:
+            return ""
+
+
+def screendump(sock_path, ppm_path):
+    """Dump the framebuffer to a PPM and return its bytes ("" if none)."""
+    # Absolute: the daemonized QEMU runs from /, so a relative path lands there.
+    ppm = Path(ppm_path).resolve()
+    # QEMU runs as root; an existing empty file keeps our owner when QEMU
+    # truncates and fills it, so the probe can read the frame back.
+    ppm.write_bytes(b"")
+    reply = monitor(sock_path, f"screendump {ppm}")
+    for _ in range(20):
+        try:
+            if ppm.stat().st_size > 0:
+                return ppm.read_bytes()
+        except OSError:  # not written or not readable yet
+            pass
+        time.sleep(0.25)
+    print(f"first-login probe: screendump wrote nothing: {reply.strip()!r}", file=sys.stderr, flush=True)
+    return b""
+
+
+IDLE_FRAMES = 6  # 10 s of idle frames, 2 s apart
+MIN_INPUT_ROWS = 4
+SETTLED_ROWS = 200  # the greeting and caret change ~80 of 800 rows on their own
+
+
+def ppm_rows(ppm):
+    """Split a binary PPM (P6, maxval < 256) into its pixel rows."""
+    fields, pos = [], 0
+    while len(fields) < 4:
+        while ppm[pos:pos + 1].isspace():
+            pos += 1
+        if ppm[pos:pos + 1] == b"#":
+            pos = ppm.index(b"\n", pos) + 1
+            continue
+        end = pos
+        while not ppm[end:end + 1].isspace():
+            end += 1
+        fields.append(ppm[pos:end])
+        pos = end
+    magic, width, height, _ = fields
+    if magic != b"P6":
+        raise ValueError("not a binary PPM")
+    data, stride = ppm[pos + 1:], int(width) * 3
+    return [data[y * stride:(y + 1) * stride] for y in range(int(height))]
+
+
+def changed_rows(before, after):
+    """Indexes of pixel rows that differ between two same-sized PPM frames."""
+    a, b = ppm_rows(before), ppm_rows(after)
+    if len(a) != len(b):
+        raise ValueError("frames differ in size")
+    return {y for y, (ra, rb) in enumerate(zip(a, b)) if ra != rb}
+
+
+def page_visible(ppm):
+    """True when the middle of the screen is mostly light: Initial Setup's card.
+
+    Calibrated on runs 43333610574 and 43335035900: 0.97 of the sampled
+    pixels are light with the page up, 0.00 on the boot screen and the bare
+    wallpaper shown before the window maps.
+    """
+    rows = ppm_rows(ppm)
+    height, width = len(rows), len(rows[0]) // 3
+    light = total = 0
+    for y in range(height * 3 // 16, height * 13 // 16, 4):
+        row = rows[y]
+        for x in range(width * 5 // 16, width * 11 // 16, 4):
+            r, g, b = row[3 * x:3 * x + 3]
+            total += 1
+            light += (r + g + b) // 3 >= 200
+    return total > 0 and light / total >= 0.5
+
+
+def settled_frame(sock, path, timeout=60):
+    """Wait until the page is up and stops drawing: two frames 2 s apart that
+    both show it and differ in fewer than SETTLED_ROWS rows. A fixed wait
+    wasn't enough, and two identical frames can be the bare wallpaper before
+    the window maps (run 43335035900).
+
+    Returns (frame, settled); frame is empty when QEMU produced none.
+    """
+    prev = screendump(sock, path)
+    deadline = time.monotonic() + timeout
+    while prev and time.monotonic() < deadline:
+        time.sleep(2)
+        cur = screendump(sock, path)
+        if not cur:
+            return b"", False
+        if (page_visible(prev) and page_visible(cur)
+                and len(changed_rows(prev, cur)) < SETTLED_ROWS):
+            return cur, True
+        prev = cur
+    return prev, False
+
+
+def input_changed_rows(idle_frames, after):
+    """Rows the key press changed that never changed while the page idled.
+
+    Initial Setup's welcome page cycles its greeting through languages, so a
+    plain before/after comparison passes with no input at all (run
+    43333610574). Rows that change on their own are excluded.
+    """
+    animated = set()
+    for a, b in zip(idle_frames, idle_frames[1:]):
+        animated |= changed_rows(a, b)
+    return changed_rows(idle_frames[-1], after) - animated, animated
+
+
+def ssh(key, command, timeout=20):
+    """Run a command in the guest as root with the per-run key."""
+    argv = ["ssh", "-i", str(key), "-p", "2222", "-o", "StrictHostKeyChecking=no",
+            "-o", "UserKnownHostsFile=/dev/null", "-o", "BatchMode=yes",
+            "-o", "ConnectTimeout=5", "root@127.0.0.1", command]
+    try:
+        done = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return 124, ""
+    return done.returncode, done.stdout.strip()
+
+
+def wait_for_ssh(key, timeout, clock=time.monotonic, sleep=time.sleep):
+    deadline = clock() + timeout
+    while clock() < deadline:
+        rc, _ = ssh(key, "true")
+        if rc == 0:
+            return True
+        sleep(5)
+    return False
+
+
+def initial_setup_running(key):
+    """Machine evidence that GNOME Initial Setup is the session on screen."""
+    rc, procs = ssh(key, "pgrep -a -f gnome-initial-setup || true")
+    _, sessions = ssh(key, "loginctl list-sessions --no-legend || true")
+    _, users = ssh(key, "awk -F: '$3>=1000 && $3<60000 {print $1\" \"$3}' /etc/passwd")
+    running = any("/gnome-initial-setup" in line and "copy-worker" not in line
+                  for line in procs.splitlines())
+    return {"running": running, "processes": procs[:2000], "sessions": sessions[:2000],
+            "regular_users": [u for u in users.splitlines() if u.strip()]}
+
+
+def run(outdir, sock, serial, key, boot_timeout=300, gis_timeout=420):
+    out = Path(outdir)
+    out.mkdir(parents=True, exist_ok=True)
+    verdict = {"checkpoint": 0, "passed": False}
+
+    def finish(reason=""):
+        verdict["reason"] = reason
+        (out / "verdict.json").write_text(json.dumps(verdict, indent=2) + "\n")
+        print("first-login probe: " + json.dumps(verdict), flush=True)
+        return 0 if verdict["passed"] else 1
+
+    # 1. Firmware -> the disk's own loader, then a kernel.
+    loader = wait_for_serial(serial, LOADER_PATTERNS, boot_timeout)
+    kernel = wait_for_serial(serial, (KERNEL_PATTERN,), boot_timeout)
+    verdict.update(loader_line=loader, kernel_line=kernel)
+    screendump(sock, out / "frame-boot.ppm")
+    if not kernel:
+        return finish("no kernel boot seen on serial within the deadline")
+    verdict["checkpoint"] = 1
+
+    # 2. GNOME Initial Setup is the running session.
+    if not wait_for_ssh(key, gis_timeout):
+        return finish("root SSH never came up")
+    deadline = time.monotonic() + gis_timeout
+    while True:
+        evidence = initial_setup_running(key)
+        if evidence["running"] or time.monotonic() >= deadline:
+            break
+        time.sleep(5)
+    verdict["initial_setup"] = evidence
+    if not evidence["running"]:
+        return finish("GNOME Initial Setup never started")
+    if evidence["regular_users"]:
+        return finish("the disk already has a regular user; this is not the first-boot journey")
+    verdict["checkpoint"] = 2
+
+    # 3. A real key press changes the page (e.g. moves the language selection).
+    first, settled = settled_frame(sock, out / "frame-gis.ppm")
+    if not first:
+        return finish("QEMU screendump produced no frame")
+    if not settled:
+        return finish("the Initial Setup page never appeared or never stopped changing")
+    idle = [first]
+    for n in range(1, IDLE_FRAMES):  # watch the page idle to learn what animates
+        time.sleep(2)
+        idle.append(screendump(sock, out / f"frame-idle-{n}.ppm"))
+    for key_name in ("down", "down", "tab"):
+        monitor(sock, f"sendkey {key_name}")
+        time.sleep(1)
+    after = screendump(sock, out / "frame-after-input.ppm")
+    if not all(idle) or not after:
+        return finish("QEMU screendump produced no frame")
+    rows, animated = input_changed_rows(idle, after)
+    verdict["frames"] = {"bytes": len(after), "animated_rows": len(animated),
+                         "input_rows": len(rows)}
+    if len(rows) < MIN_INPUT_ROWS:
+        return finish("a monitor key press did not change the Initial Setup frame "
+                      "outside the rows that animate on their own")
+    verdict["checkpoint"] = 3
+    verdict["passed"] = True
+    return finish()
+
+
+if __name__ == "__main__":
+    if len(sys.argv) != 5:
+        print(__doc__, file=sys.stderr)
+        sys.exit(2)
+    sys.exit(run(*sys.argv[1:5]))
