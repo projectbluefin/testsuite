@@ -129,7 +129,9 @@ probe and on demand (`image`, `test_ref` inputs). It never gates anything.
   `bootc install to-disk` and **no `--bootloader` override**. A failed loader
   step records `unreachable` and fails. It seeds no user and no auto-login, and
   adds only a per-run, key-only root SSH key (`/etc/ssh/ci-authorized-keys`
-  via an sshd drop-in), labelled with the image's own `setfiles`. Kernel
+  via an sshd drop-in). Bluefin images ship sshd disabled, so it also
+  enables `sshd.service` and pre-generates host keys, as `e2e.yml` does. The
+  added files are labelled with the image's own `setfiles`. Kernel
   arguments added: `console=ttyS0,115200` and `systemd.firstboot=no`.
 - The VM boots through `OVMF_CODE_4M.fd` with a fresh copy of
   `OVMF_VARS_4M.fd` and a disposable qcow2 overlay. There is no `-kernel`,
@@ -139,7 +141,14 @@ probe and on demand (`image`, `test_ref` inputs). It never gates anything.
   1. a loader handoff and kernel on serial;
   2. GNOME Initial Setup running, from its process and the GDM session over
      root SSH, with no regular user present;
-  3. a monitor key press changing the framebuffer.
+  3. a monitor key press changing the framebuffer. Initial Setup's welcome
+     page cycles its greeting through languages, so the probe first watches
+     the page idle for 10 seconds. Pixel rows that change on their own don't
+     count; the key press must change at least 4 other rows.
+
+  QEMU runs as root, so the probe creates the serial log and each frame file
+  itself before QEMU writes to it, and gives QEMU absolute paths (the
+  daemonized QEMU runs from `/`).
 
   Frames, `verdict.json`, the ESP listing and the guest journal are kept as
   evidence. The private key and the disk are deleted.

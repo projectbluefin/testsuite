@@ -106,25 +106,36 @@ def test_wait_for_serial_gives_up_at_the_deadline(tmp_path):
     assert 10 <= clock.now <= 12
 
 
-@pytest.mark.parametrize("before,after,expected", [
-    (b"P6 a" + b"\x00" * 1000, b"P6 a" + b"\x00" * 1000, False),
-    (b"P6 a" + b"\x00" * 1000, b"P6 a" + b"\x01" * 100 + b"\x00" * 900, True),
-    (b"P6 a" + b"\x00" * 1000, b"P6 a" + b"\x01" * 10 + b"\x00" * 990, False),  # noise
-    (b"", b"P6 a", True),
-])
-def test_frames_differ(before, after, expected):
-    assert probe.frames_differ(before, after) is expected
+def _ppm(rows, width=4):
+    """A P6 frame whose row y is filled with the byte rows[y]."""
+    return (b"P6\n# probe\n%d %d\n255\n" % (width, len(rows))
+            + b"".join(bytes([v]) * width * 3 for v in rows))
+
+
+def test_changed_rows_reads_ppm_headers_with_comments():
+    assert probe.changed_rows(_ppm([0, 0, 0, 0]), _ppm([0, 9, 0, 9])) == {1, 3}
+
+
+def test_rows_that_animate_while_idle_do_not_count_as_input():
+    # Run 43333610574: the greeting row changed with no input at all.
+    idle = [_ppm([0, g, 0, 0, 0, 0, 0, 0]) for g in (1, 2, 3)]
+    rows, animated = probe.input_changed_rows(idle, _ppm([0, 4, 0, 0, 0, 0, 0, 0]))
+    assert rows == set() and animated == {1}
+    rows, _ = probe.input_changed_rows(idle, _ppm([0, 4, 0, 7, 7, 7, 7, 0]))
+    assert rows == {3, 4, 5, 6}
 
 
 @pytest.fixture
 def fake_vm(monkeypatch):
-    state = {"users": [], "gis": True, "frames": [b"A" * 2000, b"A" * 2000, b"B" * 2000]}
+    still, moved = _ppm([0] * 8), _ppm([0, 0, 5, 5, 5, 5, 0, 0])
+    state = {"users": [], "gis": True,
+             "frames": [still] * (1 + probe.IDLE_FRAMES) + [moved]}
     monkeypatch.setattr(probe, "wait_for_serial", lambda serial, patterns, timeout: "Linux version 6" if probe.KERNEL_PATTERN in patterns else "BdsDxe: starting Boot0001")
     monkeypatch.setattr(probe, "wait_for_ssh", lambda key, timeout: True)
     monkeypatch.setattr(probe, "initial_setup_running", lambda key: {
         "running": state["gis"], "processes": "", "sessions": "", "regular_users": state["users"]})
     frames = iter(state["frames"])
-    monkeypatch.setattr(probe, "screendump", lambda sock, path: next(frames, b"B" * 2000))
+    monkeypatch.setattr(probe, "screendump", lambda sock, path: next(frames, moved))
     sent = []
     monkeypatch.setattr(probe, "monitor", lambda sock, command: sent.append(command) or "")
     monkeypatch.setattr(probe.time, "sleep", lambda s: None)
@@ -157,7 +168,7 @@ def test_probe_fails_when_initial_setup_never_starts(fake_vm, tmp_path):
 
 
 def test_probe_fails_when_input_changes_nothing(fake_vm, tmp_path, monkeypatch):
-    monkeypatch.setattr(probe, "screendump", lambda sock, path: b"A" * 2000)
+    monkeypatch.setattr(probe, "screendump", lambda sock, path: _ppm([0] * 8))
     assert probe.run(tmp_path, "sock", "serial", "key", 1, 1) == 1
     verdict = _verdict(tmp_path)
     assert verdict["checkpoint"] == 2 and "did not change" in verdict["reason"]
@@ -219,3 +230,12 @@ def test_screendump_creates_the_frame_file_before_qemu_writes_it(tmp_path, monke
     monkeypatch.setattr(probe.time, "sleep", lambda s: None)
     assert probe.screendump("sock", tmp_path / "frame.ppm") == b""
     assert seen["existed"]
+
+
+def test_probe_fails_when_only_the_animated_greeting_changes(fake_vm, tmp_path, monkeypatch):
+    frames = iter([_ppm([0, g, 0, 0, 0, 0, 0, 0]) for g in range(1 + probe.IDLE_FRAMES + 1)])
+    monkeypatch.setattr(probe, "screendump", lambda sock, path: next(frames))
+    assert probe.run(tmp_path, "sock", "serial", "key", 1, 1) == 1
+    verdict = _verdict(tmp_path)
+    assert verdict["frames"] == {"bytes": len(_ppm([0] * 8)), "animated_rows": 1, "input_rows": 0}
+    assert "animate on their own" in verdict["reason"]

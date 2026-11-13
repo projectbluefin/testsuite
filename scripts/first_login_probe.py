@@ -11,7 +11,8 @@ Checkpoints (docs/skills/test-authoring/uefi-boot/references/desktop-first-login
   1. firmware handed off to the disk's loader (serial);
   2. GNOME Initial Setup is the running session (root SSH: its process and
      the GDM session), with framebuffer evidence;
-  3. a monitor key press changes the Initial Setup page (frames differ).
+  3. a monitor key press changes the Initial Setup page: rows that stayed
+     still while the page idled (its greeting animates) change after input.
 Writes OUTDIR/verdict.json with the last checkpoint reached.
 
 Usage: first_login_probe.py OUTDIR MONITOR_SOCKET SERIAL_LOG SSH_KEY
@@ -78,12 +79,50 @@ def screendump(sock_path, ppm_path):
     return b""
 
 
-def frames_differ(before, after, min_changed_bytes=64):
-    """True when two same-sized PPM dumps differ in more than a few bytes."""
-    if not before or not after or len(before) != len(after):
-        return bool(before) != bool(after) or len(before) != len(after)
-    changed = sum(1 for a, b in zip(before, after) if a != b)
-    return changed >= min_changed_bytes
+IDLE_FRAMES = 6  # 10 s of idle frames, 2 s apart
+MIN_INPUT_ROWS = 4
+
+
+def ppm_rows(ppm):
+    """Split a binary PPM (P6, maxval < 256) into its pixel rows."""
+    fields, pos = [], 0
+    while len(fields) < 4:
+        while ppm[pos:pos + 1].isspace():
+            pos += 1
+        if ppm[pos:pos + 1] == b"#":
+            pos = ppm.index(b"\n", pos) + 1
+            continue
+        end = pos
+        while not ppm[end:end + 1].isspace():
+            end += 1
+        fields.append(ppm[pos:end])
+        pos = end
+    magic, width, height, _ = fields
+    if magic != b"P6":
+        raise ValueError("not a binary PPM")
+    data, stride = ppm[pos + 1:], int(width) * 3
+    return [data[y * stride:(y + 1) * stride] for y in range(int(height))]
+
+
+def changed_rows(before, after):
+    """Indexes of pixel rows that differ between two same-sized PPM frames."""
+    a, b = ppm_rows(before), ppm_rows(after)
+    if len(a) != len(b):
+        raise ValueError("frames differ in size")
+    return {y for y, (ra, rb) in enumerate(zip(a, b)) if ra != rb}
+
+
+def input_changed_rows(idle_frames, after):
+    """Rows the key press changed that never changed while the page idled.
+
+    Initial Setup's welcome page cycles its greeting through languages, so a
+    plain before/after comparison passes with no input at all (run
+    43333610574). Rows that change on their own are excluded.
+    """
+    animated = set()
+    for a, b in zip(idle_frames, idle_frames[1:]):
+        animated |= changed_rows(a, b)
+    return changed_rows(idle_frames[-1], after) - animated, animated
 
 
 def ssh(key, command, timeout=20):
@@ -157,16 +196,22 @@ def run(outdir, sock, serial, key, boot_timeout=300, gis_timeout=420):
 
     # 3. A real key press changes the page (e.g. moves the language selection).
     time.sleep(10)  # let the first page settle before comparing frames
-    before = screendump(sock, out / "frame-gis.ppm")
+    idle = [screendump(sock, out / "frame-gis.ppm")]
+    for n in range(1, IDLE_FRAMES):  # watch the page idle to learn what animates
+        time.sleep(2)
+        idle.append(screendump(sock, out / f"frame-idle-{n}.ppm"))
     for key_name in ("down", "down", "tab"):
         monitor(sock, f"sendkey {key_name}")
         time.sleep(1)
     after = screendump(sock, out / "frame-after-input.ppm")
-    verdict["frames"] = {"before_bytes": len(before), "after_bytes": len(after)}
-    if not before or not after:
+    if not all(idle) or not after:
         return finish("QEMU screendump produced no frame")
-    if not frames_differ(before, after):
-        return finish("a monitor key press did not change the Initial Setup frame")
+    rows, animated = input_changed_rows(idle, after)
+    verdict["frames"] = {"bytes": len(after), "animated_rows": len(animated),
+                         "input_rows": len(rows)}
+    if len(rows) < MIN_INPUT_ROWS:
+        return finish("a monitor key press did not change the Initial Setup frame "
+                      "outside the rows that animate on their own")
     verdict["checkpoint"] = 3
     verdict["passed"] = True
     return finish()
