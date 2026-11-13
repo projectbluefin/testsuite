@@ -21,6 +21,11 @@ Run bootc switch to target image
 sudo bootc switch '${TARGET_IMAGE}'
 bootc switch completed
 after bootc switch + reboot
+# Lifecycle: `bootc switch --mutate-in-place` only repoints the booted
+# deployment's origin at the caller's target so the suite's own `bootc upgrade`
+# stages it (#1023); it pulls nothing itself.
+Pointing the booted deployment at ${TARGET_IMAGE}
+sudo bootc switch --mutate-in-place $(printf '%q' "${TARGET_IMAGE}")
 
 # Justfile local recipes name the stream a developer wants to run the suite
 # against on their own machine; nothing from CI consumes these lines.
