@@ -339,6 +339,19 @@ def _deployment_ref(deployment):
     return (((deployment or {}).get("image") or {}).get("image") or {}).get("image", "")
 
 
+def point_origin_command(target):
+    """Shell command that points the booted deployment's origin at ``target``.
+
+    ``bootc switch --mutate-in-place`` rewrites the origin without pulling or
+    staging, but it writes under /sysroot, which a booted system mounts
+    read-only ("Writing origin: Read-only file system", run 43504555365). As
+    ostree's own admin tools do, remount /sysroot read-write in a private
+    mount namespace for that one command; the system's own mount is untouched.
+    """
+    inner = 'mount -o remount,rw /sysroot && exec bootc switch --mutate-in-place "$1"'
+    return f"sudo unshare -m -- sh -c {shlex.quote(inner)} sh {shlex.quote(target)}"
+
+
 def _point_booted_origin_at_target(context, status):
     """Make the booted deployment's origin track TARGET_IMAGE (targeted runs).
 
@@ -352,12 +365,9 @@ def _point_booted_origin_at_target(context, status):
         return
     if _deployment_ref(status.get("staged")) == target:
         return
-    stdout, rc = run_ssh(
-        context, f"sudo bootc switch --mutate-in-place {shlex.quote(target)}"
-    )
-    assert rc == 0, (
-        f"sudo bootc switch --mutate-in-place {target} exited {rc}: {stdout!r}"
-    )
+    command = point_origin_command(target)
+    stdout, rc = run_ssh(context, command)
+    assert rc == 0, f"{command} exited {rc}: {stdout!r}"
     print(f"Pointed the booted deployment's origin at {target}", flush=True)
 
 

@@ -25,7 +25,7 @@ after bootc switch + reboot
 # deployment's origin at the caller's target so the suite's own `bootc upgrade`
 # stages it (#1023); it pulls nothing itself.
 Pointing the booted deployment at ${TARGET_IMAGE}
-sudo bootc switch --mutate-in-place $(printf '%q' "${TARGET_IMAGE}")
+exec bootc switch --mutate-in-place \"\$1\"' sh $(printf '%q' "${TARGET_IMAGE}")
 
 # Justfile local recipes name the stream a developer wants to run the suite
 # against on their own machine; nothing from CI consumes these lines.

@@ -463,7 +463,7 @@ class TestRestorePreUpgradeBaseline:
         self.mod.restore_pre_upgrade_baseline(context)
 
         switches = [c for c in self.commands if "bootc switch" in c]
-        assert switches == ["sudo bootc switch --mutate-in-place ghcr.io/x@sha256:cand"]
+        assert switches == [self.mod.point_origin_command("ghcr.io/x@sha256:cand")]
         assert self.commands[-1] == switches[0]
 
     def test_targeted_run_points_origin_on_first_call(self, monkeypatch):
@@ -479,7 +479,7 @@ class TestRestorePreUpgradeBaseline:
         self.mod.restore_pre_upgrade_baseline(context)
 
         assert context.lifecycle_baseline == {"digest": "sha256:base"}
-        assert self.commands[-1] == "sudo bootc switch --mutate-in-place ghcr.io/x@sha256:cand"
+        assert self.commands[-1] == self.mod.point_origin_command("ghcr.io/x@sha256:cand")
 
     def test_targeted_run_leaves_origin_already_on_target(self, monkeypatch):
         monkeypatch.setenv("TARGET_IMAGE", "ghcr.io/x@sha256:cand")
@@ -563,6 +563,20 @@ class TestRestorePreUpgradeBaseline:
 
         with pytest.raises(AssertionError, match="Rollback did not restore baseline"):
             self.mod.restore_pre_upgrade_baseline(context)
+
+
+def test_point_origin_command_remounts_sysroot_in_a_private_namespace():
+    # A booted system mounts /sysroot read-only, so a bare
+    # `bootc switch --mutate-in-place` fails ("Writing origin: Read-only file
+    # system", run 43504555365).
+    import shlex
+
+    mod = _import_lifecycle_steps()
+    argv = shlex.split(mod.point_origin_command("ghcr.io/x@sha256:c d"))
+    assert argv[:5] == ["sudo", "unshare", "-m", "--", "sh"]
+    assert argv[5] == "-c"
+    assert argv[6].startswith("mount -o remount,rw /sysroot && exec bootc switch --mutate-in-place")
+    assert argv[7:] == ["sh", "ghcr.io/x@sha256:c d"]
 
 
 class TestIsDeploymentSettled:

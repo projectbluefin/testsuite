@@ -988,8 +988,12 @@ jobs:
         run: |
           SSH_COMMON="-i /tmp/vm_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ControlMaster=auto -o ControlPersist=600 -o ControlPath=/tmp/ssh-ctrl-%C -o ConnectTimeout=3"
           echo "Pointing the booted deployment at ${TARGET_IMAGE} (bootc switch --mutate-in-place)..."
+          # The origin lives under /sysroot, which the booted system mounts
+          # read-only: remount it read-write in a private mount namespace for
+          # this one command, as ostree's admin tools do. Same command as
+          # point_origin_command() in tests/lifecycle/features/steps/steps.py.
           timeout 120 ssh ${SSH_COMMON} -p 2222 bluefin-test@127.0.0.1 \
-            "sudo bootc switch --mutate-in-place $(printf '%q' "${TARGET_IMAGE}")"
+            "sudo unshare -m -- sh -c 'mount -o remount,rw /sysroot && exec bootc switch --mutate-in-place \"\$1\"' sh $(printf '%q' "${TARGET_IMAGE}")"
 
       - name: Dump VM serial log
         if: always()

@@ -88,4 +88,5 @@ def test_e2e_points_the_vm_at_the_target_without_staging():
     assert "Pre-stage target image via bootc switch" not in names
     point = next(s for s in steps if s.get("name") == "Point the VM at the target image")
     assert "bootc switch --mutate-in-place" in point["run"]
+    assert "unshare -m" in point["run"] and "remount,rw /sysroot" in point["run"]
     assert point["env"]["TARGET_IMAGE"] == "${{ inputs.target-image }}"
