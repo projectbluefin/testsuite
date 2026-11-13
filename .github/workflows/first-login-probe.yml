@@ -1,12 +1,15 @@
 name: First-login probe
 
 # Boots a fresh desktop disk through OVMF and the image's own bootloader (no
-# -kernel), with no user and no auto-login, and checks it reaches GNOME
-# Initial Setup and takes real keyboard input (#1179, part of #1026).
+# -kernel), with no user and no auto-login, and walks the first-boot journey
+# by keyboard: GNOME Initial Setup's pages in the admission record's order,
+# the new account, GDM login (#1180; probe #1179; part of #1026). Each case
+# runs on its own fresh disk and variable store; the controlled-failure cases
+# pass only when they fail with their named failure.
 # Design: docs/skills/test-authoring/uefi-boot/references/desktop-first-login.md
 #
 # Not a required check and gates nothing. It runs on pull requests that change
-# the probe itself, so a broken probe shows as red CI, and on demand.
+# the journey itself, so a broken journey shows as red CI, and on demand.
 
 on:
   workflow_dispatch:
@@ -19,13 +22,20 @@ on:
         description: "Commit SHA or ref to test, for example a pull request head; empty means the dispatched commit"
         type: string
         default: ""
+      cases:
+        description: "JSON list of cases: happy, wrong-password, missing-page, no-loader"
+        type: string
+        default: '["happy","wrong-password","missing-page","no-loader"]'
   pull_request:
     branches: [main]
     paths:
       - .github/workflows/first-login-probe.yml
       - scripts/first_login_disk.sh
       - scripts/first_login_probe.py
+      - scripts/first_login_journey.py
+      - scripts/first_login_ui_state.py
       - tests/unit/test_first_login_probe.py
+      - tests/unit/test_first_login_journey.py
 
 permissions:
   contents: read
@@ -35,12 +45,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  probe:
+  journey:
+    name: First-boot journey (${{ matrix.case }})
     # ubuntu-24.04: bootc's loopback install fails on 26.04 runners (#1123).
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        case: ${{ fromJSON(inputs.cases || '["happy","wrong-password","missing-page","no-loader"]') }}
     env:
       IMAGE: ${{ inputs.image || 'ghcr.io/projectbluefin/utah:testing' }}
+      CASE: ${{ matrix.case }}
     steps:
       - name: Set the per-run directory
         run: echo "RUN_DIR=${RUNNER_TEMP}/first-login" >> "$GITHUB_ENV"
@@ -86,7 +102,11 @@ jobs:
           mkdir -p "${RUN_DIR}"
           # Per-run key; the private half never leaves the runner.
           ssh-keygen -q -t ed25519 -N "" -C "first-login-probe" -f "${RUN_DIR}/key"
-          bash scripts/first_login_disk.sh "${PINNED}" "${RUN_DIR}/disk" "${RUN_DIR}/key.pub"
+          case "${CASE}" in
+            no-loader|missing-page) FIXTURE="${CASE}" ;;
+            *) FIXTURE=none ;;
+          esac
+          bash scripts/first_login_disk.sh "${PINNED}" "${RUN_DIR}/disk" "${RUN_DIR}/key.pub" "${FIXTURE}"
 
       - name: Boot through OVMF and the disk's own loader
         run: |
@@ -112,22 +132,23 @@ jobs:
             -pidfile "${RUN_DIR}/qemu.pid" -daemonize
           sudo chmod 666 "${RUN_DIR}/monitor.sock"
 
-      - name: Probe the first-boot journey
+      - name: Drive the first-boot journey
         run: |
           set -euo pipefail
           mkdir -p results
-          python3 scripts/first_login_probe.py results "${RUN_DIR}/monitor.sock" \
+          # The account password is generated inside this process and never
+          # leaves it (scripts/first_login_journey.py).
+          python3 scripts/first_login_journey.py "${CASE}" results "${RUN_DIR}/monitor.sock" \
             "${RUN_DIR}/serial.log" "${RUN_DIR}/key"
 
       - name: Collect evidence and stop the VM
         if: always()
         run: |
           mkdir -p results
-          sudo cp "${RUN_DIR}/serial.log" results/ 2>/dev/null || true
+          # The journey copies the serial log and journal itself and scans
+          # them for the password; these are only for a run that died first.
+          [ -f results/serial.log ] || sudo cp "${RUN_DIR}/serial.log" results/ 2>/dev/null || true
           cp "${RUN_DIR}"/disk/{disk.json,esp.txt,disk-users.txt,bootc-install.log} results/ 2>/dev/null || true
-          ssh -i "${RUN_DIR}/key" -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            -o BatchMode=yes -o ConnectTimeout=5 root@127.0.0.1 'journalctl -b --no-pager' \
-            > results/guest-journal.txt 2>&1 || true
           for ppm in results/*.ppm; do
             [ -f "$ppm" ] && python3 -c 'import sys; from tests.shared.qemu_screendump import _ppm_to_png; _ppm_to_png(sys.argv[1], sys.argv[1][:-4] + ".png")' "$ppm" || true
           done
@@ -139,7 +160,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: first-login-probe
+          name: first-boot-journey-${{ matrix.case }}
           path: results/
           if-no-files-found: warn
 

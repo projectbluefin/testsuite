@@ -57,7 +57,7 @@ def test_disk_requires_a_digest_pinned_image():
 # --- workflow -------------------------------------------------------------------
 
 def _step(name):
-    steps = WORKFLOW["jobs"]["probe"]["steps"]
+    steps = WORKFLOW["jobs"]["journey"]["steps"]
     return next(s for s in steps if s.get("name", "").startswith(name))
 
 
