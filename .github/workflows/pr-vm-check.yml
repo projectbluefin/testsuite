@@ -10,8 +10,8 @@
 # run after merge (as a v1 hold) or when a maintainer started a manual run.
 # This gives every such PR its own VM evidence.
 #
-# Fork PRs get a read-only token, so e2e.yml's screenshot push
-# (continue-on-error) is skipped there; nothing else
+# Advisory for now: not a required check. Fork PRs get a read-only token, so
+# e2e.yml's screenshot push (continue-on-error) is skipped there; nothing else
 # needs a write token or a secret.
 
 name: PR VM check
@@ -52,7 +52,6 @@ jobs:
           # so this is exactly the PR's own change even if main has moved.
           git diff --name-only HEAD^1 HEAD > changed.txt
           python3 scripts/vm_validation_plan.py --pr < changed.txt > plan.json
-          echo "canary=$(python3 -c 'import json; print(str(json.load(open("plan.json"))["canary"]).lower())')" >> "$GITHUB_OUTPUT"
           python3 scripts/v1_gate.py < plan.json | tee -a "$GITHUB_OUTPUT" > decision.txt
           {
             echo "### PR VM check plan"

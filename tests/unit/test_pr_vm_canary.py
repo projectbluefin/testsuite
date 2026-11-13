@@ -52,6 +52,10 @@ def test_workflow_change_exercises_its_canary():
 
 def test_post_merge_plan_is_unchanged():
     assert plan(["tests/gnomeos-canary/features/canary.feature"])["no_hosted_lane"] == ["gnomeos-canary"]
+    # The v1 gate runs the canary for its own suite instead of holding.
+    decision = decide(plan(["tests/gnomeos-canary/features/canary.feature"]))
+    assert decision["action"] == "canary"
+    assert decision["canary"] == "true"
     assert decide(plan([".github/workflows/gnomeos-canary.yml"]))["suites"] == "common,smoke"
 
 
@@ -64,3 +68,9 @@ def test_pr_workflow_calls_canary_using_plan_output():
     assert canary["if"] == "needs.plan.outputs.canary == 'true'"
     assert canary["permissions"] == {"contents": "read"}
     assert jobs["plan"]["outputs"]["canary"] == "${{ steps.plan.outputs.canary }}"
+
+
+def test_pr_plan_canary_flag_reaches_the_gate_output():
+    decision = decide(plan(["tests/shared/gnomeos_canary.py"], pr=True))
+    assert decision["canary"] == "true"
+    assert decision["action"] == "canary"

@@ -44,6 +44,7 @@ UNGATED_SUITES = frozenset({"lifecycle"})
 # only run in lanes the canary does not exercise, so they still hold.
 CANARY_COVERED_PREFIX = ".github/actions/gnome-e2e/"
 ACTION_LANE = "gnome-e2e-action"
+CANARY_SUITE = "gnomeos-canary"
 
 
 def canary_covers(plan: dict) -> bool:
@@ -65,7 +66,15 @@ def decide(plan: dict, ungated: frozenset[str] = UNGATED_SUITES) -> dict[str, st
     canary = bool(composite) and canary_covers(plan)
     if canary:
         composite = set()
-    blockers = sorted(composite | set(plan.get("no_hosted_lane", [])))
+    # The canary's own suite (tests/gnomeos-canary/) has no e2e.yml lane;
+    # the canary workflow is that lane.
+    unhosted = set(plan.get("no_hosted_lane", []))
+    if CANARY_SUITE in unhosted:
+        unhosted.discard(CANARY_SUITE)
+        canary = True
+    # A PR plan (vm_validation_plan.py --pr) flags the canary itself.
+    canary = canary or bool(plan.get("canary"))
+    blockers = sorted(composite | unhosted)
 
     decision = {
         "action": "",

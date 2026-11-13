@@ -59,7 +59,8 @@ check"): it diffs GitHub's merge commit against its first parent and uses the
 planner's `--pr` mode. That mode routes the GNOME OS canary's workflow, harness,
 helper and suite to the canary rather than Dakota, and runs the canary for the
 `gnome-e2e` composite action too. The PR workflow itself also selects the canary
-so changes to its routing exercise it. The post-merge planner remains unchanged.
+so changes to its routing exercise it. The post-merge planner is unchanged; the
+`v1` gate below runs the same canary for the action and the canary's suite.
 
 The PR check boots planned `e2e.yml` suites on `dakota:testing` pinned by digest
 at the merge commit. Other `no_hosted_lane` suites still produce a notice and
@@ -104,7 +105,8 @@ and `.../check-runs`.
    used to hold `v1` every time (#1127, #1140). Any other change in the file,
    or a ref that is not a full SHA on both sides, keeps it in the plan. The run
    summary lists the dropped files. This is the gate's version of the hive's
-   pin-only rule; it goes once the gate boots the canary itself (#1144).
+   pin-only rule. The gate can now run the canary (below), but pin-only
+   bumps still skip it: nothing they change needs a 15-minute GNOME OS boot.
 2. Turns the plan into an action with `scripts/v1_gate.py`:
    - `move`: nothing reaches a VM (docs, unit tests, repo tooling).
    - `gate`: boot the planned suites through `e2e.yml` at the merged SHA,
@@ -117,13 +119,14 @@ and `.../check-runs`.
      scenario also fails at `v1`. A new failing scenario, a suite that
      failed without a failing scenario recorded, or a missing baseline
      holds `v1`. The gate catches testsuite regressions, not image bugs.
-   - `canary`: the only lane `e2e.yml` cannot boot is a change to the
-     `gnome-e2e` action itself (`.github/actions/gnome-e2e/`). The gate calls
-     `gnomeos-canary.yml`, which drives that action end to end, and moves `v1`
-     only if it passes. With suites to boot as well, the action is `gate` with
-     `canary=true` and both must pass. Every `projectbluefin/actions` bump
-     touches that action, so without this each one held `v1` for a person
-     (#1140).
+   - `canary`: the only lanes `e2e.yml` cannot boot are a change to the
+     `gnome-e2e` action itself (`.github/actions/gnome-e2e/`) or to the
+     canary's own suite (`tests/gnomeos-canary/`). The gate calls
+     `gnomeos-canary.yml` at the merged SHA, which drives that action end to
+     end, and moves `v1` only if it passes. With suites to boot as well, the
+     action is `gate` with `canary=true` and both must pass. Before this, each
+     such change held `v1` until a maintainer ran the canary by hand and
+     forced the move (#1140, #1188).
    - `hold`: the plan needs a lane neither can cover (an action-lane script
      the canary does not run, such as `scripts/extension_validation.py`, or a
      `no_hosted_lane` suite). The hold is flagged for a maintainer at once.
