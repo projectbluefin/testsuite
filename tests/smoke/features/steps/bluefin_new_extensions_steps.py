@@ -187,6 +187,17 @@ def _systemd_unit_start_stop(unit: str) -> tuple[bool, bool, str]:
 _SESSION_ENV = "[ -f /tmp/session.env ] && . /tmp/session.env; "
 
 
+# Run once when wl-copy times out: which clipboard globals does the compositor
+# advertise? Without a data-control protocol wl-copy needs keyboard focus for
+# a popup surface, which GNOME may never give it. WAYLAND_DEBUG lists every
+# registry global wl-copy saw (#1164).
+_WL_COPY_DIAGNOSTIC = _SESSION_ENV + (
+    "d=$(mktemp); WAYLAND_DEBUG=1 timeout 5 wl-copy probe </dev/null >/dev/null 2>\"$d\"; "
+    "echo \"rc=$?\"; grep -E 'global\\(.*(data_control|data_device|seat|primary_selection)' \"$d\"; "
+    "echo '-- last lines --'; tail -n 12 \"$d\"; rm -f \"$d\""
+)
+
+
 def _clipboard_set(text: str) -> None:
     """Put ``text`` on the clipboard, fed to wl-copy from a guest file.
 
@@ -204,9 +215,16 @@ def _clipboard_set(text: str) -> None:
         'else cat "$err" >&2; rm -f "$f" "$err"; exit 1; fi'
     )
     argv = ssh_argv() + [inner] if _IN_CONTAINER else ["sh", "-c", inner]
-    result = subprocess.run(
-        argv, input=text.encode("utf-8"), capture_output=True, timeout=30, check=False,
-    )
+    try:
+        result = subprocess.run(
+            argv, input=text.encode("utf-8"), capture_output=True, timeout=30, check=False,
+        )
+    except subprocess.TimeoutExpired:
+        out, rc, err = _run_host(_WL_COPY_DIAGNOSTIC)
+        raise AssertionError(
+            "wl-copy did not return within 30 s. Wayland probe "
+            f"(WAYLAND_DEBUG=1, 5 s):\n{out}\n{err}".rstrip()
+        ) from None
     stderr = result.stderr.decode("utf-8", errors="replace").strip()
     assert result.returncode == 0, f"wl-copy failed (exit {result.returncode}): {stderr}"
 

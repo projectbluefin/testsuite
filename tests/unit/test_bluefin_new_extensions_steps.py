@@ -7,6 +7,7 @@ journal filtering, memory-bound math, gsettings key parsing, and the
 soft-pass/hard-fail branching used throughout the module.
 """
 import os
+import subprocess
 import sys
 import types
 from unittest.mock import MagicMock, patch
@@ -441,6 +442,21 @@ class TestClipboardSet:
             mod._clipboard_set(payload)
         assert seen_stdin.read_text().strip() == "file"
         assert copied.read_bytes() == payload.encode("utf-8")
+
+
+    def test_a_timeout_reports_the_compositors_clipboard_globals(self, mod):
+        # Draining stdin didn't stop the 30 s hang on Utah (run 43318364626).
+        probe_out = 'rc=124\nwl_registry@2.global(12, "wl_data_device_manager", 3)'
+        with patch.object(mod, "ssh_argv", return_value=list(_SSH)), \
+             patch.object(mod.subprocess, "run",
+                          side_effect=subprocess.TimeoutExpired(["ssh"], 30)), \
+             patch.object(mod, "_run_host", return_value=(probe_out, 0, "")) as run_host:
+            with pytest.raises(AssertionError, match="wl_data_device_manager") as raised:
+                mod._clipboard_set("hello")
+        assert "did not return within 30 s" in str(raised.value)
+        cmd = run_host.call_args.args[0]
+        assert cmd.startswith(mod._SESSION_ENV)
+        assert "WAYLAND_DEBUG=1 timeout 5 wl-copy" in cmd and "</dev/null" in cmd
 
 
 class TestClipboardGet:
