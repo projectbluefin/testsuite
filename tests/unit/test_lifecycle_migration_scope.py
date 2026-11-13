@@ -90,3 +90,10 @@ def test_e2e_points_the_vm_at_the_target_without_staging():
     assert "bootc switch --mutate-in-place" in point["run"]
     assert "unshare -m" in point["run"] and "remount,rw /sysroot" in point["run"]
     assert point["env"]["TARGET_IMAGE"] == "${{ inputs.target-image }}"
+
+
+def test_pin_scenario_uses_ostree_admin_pin():
+    feature = (REPO_ROOT / "tests/lifecycle/features/bootc.feature").read_text()
+    assert "bootc pin" not in feature.replace("bootc pin subcommand", "")
+    assert '"sudo ostree admin pin 0"' in feature
+    assert '"sudo ostree admin pin --unpin 0"' in feature

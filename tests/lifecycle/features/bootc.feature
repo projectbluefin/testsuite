@@ -23,11 +23,14 @@ Feature: bootc upgrade and rollback lifecycle
   Scenario: bootc can pin and unpin the current deployment
     * Bluefin VM is booted and reachable over SSH
     * Deployment is settled
-    * Run SSH command: "sudo bootc pin"
+    # bootc has no pin subcommand; pinning is ostree's (`ostree admin pin`),
+    # and bootc status reports it as booted.pinned. Index 0 is the first
+    # deployment, which is the booted one once the deployment is settled.
+    * Run SSH command: "sudo ostree admin pin 0"
     * SSH command return code is "0"
     * Run SSH command: "sudo bootc status --format=json"
     * bootc status shows deployment is pinned
-    * Run SSH command: "sudo bootc pin --unpin"
+    * Run SSH command: "sudo ostree admin pin --unpin 0"
     * SSH command return code is "0"
     * Run SSH command: "sudo bootc status --format=json"
     * bootc status shows deployment is not pinned
