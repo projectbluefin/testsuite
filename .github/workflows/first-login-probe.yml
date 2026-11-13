@@ -1,0 +1,148 @@
+name: First-login probe
+
+# Boots a fresh desktop disk through OVMF and the image's own bootloader (no
+# -kernel), with no user and no auto-login, and checks it reaches GNOME
+# Initial Setup and takes real keyboard input (#1179, part of #1026).
+# Design: docs/skills/test-authoring/uefi-boot/references/desktop-first-login.md
+#
+# Not a required check and gates nothing. It runs on pull requests that change
+# the probe itself, so a broken probe shows as red CI, and on demand.
+
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: "Image to probe; a tag is resolved to its digest at run time"
+        type: string
+        default: "ghcr.io/projectbluefin/utah:testing"
+      test_ref:
+        description: "Commit SHA or ref to test, for example a pull request head; empty means the dispatched commit"
+        type: string
+        default: ""
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/first-login-probe.yml
+      - scripts/first_login_disk.sh
+      - scripts/first_login_probe.py
+      - tests/unit/test_first_login_probe.py
+
+permissions:
+  contents: read
+
+concurrency:
+  group: first-login-probe-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    # ubuntu-24.04: bootc's loopback install fails on 26.04 runners (#1123).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      IMAGE: ${{ inputs.image || 'ghcr.io/projectbluefin/utah:testing' }}
+    steps:
+      - name: Set the per-run directory
+        run: echo "RUN_DIR=${RUNNER_TEMP}/first-login" >> "$GITHUB_ENV"
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.test_ref || github.sha }}
+          persist-credentials: false
+
+      - name: Free disk space and install QEMU, qemu-img and OVMF
+        uses: projectbluefin/actions/bootc-build/setup-runner@d45359f988daff2bd808e4a977d1275a8a2e6e2d # v1
+        with:
+          update-podman: "false"
+          apt-packages: qemu-system-x86 qemu-utils ovmf
+
+      - name: Enable KVM access
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | \
+            sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+
+      - name: Pin the image by digest and pull it
+        id: image
+        run: |
+          set -euo pipefail
+          if [[ "${IMAGE}" == *@sha256:* ]]; then
+            PINNED="${IMAGE}"
+          else
+            DIGEST=$(skopeo inspect --format '{{.Digest}}' "docker://${IMAGE}")
+            [[ "${DIGEST}" == sha256:* ]] || { echo "::error::could not resolve ${IMAGE}"; exit 1; }
+            PINNED="${IMAGE%:*}@${DIGEST}"
+          fi
+          echo "pinned=${PINNED}" >> "$GITHUB_OUTPUT"
+          echo "Probing \`${PINNED}\`" >> "$GITHUB_STEP_SUMMARY"
+          sudo podman pull "${PINNED}"
+
+      - name: Prepare the first-boot disk
+        env:
+          PINNED: ${{ steps.image.outputs.pinned }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUN_DIR}"
+          # Per-run key; the private half never leaves the runner.
+          ssh-keygen -q -t ed25519 -N "" -C "first-login-probe" -f "${RUN_DIR}/key"
+          bash scripts/first_login_disk.sh "${PINNED}" "${RUN_DIR}/disk" "${RUN_DIR}/key.pub"
+
+      - name: Boot through OVMF and the disk's own loader
+        run: |
+          set -euo pipefail
+          cd "${RUN_DIR}"
+          # Fresh writable overlay and a fresh copy of the variable store, so
+          # the prepared disk and the firmware templates never change.
+          qemu-img create -q -f qcow2 -b disk/disk.raw -F raw overlay.qcow2
+          cp /usr/share/OVMF/OVMF_VARS_4M.fd vars.fd
+          # QEMU runs as root; create the serial log as the runner user first
+          # so the probe can read it (QEMU keeps an existing file's owner).
+          : > "${RUN_DIR}/serial.log"
+          sudo qemu-system-x86_64 \
+            -machine q35,accel=kvm -cpu host -m 4096 -smp 4 \
+            -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.fd \
+            -drive if=pflash,format=raw,file=vars.fd \
+            -drive file=overlay.qcow2,format=qcow2,if=virtio \
+            -netdev user,id=n0,hostfwd=tcp:127.0.0.1:2222-:22 -device virtio-net-pci,netdev=n0 \
+            -vga none -device virtio-gpu-pci \
+            -display none \
+            -serial "file:${RUN_DIR}/serial.log" \
+            -monitor "unix:${RUN_DIR}/monitor.sock,server,nowait" \
+            -pidfile "${RUN_DIR}/qemu.pid" -daemonize
+          sudo chmod 666 "${RUN_DIR}/monitor.sock"
+
+      - name: Probe the first-boot journey
+        run: |
+          set -euo pipefail
+          mkdir -p results
+          python3 scripts/first_login_probe.py results "${RUN_DIR}/monitor.sock" \
+            "${RUN_DIR}/serial.log" "${RUN_DIR}/key"
+
+      - name: Collect evidence and stop the VM
+        if: always()
+        run: |
+          mkdir -p results
+          sudo cp "${RUN_DIR}/serial.log" results/ 2>/dev/null || true
+          cp "${RUN_DIR}"/disk/{disk.json,esp.txt,disk-users.txt,bootc-install.log} results/ 2>/dev/null || true
+          ssh -i "${RUN_DIR}/key" -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            -o BatchMode=yes -o ConnectTimeout=5 root@127.0.0.1 'journalctl -b --no-pager' \
+            > results/guest-journal.txt 2>&1 || true
+          for ppm in results/*.ppm; do
+            [ -f "$ppm" ] && python3 -c 'import sys; from tests.shared.qemu_screendump import _ppm_to_png; _ppm_to_png(sys.argv[1], sys.argv[1][:-4] + ".png")' "$ppm" || true
+          done
+          rm -f results/*.ppm
+          [ -f "${RUN_DIR}/qemu.pid" ] && sudo kill "$(sudo cat "${RUN_DIR}/qemu.pid")" || true
+          sudo chown -R "$(id -u):$(id -g)" results
+
+      - name: Retain evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: first-login-probe
+          path: results/
+          if-no-files-found: warn
+
+      - name: Delete the disk, variable store and key
+        if: always()
+        run: sudo rm -rf "${RUN_DIR}"

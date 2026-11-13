@@ -119,6 +119,7 @@ files there. Never write to `ublue-os/*` or any KDE property at all.
 - **Never create issues, PRs, comments, forks, or writes in read-only upstream namespaces.** Read-only API calls are allowed; see `docs/skills/meta/human-gates/SKILL.md` for the prohibition details. **This explicitly includes all KDE properties (`invent.kde.org`, `bugs.kde.org`, KDE Matrix rooms, `KDE/*` mirrors) — read-only, no exceptions, for sub-agents and scheduled jobs too.**
 - **Workflow action references must be pinned.** External `uses:` must be a full commit SHA with a version comment. Never use floating tags.
 - **No WIP PRs.** Every open PR must be ready to merge: green CI, complete scope, no placeholder commits.
+- **Closing keywords only when this PR's checks can prove the fix.** If the issue's failure appears only on an image the PR VM check doesn't boot (today anything but `dakota:testing`, for example Utah or a `@bluefin` scenario), write `Refs #N` in the PR body, and make sure `Fixes #N`, `Closes #N` or `Resolves #N` appears nowhere in the body or in commit messages. GitHub acts on the keyword wherever it appears. A maintainer validates on that image and closes the issue; see "Validating a fix for another image" below.
 - **Concurrent PRs must own disjoint files.** There is no cap on how many PRs
   you may have open. The real constraint is conflict, not count: before opening
   a PR, check that no other open PR already touches the files you are about to
@@ -132,6 +133,10 @@ files there. Never write to `ublue-os/*` or any KDE property at all.
   If your file set overlaps an open PR, either fold your change into that PR or
   wait for it to land. Overlapping PRs are the thing that actually costs review
   time and creates merge churn.
+
+  An open PR labelled `hold`, `blocked` or `do-not-merge` doesn't reserve its
+  files: go ahead, name the overlapping PR in your PR body, and whichever lands
+  second rebases. Otherwise a parked PR freezes those files for everyone.
 - **All isolated work happens in `.worktrees/<short-desc>` at the repo root**, branched from `origin/main` — never in `/tmp`, `/var/tmp`, or sibling directories. Every agent that commits gets its own worktree, and must not touch another worktree's branch or working tree. Remove the worktree and prune after the PR merges. See [`docs/skills/ci-ops/contributing/references/branch-and-worktree.md`](docs/skills/ci-ops/contributing/references/branch-and-worktree.md).
 - **Don't merge your own PR; it merges once CI is green and it's approved.** There is no merge queue. The hive merges a PR after its reviewer approves and the required checks pass; a change to `e2e.yml`, `build-runner.yml` or `build-kde-runner.yml` is merged by a maintainer. Never `--admin`, never self-merge.
 
@@ -165,3 +170,13 @@ Stop and request human input when you are:
 - Anything that would require a change in `projectbluefin/common` — report it, do not make it.
 
 See `docs/skills/meta/human-gates/SKILL.md` for full examples.
+
+### Validating a fix for another image (maintainers)
+
+- Run it from `main` without pushing a branch:
+  `gh workflow run manual.yml -R projectbluefin/testsuite --ref main -f image=<image> -f suites=<suites> -f test_ref=<PR head SHA>`.
+  Run 43271798804 is a worked example (PR #1171 on `utah:testing`).
+- If a merged PR closed the issue without fixing it, reopen it with a comment
+  saying what is left, and add the `hive: churn-triaged` label in the same step.
+  Without the label, the second merged PR makes the hive's churn guard withhold
+  the issue from contributors.
