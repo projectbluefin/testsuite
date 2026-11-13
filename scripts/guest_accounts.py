@@ -125,6 +125,8 @@ def provision(deploy: Path, var: Path, pubkey: str, chown=os.chown) -> None:
     grant = sudoers_d / f"zz-{HARNESS_USER}"
     _refuse_symlink(grant)
     sudoers_d.mkdir(parents=True, exist_ok=True)
+    # Replace rather than rewrite: a grant from an earlier run is read-only (0440).
+    grant.unlink(missing_ok=True)
     grant.write_text(f"{HARNESS_USER} ALL=(ALL) NOPASSWD:ALL\n", encoding="utf-8")
     grant.chmod(0o440)
 

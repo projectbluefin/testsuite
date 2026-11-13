@@ -83,9 +83,9 @@ def test_provisioning_twice_does_not_duplicate_accounts(tmp_path):
     deploy, var, _, chown = _guest(tmp_path)
     guest_accounts.provision(deploy, var, "key", chown)
     guest_accounts.provision(deploy, var, "key", chown)
-    passwd = (deploy / "etc/passwd").read_text()
-    assert passwd.count("bluefin-test:") == 1
-    assert passwd.count("gnome-e2e-harness:") == 1
+    names = [line.split(":")[0] for line in (deploy / "etc/passwd").read_text().splitlines()]
+    assert names.count("bluefin-test") == 1
+    assert names.count("gnome-e2e-harness") == 1
 
 
 def test_uid_clash_fails_closed(tmp_path):
@@ -230,7 +230,7 @@ def test_isolated_disk_uses_separate_accounts_and_shared_mode_is_kept():
 
 def test_isolation_is_proven_before_any_test_runs():
     run = _step("Install Python test stack")["run"]
-    isolated = run.partition('if [[ "${GNOME_E2E_ISOLATED}" == "true" ]]; then')[2].partition("\n        fi\n")[0]
+    isolated = run.partition('if [[ "${GNOME_E2E_ISOLATED}" == "true" ]]; then')[2].partition("\nfi\n")[0]
     assert "guest_session_isolation.py" in isolated
     assert "> session-isolation.json || ISOLATION_RC=$?" in isolated
     assert "exit 1" in isolated
@@ -242,7 +242,7 @@ def test_isolation_is_proven_before_any_test_runs():
 
 def test_isolated_behave_runs_as_desktop_user_without_qecore_headless():
     run = _step("Run behave via qecore-headless")["run"]
-    isolated = run.partition('if [[ "${GNOME_E2E_ISOLATED}" == "true" ]]; then')[2].partition("\n        else\n")[0]
+    isolated = run.partition('if [[ "${GNOME_E2E_ISOLATED}" == "true" ]]; then')[2].partition("\nelse\n")[0]
     assert "sudo -u bluefin-test -H -- env -i" in isolated
     assert "$HOME/.local/bin/qecore-headless" not in isolated
     assert 'mkdir -m 0755 /tmp/gnome_e2e &&' in isolated
