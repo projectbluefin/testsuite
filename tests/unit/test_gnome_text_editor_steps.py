@@ -33,6 +33,7 @@ def _import_text_editor_steps(tree_available: bool = True):
     from tests.shared import app_support as shared_app_support  # noqa: PLC0415
     app_support_stub.describe_subtree = shared_app_support.describe_subtree
     app_support_stub.newest_active_frame = shared_app_support.newest_active_frame
+    app_support_stub.node_text = shared_app_support.node_text
     app_support_stub.stop_app_instances = MagicMock()
     sys.modules["app_support"] = app_support_stub
 
@@ -741,7 +742,33 @@ class TestDiscardDialogAsAlert:
         alert.findChildren.side_effect = lambda pred: [b for b in [button] if pred(b)]
         app = MagicMock()
         app.findChildren.side_effect = lambda pred: [a for a in [alert] if pred(a)]
-        with patch.object(m, "_dialog_hosts", return_value=[app]):
+        with patch.object(m, "_dialog_hosts", return_value=[(app, m.DIALOG_ROLES)]):
             context = MagicMock()
             m.text_editor_discard_dialog_is_open(context)
         assert context.text_editor_discard_dialog is alert
+
+
+class TestSaveDialogInPortalWindow:
+    def test_portal_frame_with_save_button_counts(self):
+        m = _import_text_editor_steps()
+        save = MagicMock()
+        save.name = "Save"
+        save.showing = True
+        save.roleName = "button"
+        frame = MagicMock()
+        frame.roleName = "frame"
+        frame.showing = True
+        frame.findChildren.side_effect = lambda pred: [b for b in [save] if pred(b)]
+        editor = MagicMock()
+        editor.findChildren.side_effect = lambda pred: [f for f in [frame] if pred(f)]
+        portal = MagicMock()
+        portal.findChildren.side_effect = lambda pred: [f for f in [frame] if pred(f)]
+        with patch.object(m, "_dialog_hosts", return_value=[(editor, m.DIALOG_ROLES), (portal, m.PORTAL_WINDOW_ROLES)]):
+            context = MagicMock()
+            m.text_editor_save_dialog_is_open(context)
+        assert context.text_editor_save_dialog is frame
+
+    def test_editor_main_frame_is_not_a_dialog(self):
+        m = _import_text_editor_steps()
+        assert "frame" not in m.DIALOG_ROLES
+        assert "frame" in m.PORTAL_WINDOW_ROLES

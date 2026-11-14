@@ -16,5 +16,6 @@ from tests.shared.app_support import (  # noqa: F401
     launch_background,
     launch_target_available,
     newest_active_frame,
+    node_text,
     stop_app_instances,
 )

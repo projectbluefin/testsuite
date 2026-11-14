@@ -14,6 +14,7 @@ from app_support import (
     describe_subtree,
     launch_background,
     newest_active_frame,
+    node_text,
     stop_app_instances,
 )
 
@@ -109,11 +110,7 @@ def _display_candidates(window=None):
         lambda n: n.showing and n.roleName in DISPLAY_ROLES and not _inside_button(n)
     ):
         name = (getattr(node, "name", "") or "").strip()
-        try:
-            text = (getattr(node, "text", "") or "").strip()
-        except Exception:  # noqa: BLE001
-            text = ""
-        value = text or name
+        value = node_text(node) or name
         if value:
             candidates.append(value)
     return candidates

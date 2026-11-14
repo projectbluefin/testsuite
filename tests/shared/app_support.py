@@ -139,7 +139,32 @@ def newest_active_frame(frames: list):
     return frames[-1]
 
 
-def describe_subtree(node, max_depth: int = 10, max_lines: int = 150) -> str:
+def node_text(node) -> str:
+    """A node's text: dogtail's ``text``, else the AT-SPI Text interface.
+
+    GNOME Calculator 51's display is a ``text`` node whose dogtail ``text``
+    reads empty while the window shows a value.
+    """
+    try:
+        text = getattr(node, "text", "")
+    except Exception:  # noqa: BLE001
+        text = ""
+    if isinstance(text, str) and text.strip():
+        return text.strip()
+    try:
+        from gi.repository import Atspi
+
+        iface = node.get_text_iface()
+        if iface is None:
+            return ""
+        count = Atspi.Text.get_character_count(iface)
+        value = Atspi.Text.get_text(iface, 0, count)
+        return value.strip() if isinstance(value, str) else ""
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def describe_subtree(node, max_depth: int = 30, max_lines: int = 200) -> str:
     """Render an AT-SPI subtree (role, name, text, states) for a failure message."""
     lines: list[str] = []
 
@@ -148,10 +173,7 @@ def describe_subtree(node, max_depth: int = 10, max_lines: int = 150) -> str:
             return
         role = getattr(n, "roleName", "?")
         name = (getattr(n, "name", "") or "").strip()
-        try:
-            text = (getattr(n, "text", "") or "").strip()
-        except Exception:  # noqa: BLE001
-            text = ""
+        text = node_text(n)
         try:
             states = ",".join(
                 s.value_nick for s in n.getState().get_states()
@@ -177,11 +199,12 @@ def stop_app_instances(process_name: str, reset_paths: tuple[str, ...] = ()) -> 
     Single-instance GNOME apps open one more window per launch, so without this
     each scenario's Background stacks a window on the last one and steps read a
     window the scenario never touched. ``process_name`` is matched exactly
-    (``pkill -x``; the kernel truncates process names to 15 characters).
+    (``pkill -x``) after cutting it to the kernel's 15-character process name,
+    so ``gnome-calculator`` matches the running ``gnome-calculato``.
     ``reset_paths`` are ``$HOME``-relative state directories removed once the
     app has exited, for apps that restore their last session on launch.
     """
-    name = shlex.quote(process_name)
+    name = shlex.quote(process_name[:15])
     cmd = (
         f"pkill -TERM -x {name} 2>/dev/null; "
         f"for _ in 1 2 3 4 5 6 7 8 9 10; do pgrep -x {name} >/dev/null || break; sleep 0.5; done; "

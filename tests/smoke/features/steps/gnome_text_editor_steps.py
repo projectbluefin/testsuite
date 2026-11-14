@@ -39,6 +39,9 @@ DIALOG_ENTRY_ROLES = {"text", "entry", "document text"}
 BUTTON_ROLES = {"push button", "button"}
 # GTK 4 file choosers are dialogs; libadwaita's "Save Changes?" prompt is an alert.
 DIALOG_ROLES = {"dialog", "alert", "file chooser"}
+# The portal's file chooser is a top-level window of its own process, not a
+# dialog role (GNOME OS 51: "Save a File" under xdg-desktop-portal-gtk).
+PORTAL_WINDOW_ROLES = DIALOG_ROLES | {"frame", "window"}
 # Text Editor keeps unsaved drafts and reopens them on the next launch.
 TEXT_EDITOR_STATE_DIRS = (
     ".local/share/org.gnome.TextEditor",
@@ -222,12 +225,13 @@ def _window_tree() -> str:
 
 
 def _dialog_hosts() -> list:
-    """Text Editor plus any file-chooser portal, which owns the save dialog when GTK uses portals."""
-    hosts = [_text_editor_app()]
+    """(app, roles) pairs: Text Editor's own dialogs, and windows of any
+    file-chooser portal, which owns the save dialog when GTK uses portals."""
+    hosts = [(_text_editor_app(), DIALOG_ROLES)]
     try:
         for app in tree.root.applications():
             if "portal" in (getattr(app, "name", "") or "").casefold():
-                hosts.append(app)
+                hosts.append((app, PORTAL_WINDOW_ROLES))
     except Exception:  # noqa: BLE001
         pass
     return hosts
@@ -235,8 +239,8 @@ def _dialog_hosts() -> list:
 
 def _visible_dialogs() -> list:
     dialogs = []
-    for host in _dialog_hosts():
-        dialogs.extend(host.findChildren(lambda n: n.roleName in DIALOG_ROLES and n.showing))
+    for host, roles in _dialog_hosts():
+        dialogs.extend(host.findChildren(lambda n, roles=roles: n.roleName in roles and n.showing))
     return dialogs
 
 

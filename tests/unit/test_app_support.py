@@ -633,7 +633,8 @@ class TestStopAppInstances:
              patch.object(app_support.subprocess, "run") as run:
             app_support.stop_app_instances("gnome-calculator")
         run.assert_not_called()
-        assert ssh_run.call_args.args[0].startswith("pkill -TERM -x gnome-calculator")
+        # The kernel names the process "gnome-calculato" (15 characters).
+        assert ssh_run.call_args.args[0].startswith("pkill -TERM -x gnome-calculato 2>")
         assert "rm -rf" not in ssh_run.call_args.args[0]
 
     def test_describe_subtree_never_raises(self):
@@ -648,3 +649,24 @@ class TestStopAppInstances:
         out = app_support.describe_subtree(Broken())
         assert "frame name='w'" in out
         assert "tree walk stopped: bus gone" in out
+
+
+class TestNodeText:
+    def test_prefers_dogtail_text(self):
+        node = SimpleNamespace(text=" 42 ")
+        assert app_support.node_text(node) == "42"
+
+    def test_empty_without_text_interface(self):
+        node = SimpleNamespace(text="", get_text_iface=lambda: None)
+        assert app_support.node_text(node) == ""
+
+    def test_text_property_errors_read_as_empty(self):
+        class Broken:
+            @property
+            def text(self):
+                raise RuntimeError("no Text interface")
+
+            def get_text_iface(self):
+                raise RuntimeError("no Text interface")
+
+        assert app_support.node_text(Broken()) == ""

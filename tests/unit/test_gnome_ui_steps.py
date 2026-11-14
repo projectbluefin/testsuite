@@ -32,6 +32,7 @@ def _make_base_stubs():
     from tests.shared import app_support as shared_app_support  # noqa: PLC0415
     app_support_stub.describe_subtree = shared_app_support.describe_subtree
     app_support_stub.newest_active_frame = shared_app_support.newest_active_frame
+    app_support_stub.node_text = shared_app_support.node_text
     app_support_stub.stop_app_instances = MagicMock()
     sys.modules["app_support"] = app_support_stub
 
