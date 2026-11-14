@@ -305,6 +305,10 @@ runs:
           # the autologin desktop account gets neither.
           sudo python3 _testsuite/scripts/guest_accounts.py "${D}" "${VAR}" \
             --pubkey /tmp/gnome_e2e_key.pub
+          # Native isolated tests need no guest container-management API.
+          for unit in podman.socket podman.service; do
+            sudo ln -sf /dev/null "${D}/etc/systemd/system/${unit}"
+          done
         else
           BFT_UID=1001
           if ! sudo grep -q '^bluefin-test:' "${D}/etc/passwd" 2>/dev/null; then

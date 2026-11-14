@@ -47,6 +47,12 @@ the security posture in
 [gnome-extensions-validation.md](gnome-extensions-validation.md). The default
 (`false`) keeps the canary's original single-account path.
 
+Isolated provisioning masks the guest's `podman.socket` and `podman.service`
+before boot. The native harness does not use that API; GNOME OS otherwise
+starts it and leaves `/run/podman/podman.sock` listening even after the service
+exits (run 43534016020). Keep the isolation check unchanged and remove the
+unneeded management endpoint, rather than accepting it in the report.
+
 The workflow already exists on the repository's default branch, so GitHub
 offers manual dispatch directly from any ref (including a fork PR branch).
 It also supports `workflow_call` from an existing workflow for fork
