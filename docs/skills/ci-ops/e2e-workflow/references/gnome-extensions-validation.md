@@ -16,8 +16,8 @@ must be staged into the guest filesystem before GNOME Shell starts so extensions
 at session initialization. The four `gnome-extensions-hive` extensions are installed, enabled,
 and exercised with a qecore/Behave input+AT-SPI scenario.
 
-> **The GNOME OS guest lane is proven (Status); no extension is validated yet.** Do **not**
-> claim an extension validated until a green run with that extension staged exists (#909).
+> **Guest lane proven; one extension validated:** Just Perfection (run 43612114661). Do **not**
+> claim another extension validated until a green run with it staged exists (#909).
 
 ## Provenance, image inventory and pre-boot preflight
 
@@ -58,8 +58,8 @@ Behave collection (`tests/extensions/*`, #914): per-extension features + `extens
 ## Repeatable commands
 > **Boot and isolated session have run green** on the [native overlay](gnomeos-desktop-canary.md)
 > (canary runs 43549129246 isolated, 43549131789 shared), which bakes in `gnome-ponytail-daemon`
-> (blocker 1; stock `gnomeos-nightly` lacks it and has no dnf/rpm). **Still unverified:** a
-> `suite: extensions` run with a staged candidate.
+> (blocker 1; stock `gnomeos-nightly` lacks it and has no dnf/rpm). A `suite: extensions` run
+> with a staged candidate is green too (run 43612114661, [staging](gnome-extensions-staging.md)).
 
 ### 1. Provision, boot, and run in one action invocation
 
@@ -193,8 +193,8 @@ A host socket, key, or mount exposed to the guest desktop is a regression: stop 
       OS: canary run 43549129246 (`isolated-session: true`; any failed check stops the run),
       `session-isolation.json` in its `gnomeos-desktop-canary` artifact
 - [x] Gate wired into the lane as a mandatory `gnome-e2e` step for `suite: extensions` (#991)
-- [ ] Repeatable boot + load + run commands validated in the lab (**unverified**; blocked on a
-      `gnome-ponytail-daemon` overlay, which the preflight reports by name)
+- [x] Repeatable boot + load + run validated on GitHub runners: `extension-validation.yml`
+      (run 43612114661); the ponytail overlay is `scripts/build-gnomeos-harness.sh`
 - [x] Exact candidate ZIP built offline, hash-checked, staged before boot ([staging](gnome-extensions-staging.md))
 - [x] At least one green extension-validation run captured: run 43612114661 (Just Perfection)
 - [ ] Lane closed
