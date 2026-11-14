@@ -106,26 +106,29 @@ def probe_row1(context) -> None:
 @step("Record GNOME 51 audit probe 2 row 3 extension state")
 @_guarded("3")
 def probe_row3(context) -> None:
-    listed = _host(
-        "gdbus call --session --dest org.gnome.Shell --object-path /org/gnome/Shell/Extensions "
-        "--method org.gnome.Shell.Extensions.ListExtensions"
-    )
-    uuids = sorted(set(re.findall(r"'([\w.@+-]+@[\w.+-]+)': \{", listed.get("out", ""))))
-    _emit("3", listed_rc=listed.get("rc"), uuids=uuids)
+    listed = _host("gnome-extensions list --enabled")
+    uuids = [u for u in listed.get("out", "").split() if "@" in u]
+    _emit("3", listed=listed, uuids=uuids)
     for uuid in uuids[:12]:
-        info = _host(
-            "gdbus call --session --dest org.gnome.Shell --object-path /org/gnome/Shell/Extensions "
-            f"--method org.gnome.Shell.Extensions.GetExtensionInfo {shlex.quote(uuid)}"
-        )
+        arg = shlex.quote(f"'{uuid}'")
+        for path in ("/org/gnome/Shell/Extensions", "/org/gnome/Shell"):
+            info = _host(
+                f"gdbus call --session --dest org.gnome.Shell --object-path {path} "
+                f"--method org.gnome.Shell.Extensions.GetExtensionInfo {arg}"
+            )
+            if info.get("rc") == 0:
+                break
         dbus_state = re.search(r"'state':\s*<(?:uint32\s+|double\s+)?([\d.]+)>", info.get("out", ""))
-        dbus_enabled = re.search(r"'enabled':\s*<(true|false)>", info.get("out", ""))
         eval_state = _eval(f"String(Main.extensionManager.lookup({json.dumps(uuid)})?.state)")
+        show = _host(f"gnome-extensions show {shlex.quote(uuid)} | grep -E '^ *State:'")
         _emit(
             "3",
             uuid=uuid,
+            dbus_rc=info.get("rc"),
+            dbus_err=info.get("err", "")[-200:],
             dbus_state=dbus_state.group(1) if dbus_state else None,
-            dbus_enabled=dbus_enabled.group(1) if dbus_enabled else None,
             eval_state=eval_state,
+            gnome_extensions_show=show.get("out"),
         )
 
 
@@ -173,28 +176,34 @@ def _subtree_text(node, depth: int = 0) -> list:
     return found[:40]
 
 
+def _node(n) -> dict:
+    return {
+        "role": n.roleName,
+        "name": n.name,
+        "showing": bool(n.showing),
+        "visible": bool(getattr(n, "visible", False)),
+    }
+
+
 def _panel_buttons(context) -> list:
+    """Every panel-role node's buttons, plus the System node and clock label anywhere."""
+    out = []
     try:
-        panels = context.sandbox.shell.findChildren(lambda n: n.roleName == "panel")
-        if not panels:
-            return [{"error": "no panel"}]
-        nodes = panels[0].findChildren(
-            lambda n: n.roleName in {"toggle button", "push button", "button", "menu"}
+        shell = context.sandbox.shell
+        for p_index, panel in enumerate(shell.findChildren(lambda n: n.roleName == "panel")):
+            buttons = panel.findChildren(
+                lambda n: n.roleName in {"toggle button", "push button", "button", "menu"}
+            )
+            out.append({"panel": p_index, "buttons": [_node(b) for b in buttons][:20]})
+        system = shell.findChildren(lambda n: (n.name or "") == "System")
+        out.append({"system": [dict(_node(n), parent=_node(n.parent)) for n in system][:5]})
+        clock = shell.findChildren(
+            lambda n: n.roleName == "label" and bool(re.search(r"\d{1,2}:\d{2}", (n.name or "") + " " + (getattr(n, "text", "") or "")))
         )
-        return [
-            {
-                "index": i,
-                "role": n.roleName,
-                "name": n.name,
-                "description": getattr(n, "description", ""),
-                "showing": bool(n.showing),
-                "visible": bool(getattr(n, "visible", False)),
-                "subtree": _subtree_text(n),
-            }
-            for i, n in enumerate(nodes)
-        ]
+        out.append({"clock": [dict(_node(n), text=getattr(n, "text", ""), parent=_node(n.parent)) for n in clock][:5]})
     except Exception as exc:  # diagnostic only
-        return [{"error": repr(exc)}]
+        out.append({"error": repr(exc)})
+    return out
 
 
 @step("Record GNOME 51 audit probe 2 row 11 clock and System toggles")
