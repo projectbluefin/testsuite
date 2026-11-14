@@ -65,6 +65,15 @@ read only by `ostree`/`bootc`, which run unconfined.
 Never fix a denial by relabeling the whole tree, `-F` over candidate files,
 `chcon` to a broad type, `setenforce 0`, or a permissive domain.
 
+The harness's injected `/etc/tmpfiles.d/ci-user.conf` creates the test home
+and its `.ssh` with non-recursive `d` entries, which also set their mode,
+owner and label on later boots. Don't add a recursive `Z` rule for the home.
+Once the runner container is loaded, the home holds Podman storage, and `Z`
+makes `systemd-tmpfiles` walk its hardlinks on every later boot. That produced
+`systemd_tmpfiles_t` → `proc_security_t` denials (reading
+`/proc/sys/fs/protected_hardlinks`) on every boot after the first. Found by
+#1205; run 43535082068 has none of them once the rule is gone.
+
 ## AVC collection and canary
 
 `selinux_collect_avc.sh` runs in the guest as root and prints AVC/USER_AVC

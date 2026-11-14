@@ -727,8 +727,10 @@ jobs:
             # Create home dir via tmpfiles.d so it exists at runtime regardless
             # of whether bootc initialises the stateroot var from the image's /var.
             sudo mkdir -p "${DEP}/etc/tmpfiles.d/"
-            printf 'Z /var/home/bluefin-test 0700 %d %d -\nd /var/home/bluefin-test 0700 %d %d -\nd /var/home/bluefin-test/.ssh 0700 %d %d -\n' \
-              "${BFT_UID}" "${BFT_UID}" \
+            # Non-recursive `d` only: a recursive `Z` on the home would walk
+            # the runner container's Podman storage on every later boot and
+            # trip systemd-tmpfiles SELinux denials (#1205, run 43535082068).
+            printf 'd /var/home/bluefin-test 0700 %d %d -\nd /var/home/bluefin-test/.ssh 0700 %d %d -\n' \
               "${BFT_UID}" "${BFT_UID}" \
               "${BFT_UID}" "${BFT_UID}" | \
               sudo tee "${DEP}/etc/tmpfiles.d/ci-user.conf"

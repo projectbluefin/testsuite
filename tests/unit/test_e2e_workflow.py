@@ -37,3 +37,14 @@ def test_manual_runs_checkout_the_selected_fork_ref_without_changing_callers():
     assert 'default: "projectbluefin/testsuite"' in reusable
     assert "repository: ${{ inputs.test_repository }}" in reusable
     assert "test_repository: ${{ github.repository }}" in manual
+
+
+def test_e2e_ci_user_tmpfiles_has_no_recursive_home_relabel():
+    # A recursive `Z` on the test home walks the runner's Podman storage on
+    # every later boot and trips systemd-tmpfiles SELinux denials (#1205).
+    workflow = _workflow("e2e.yml")
+    start = workflow.index('"${DEP}/etc/tmpfiles.d/"')
+    block = workflow[start:workflow.index("ci-user.conf", start)]
+    assert "'Z " not in block and "\\nZ " not in block
+    assert "d /var/home/bluefin-test 0700" in block
+    assert "d /var/home/bluefin-test/.ssh 0700" in block
