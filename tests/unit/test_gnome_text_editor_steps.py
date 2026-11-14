@@ -30,6 +30,10 @@ def _import_text_editor_steps(tree_available: bool = True):
 
     app_support_stub = types.ModuleType("app_support")
     app_support_stub.launch_background = MagicMock(return_value="command")
+    from tests.shared import app_support as shared_app_support  # noqa: PLC0415
+    app_support_stub.describe_subtree = shared_app_support.describe_subtree
+    app_support_stub.newest_active_frame = shared_app_support.newest_active_frame
+    app_support_stub.stop_app_instances = MagicMock()
     sys.modules["app_support"] = app_support_stub
 
     for key in list(sys.modules):
@@ -706,3 +710,38 @@ class TestTextEditorDiscardDialogIsOpen:
              patch("time.sleep"):
             self.m.text_editor_discard_dialog_is_open(context)
         assert context.text_editor_discard_dialog is dialog
+
+
+# ---------------------------------------------------------------------------
+# Scenario isolation and dialog hosts (#1211)
+# ---------------------------------------------------------------------------
+
+class TestTextEditorLaunchResetsState:
+    def test_launch_stops_instances_and_drops_drafts_first(self):
+        m = _import_text_editor_steps()
+        calls = []
+        m.stop_app_instances = lambda name, **kw: calls.append(("stop", name, kw.get("reset_paths")))
+        m.launch_background = lambda targets: calls.append(("launch",)) or "command"
+        m.launch_text_editor_via_command(MagicMock())
+        assert calls[0] == ("stop", "gnome-text-edit", m.TEXT_EDITOR_STATE_DIRS)
+        assert calls[1] == ("launch",)
+        assert ".local/share/org.gnome.TextEditor" in m.TEXT_EDITOR_STATE_DIRS
+
+
+class TestDiscardDialogAsAlert:
+    def test_alert_with_discard_all_button_counts(self):
+        m = _import_text_editor_steps()
+        button = MagicMock()
+        button.name = "Discard All"
+        button.showing = True
+        button.roleName = "button"
+        alert = MagicMock()
+        alert.roleName = "alert"
+        alert.showing = True
+        alert.findChildren.side_effect = lambda pred: [b for b in [button] if pred(b)]
+        app = MagicMock()
+        app.findChildren.side_effect = lambda pred: [a for a in [alert] if pred(a)]
+        with patch.object(m, "_dialog_hosts", return_value=[app]):
+            context = MagicMock()
+            m.text_editor_discard_dialog_is_open(context)
+        assert context.text_editor_discard_dialog is alert

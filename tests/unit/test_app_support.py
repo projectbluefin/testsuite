@@ -580,3 +580,71 @@ class TestAtspiClick:
             app_support.atspi_click(node)
         assert node.performed == ["click"]
         assert node.clicked
+
+
+# ---------------------------------------------------------------------------
+# Window choice and app reset between scenarios (#1211)
+# ---------------------------------------------------------------------------
+
+class _StateSet:
+    def __init__(self, active):
+        self.active = active
+
+    def contains(self, state):  # noqa: ARG002 - only ACTIVE is asked for
+        return self.active
+
+
+class _Win:
+    def __init__(self, label, active=False):
+        self.label = label
+        self._active = active
+
+    def getState(self):  # noqa: N802 - dogtail API
+        return _StateSet(self._active)
+
+
+class TestNewestActiveFrame:
+    def test_prefers_the_active_window(self):
+        frames = [_Win("old"), _Win("focused", active=True), _Win("newest")]
+        with patch.object(app_support, "_node_is_active", side_effect=lambda f: f._active):
+            assert app_support.newest_active_frame(frames).label == "focused"
+
+    def test_falls_back_to_the_newest_window(self):
+        frames = [_Win("old"), _Win("newest")]
+        with patch.object(app_support, "_node_is_active", return_value=False):
+            assert app_support.newest_active_frame(frames).label == "newest"
+
+
+class TestStopAppInstances:
+    def test_local_command_stops_exact_name_then_resets_state(self):
+        with _no_container, patch.object(app_support.subprocess, "run") as run:
+            app_support.stop_app_instances("gnome-text-edit", reset_paths=(".local/share/org.gnome.TextEditor",))
+        argv = run.call_args.args[0]
+        assert argv[:2] == ["sh", "-c"]
+        cmd = argv[2]
+        assert cmd.startswith("pkill -TERM -x gnome-text-edit")
+        assert "pkill -KILL -x gnome-text-edit" in cmd
+        assert cmd.index("pkill -KILL") < cmd.index('rm -rf -- "$HOME"/.local/share/org.gnome.TextEditor')
+        assert cmd.endswith("; true")
+
+    def test_container_lane_runs_over_ssh(self):
+        with patch.object(app_support, "_IN_CONTAINER", True), \
+             patch.object(app_support, "_ssh_run") as ssh_run, \
+             patch.object(app_support.subprocess, "run") as run:
+            app_support.stop_app_instances("gnome-calculator")
+        run.assert_not_called()
+        assert ssh_run.call_args.args[0].startswith("pkill -TERM -x gnome-calculator")
+        assert "rm -rf" not in ssh_run.call_args.args[0]
+
+    def test_describe_subtree_never_raises(self):
+        class Broken:
+            roleName = "frame"
+            name = "w"
+
+            @property
+            def children(self):
+                raise RuntimeError("bus gone")
+
+        out = app_support.describe_subtree(Broken())
+        assert "frame name='w'" in out
+        assert "tree walk stopped: bus gone" in out

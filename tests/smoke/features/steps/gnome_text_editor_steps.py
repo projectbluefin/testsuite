@@ -10,7 +10,12 @@ try:
     from qecore.common_steps import *  # noqa: F401,F403
 except Exception:  # noqa: BLE001
     pass
-from app_support import launch_background
+from app_support import (
+    describe_subtree,
+    launch_background,
+    newest_active_frame,
+    stop_app_instances,
+)
 
 
 def _skip_if_no_atspi(context) -> bool:
@@ -32,6 +37,13 @@ TEXT_EDITOR_LAUNCH_TARGETS = (
 TEXT_WIDGET_ROLES = {"text", "entry", "paragraph", "document text"}
 DIALOG_ENTRY_ROLES = {"text", "entry", "document text"}
 BUTTON_ROLES = {"push button", "button"}
+# GTK 4 file choosers are dialogs; libadwaita's "Save Changes?" prompt is an alert.
+DIALOG_ROLES = {"dialog", "alert", "file chooser"}
+# Text Editor keeps unsaved drafts and reopens them on the next launch.
+TEXT_EDITOR_STATE_DIRS = (
+    ".local/share/org.gnome.TextEditor",
+    ".var/app/org.gnome.TextEditor/data/org.gnome.TextEditor",
+)
 
 
 def _text_editor_app():
@@ -53,6 +65,9 @@ def _text_editor_app():
 def launch_text_editor_via_command(context) -> None:
     if _skip_if_no_atspi(context):
         return
+    # Each launch of the running app opens another window, and a restarted app
+    # reopens the last run's drafts; start from no windows and no drafts.
+    stop_app_instances("gnome-text-edit", reset_paths=TEXT_EDITOR_STATE_DIRS)
     context.text_editor_launch_target = launch_background(TEXT_EDITOR_LAUNCH_TARGETS)
 
 
@@ -60,7 +75,7 @@ def _text_editor_window():
     app = _text_editor_app()
     frames = app.findChildren(lambda n: n.roleName in {"frame", "filler"} and n.showing)
     assert frames, "Visible GNOME Text Editor window not found"
-    return frames[0]
+    return newest_active_frame(frames)
 
 
 def _node_text(node) -> str:
@@ -176,7 +191,10 @@ def text_editor_buffer_contains(context, expected: str) -> None:
             context.text_editor_last_text = expected
             return
         sleep(0.5)
-    raise AssertionError(f"Expected {expected!r} in Text Editor buffer, found {current_text!r}")
+    raise AssertionError(
+        f"Expected {expected!r} in Text Editor buffer, found {current_text!r}\n"
+        f"Text Editor window tree:\n{_window_tree()}"
+    )
 
 
 @step("Text Editor creates a new empty document buffer")
@@ -190,16 +208,55 @@ def text_editor_creates_new_empty_document_buffer(context) -> None:
             return
         sleep(0.5)
     raise AssertionError(
-        f"Expected a new empty Text Editor buffer after Ctrl+N, found {current_text!r}"
+        f"Expected a new empty Text Editor buffer after Ctrl+N, found {current_text!r}\n"
+        f"Text Editor window tree:\n{_window_tree()}"
     )
+
+
+def _window_tree() -> str:
+    """The focused window's subtree for a failure message; never raises."""
+    try:
+        return describe_subtree(_text_editor_window(), max_depth=6, max_lines=60)
+    except Exception as exc:  # noqa: BLE001
+        return f"(no window: {exc})"
+
+
+def _dialog_hosts() -> list:
+    """Text Editor plus any file-chooser portal, which owns the save dialog when GTK uses portals."""
+    hosts = [_text_editor_app()]
+    try:
+        for app in tree.root.applications():
+            if "portal" in (getattr(app, "name", "") or "").casefold():
+                hosts.append(app)
+    except Exception:  # noqa: BLE001
+        pass
+    return hosts
+
+
+def _visible_dialogs() -> list:
+    dialogs = []
+    for host in _dialog_hosts():
+        dialogs.extend(host.findChildren(lambda n: n.roleName in DIALOG_ROLES and n.showing))
+    return dialogs
+
+
+def _dialog_debug() -> str:
+    apps = []
+    try:
+        apps = [getattr(app, "name", "") for app in tree.root.applications()]
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        dialogs = [_visible_dialog_text(d) for d in _visible_dialogs()]
+    except Exception as exc:  # noqa: BLE001
+        dialogs = [f"(lookup failed: {exc})"]
+    return f"Visible dialogs: {dialogs}\nApplications: {apps}\nText Editor window tree:\n{_window_tree()}"
 
 
 @step("Text Editor save dialog is open")
 def text_editor_save_dialog_is_open(context) -> None:
-    app = _text_editor_app()
     for _ in range(20):
-        dialogs = app.findChildren(lambda n: n.roleName == "dialog" and n.showing)
-        for dialog in dialogs:
+        for dialog in _visible_dialogs():
             entries = dialog.findChildren(
                 lambda n: n.showing and n.roleName in DIALOG_ENTRY_ROLES
             )
@@ -210,20 +267,14 @@ def text_editor_save_dialog_is_open(context) -> None:
                 context.text_editor_save_dialog = dialog
                 return
         sleep(0.5)
-    dialog_debug = []
-    dialogs = app.findChildren(lambda n: n.roleName == "dialog" and n.showing)
-    for dialog in dialogs:
-        dialog_debug.append(_visible_dialog_text(dialog))
-    raise AssertionError(f"Text Editor save dialog was not found. Visible dialogs: {dialog_debug}")
+    raise AssertionError(f"Text Editor save dialog was not found. {_dialog_debug()}")
 
 
 @step("Text Editor discard dialog is open")
 def text_editor_discard_dialog_is_open(context) -> None:
     """Assert that the 'unsaved changes' dialog is shown with a Discard button."""
-    app = _text_editor_app()
     for _ in range(20):
-        dialogs = app.findChildren(lambda n: n.roleName == "dialog" and n.showing)
-        for dialog in dialogs:
+        for dialog in _visible_dialogs():
             buttons = dialog.findChildren(
                 lambda n: n.showing and n.roleName in BUTTON_ROLES
             )
@@ -231,28 +282,6 @@ def text_editor_discard_dialog_is_open(context) -> None:
                 context.text_editor_discard_dialog = dialog
                 return
         sleep(0.5)
-    dialog_debug = [_visible_dialog_text(d) for d in
-                    app.findChildren(lambda n: n.roleName == "dialog" and n.showing)]
     raise AssertionError(
-        f"Text Editor discard dialog (with Discard button) not found. "
-        f"Visible dialogs: {dialog_debug}"
+        f"Text Editor discard dialog (with Discard button) not found. {_dialog_debug()}"
     )
-    app = _text_editor_app()
-    for _ in range(20):
-        dialogs = app.findChildren(lambda n: n.roleName == "dialog" and n.showing)
-        for dialog in dialogs:
-            entries = dialog.findChildren(
-                lambda n: n.showing and n.roleName in DIALOG_ENTRY_ROLES
-            )
-            buttons = dialog.findChildren(
-                lambda n: n.showing and n.roleName in BUTTON_ROLES
-            )
-            if entries or any("save" in (button.name or "").casefold() for button in buttons):
-                context.text_editor_save_dialog = dialog
-                return
-        sleep(0.5)
-    dialog_debug = []
-    dialogs = app.findChildren(lambda n: n.roleName == "dialog" and n.showing)
-    for dialog in dialogs:
-        dialog_debug.append(_visible_dialog_text(dialog))
-    raise AssertionError(f"Text Editor save dialog was not found. Visible dialogs: {dialog_debug}")

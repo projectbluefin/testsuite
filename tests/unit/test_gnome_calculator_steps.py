@@ -1,7 +1,7 @@
 """Unit tests for gnome_calculator_steps.py pure helper functions."""
 import sys
 import types
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -29,6 +29,10 @@ def _import_calculator_steps(tree_available: bool = True):
 
     app_support_stub = types.ModuleType("app_support")
     app_support_stub.launch_background = MagicMock()
+    from tests.shared import app_support as shared_app_support  # noqa: PLC0415
+    app_support_stub.describe_subtree = shared_app_support.describe_subtree
+    app_support_stub.newest_active_frame = shared_app_support.newest_active_frame
+    app_support_stub.stop_app_instances = MagicMock()
     sys.modules["app_support"] = app_support_stub
 
     for key in list(sys.modules):
@@ -266,3 +270,74 @@ class TestCalculatorApp:
             m._calculator_app()
         assert clock.now == 0.0
         assert root.application_calls == []
+
+
+# ---------------------------------------------------------------------------
+# Display lookup ignores keypad labels (#1211)
+# ---------------------------------------------------------------------------
+
+class _Node:
+    """Minimal dogtail-like node: children, parent links and a recursive findChildren."""
+
+    def __init__(self, role, name="", text="", children=(), showing=True):
+        self.roleName = role
+        self.name = name
+        self.text = text
+        self.showing = showing
+        self.parent = None
+        self.children = list(children)
+        for child in self.children:
+            child.parent = self
+
+    def findChildren(self, predicate):  # noqa: N802 - dogtail API
+        found = []
+        for child in self.children:
+            if predicate(child):
+                found.append(child)
+            found.extend(child.findChildren(predicate))
+        return found
+
+
+def _keypad(*labels):
+    return [_Node("button", name=label, children=[_Node("label", name=label)]) for label in labels]
+
+
+class TestDisplayLookupIgnoresKeypad:
+    def setup_method(self):
+        self.m = _import_calculator_steps()
+
+    def test_window_of_only_buttons_does_not_show_three(self):
+        window = _Node("frame", children=_keypad("1", "2", "3", "+", "="))
+        with patch.object(self.m, "_calculator_window", return_value=window), \
+             patch.object(self.m, "sleep"):
+            with pytest.raises(AssertionError, match="Expected calculator display to show '3'"):
+                self.m.calculator_display_shows(MagicMock(), "3")
+
+    def test_menu_button_label_is_not_a_candidate(self):
+        menu = _Node("toggle button", name="Basic", children=[_Node("label", name="Basic")])
+        window = _Node("frame", children=[menu])
+        assert self.m._display_candidates(window) == []
+
+    def test_display_text_outside_buttons_matches(self):
+        display = _Node("text", text="42")
+        window = _Node("frame", children=[_Node("panel", children=[display]), *_keypad("4", "2")])
+        with patch.object(self.m, "_calculator_window", return_value=window), \
+             patch.object(self.m, "sleep"):
+            self.m.calculator_display_shows(MagicMock(), "42")
+
+    def test_failure_message_includes_window_tree(self):
+        window = _Node("frame", children=_keypad("7"))
+        with patch.object(self.m, "_calculator_window", return_value=window), \
+             patch.object(self.m, "sleep"):
+            with pytest.raises(AssertionError, match="(?s)Calculator window tree:.*button name='7'"):
+                self.m.calculator_display_shows(MagicMock(), "42")
+
+
+class TestCalculatorLaunchStopsRunningInstances:
+    def test_launch_stops_previous_instances_first(self):
+        m = _import_calculator_steps()
+        calls = []
+        m.stop_app_instances = lambda name, **kw: calls.append(("stop", name))
+        m.launch_background = lambda targets: calls.append(("launch", targets[0][1])) or "command"
+        m.launch_calculator_via_command(MagicMock())
+        assert calls == [("stop", "gnome-calculator"), ("launch", "gnome-calculator")]
