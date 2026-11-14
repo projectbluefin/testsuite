@@ -95,6 +95,7 @@ RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("scripts/v1_gate_compare.py", ()),
     ("scripts/v1_gate_pins.py", ()),
     ("scripts/v1_gate_preexisting.py", ()),
+    ("scripts/v1_gate_canary_scope.py", ()),
     ("scripts/vm_validation_plan.py", ()),
     # Shared helpers: route by the path that imports them.
     ("tests/shared/kde_*", ("kde-smoke",)),

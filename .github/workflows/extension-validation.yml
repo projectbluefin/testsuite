@@ -1,6 +1,7 @@
 name: GNOME OS extension validation
 
-# Manual only (#909). Packs one hive extension from the revision its canonical
+# Dispatched by hand, or called by the post-merge v1 gate for
+# extension-staging changes (#1218). Packs one hive extension from the revision its canonical
 # contract pins, offline in the GNOME OS devel image the harness was built
 # from, then boots a fresh GNOME OS guest with that exact ZIP staged before the
 # desktop starts and runs the extension's own Behave scenarios. Each run tests
@@ -16,6 +17,17 @@ on:
         default: just-perfection
       test_ref:
         description: "Commit SHA or ref to test, for example a pull request head; empty means the dispatched commit."
+        type: string
+        required: false
+        default: ""
+  workflow_call:
+    inputs:
+      profile:
+        description: "Extension to validate (key in tests/extensions/collection.json)."
+        type: string
+        default: just-perfection
+      test_ref:
+        description: "Commit SHA or ref to test; empty means the calling commit."
         type: string
         required: false
         default: ""
