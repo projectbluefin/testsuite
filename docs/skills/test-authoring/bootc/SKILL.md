@@ -138,6 +138,38 @@ results, and on non-dakota images without an explicit `MIGRATION_TARGET`
 `If bootc upgrade output indicates image was staged, reboot VM and wait for
 SSH` shares the same staged markers (`_UPGRADE_STAGED_MARKERS`) as the gate.
 
+## Detecting the bootc backend (ostree vs composefs)
+
+bootc selects its install backend from the image's install config, which is
+unchanged at runtime. The two backends are mutually exclusive, so detect the
+backend from a **marker in the image**, never from the image name:
+
+| Backend    | Marker in the image                                   | Never ships |
+|------------|-------------------------------------------------------|-------------|
+| ostree     | `/usr/lib/ostree/prepare-root.conf` (always present)  | —           |
+| composefs  | `/usr/lib/composefs/setup-root.toml`                  | ostree marker |
+
+The ostree marker is the **reliable discriminator**: composefs images never
+ship `prepare-root.conf`, so its absence selects the composefs backend. We key
+on the ostree marker rather than betting on the composefs marker's exact path,
+which varies across bootc versions. A single `test -f /usr/lib/ostree/
+prepare-root.conf` (falling back to `/etc/ostree/prepare-root.conf`) is enough:
+
+```bash
+if test -f /usr/lib/ostree/prepare-root.conf || test -f /etc/ostree/prepare-root.conf; then
+  # ostree backend: default install + bootupd (unchanged behaviour)
+else
+  # composefs backend: install with --composefs-backend --bootloader systemd
+fi
+```
+
+This is how `.github/workflows/e2e.yml` chooses the install flags and how the
+lifecycle `environment.py` gates scenarios (see `_ostree_backend`). When writing
+a scenario, tag it with the backend it needs — `@ostree` for `ostree admin
+status`/pin, `@composefs` for the composefs deployment-count check — and the
+gate skips it on the wrong backend with a stated reason instead of erroring on
+a backend-specific command.
+
 ## ostree admin status parsing
 
 ```

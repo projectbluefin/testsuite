@@ -423,6 +423,27 @@ jobs:
           # --karg is also not present in all bootc versions; omit it entirely since
           # systemd.firstboot=no is already included in the QEMU -append KERNEL_ARGS.
           BOOTLOADER_FLAG=""
+
+          # Detect bootc's backend from the image's own markers, never its name
+          # (#1215). bootc ships exactly one backend marker per image:
+          #   ostree backend   -> /usr/lib/ostree/prepare-root.conf   (always present)
+          #   composefs backend -> /usr/lib/composefs/setup-root.toml (no ostree marker)
+          # The ostree marker is the reliable discriminator: composefs images
+          # never ship prepare-root.conf, so its absence selects the composefs
+          # backend. We key on the ostree marker rather than betting on the
+          # composefs marker's exact path, which varies across bootc versions.
+          # dakota (composefs) installs --composefs-backend --bootloader systemd;
+          # every ostree image keeps the default ostree backend + bootupd.
+          if test -f /usr/lib/ostree/prepare-root.conf \
+             || test -f /etc/ostree/prepare-root.conf; then
+            COMPOSEFS_BACKEND="false"
+            COMPOSEFS_INSTALL_FLAG=""
+          else
+            COMPOSEFS_BACKEND="true"
+            COMPOSEFS_INSTALL_FLAG="--composefs-backend --bootloader systemd"
+          fi
+          echo "COMPOSEFS_BACKEND=${COMPOSEFS_BACKEND}" >> "$GITHUB_ENV"
+          echo "COMPOSEFS_INSTALL_FLAG=${COMPOSEFS_INSTALL_FLAG}" >> "$GITHUB_ENV"
           # The lifecycle suite reboots into staged deployments, which a
           # direct -kernel boot can't do: it would boot the first deployment's
           # kernel again (#1023). It boots through OVMF and the image's own
@@ -436,10 +457,11 @@ jobs:
           # limited as before #1189.
           FIRMWARE_BOOT=false
           if [[ "${SUITE_DIR}" == "lifecycle" ]] \
-            && sudo podman run --rm --quiet --entrypoint /bin/sh "${IMAGE}" -c 'command -v bootupctl' >/dev/null 2>&1; then
+            && { [[ "${COMPOSEFS_BACKEND}" == "true" ]] \
+              || sudo podman run --rm --quiet --entrypoint /bin/sh "${IMAGE}" -c 'command -v bootupctl' >/dev/null 2>&1; }; then
             FIRMWARE_BOOT=true
           elif [[ "${SUITE_DIR}" == "lifecycle" ]]; then
-            echo "::warning title=lifecycle without firmware boot::${IMAGE} has no bootupctl, so the lifecycle VM boots the first deployment's kernel directly and reboots cannot reach a staged deployment (#1023)"
+            echo "::warning title=lifecycle without firmware boot::${IMAGE} has neither a composefs backend nor bootupctl, so the lifecycle VM boots the first deployment's kernel directly and reboots cannot reach a staged deployment (#1215)"
           fi
           if [[ "${FIRMWARE_BOOT}" != "true" ]] \
             && sudo podman run --rm --quiet "${IMAGE}" bootc install to-disk --help 2>&1 | grep -q "\-\-bootloader"; then
@@ -464,7 +486,7 @@ jobs:
                 --via-loopback /data/disk.raw \
                 --filesystem ext4 \
                 --wipe \
-                ${BOOTLOADER_FLAG} \
+                ${COMPOSEFS_INSTALL_FLAG} ${BOOTLOADER_FLAG} \
               2>&1 | tee "${BOOTC_INSTALL_LOG}"
             BOOTC_INSTALL_RC=${PIPESTATUS[0]}
             set -e
@@ -480,7 +502,7 @@ jobs:
             # instead of ending the step on a bare "mount: wrong fs type".
             if sudo blkid -s TYPE -o value "${ROOT_PART}" >/dev/null 2>&1 \
               && sudo mount "${ROOT_PART}" /mnt/root; then
-              DEPLOY=$(sudo find /mnt/root/ostree/deploy/default/deploy/ -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | head -1)
+              DEPLOY=$(sudo find /mnt/root/sysroot/state/deploy /mnt/root/ostree/deploy/default/deploy -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | head -1)
               if [[ -n "${DEPLOY}" ]]; then
                 break
               fi
@@ -516,8 +538,17 @@ jobs:
           fi
           ROOT_UUID=$(sudo blkid -s UUID -o value "${ROOT_PART}")
           echo "root=${ROOT_PART}  uuid=${ROOT_UUID}"
-          D="/mnt/root/ostree/deploy/default/deploy/${DEPLOY}"
-          VAR="/mnt/root/ostree/deploy/default/var"
+          # composefs keeps its var tree inside the deployment root; ostree
+          # keeps it under deploy/default/var (#1215).
+          if [[ "${COMPOSEFS_BACKEND}" == "true" ]]; then
+            D="/mnt/root/sysroot/state/deploy/${DEPLOY}"
+            # composefs keeps its var tree inside the deployment root, so the
+            # runtime /var/home backing is ${D}/var (ostree shares one var).
+            VAR="${D}/var"
+          else
+            D="/mnt/root/ostree/deploy/default/deploy/${DEPLOY}"
+            VAR="/mnt/root/ostree/deploy/default/var"
+          fi
           # el10/LTS images may have multiple entries in usr/lib/modules/ (e.g., a
           # modules-only dir for the old kernel + a full dir with vmlinuz for the new
           # one). Pick the version that actually contains a vmlinuz; fall back to the
@@ -568,46 +599,51 @@ jobs:
           fi
           sudo chown runner:runner ./vmlinuz ./initramfs.img
 
-          # Find the ostree boot entry symlink (boot.N/default/<hash>/serial).
-          # ostree-prepare-root requires this to be a symlink pointing to the
-          # deployment directory. bootc may fail at the bootloader step (bootupd
-          # not in image) before creating it. If missing, create it ourselves.
-          BOOT_ENTRY=$(sudo find /mnt/root/ostree -maxdepth 4 -type l -name '0' 2>/dev/null \
-            | grep -E '/boot\.[0-9]' | grep '/default/' | head -1)
-          if [[ -z "${BOOT_ENTRY}" ]]; then
-            echo "No boot.N symlink found — constructing from deployment hash"
-            DEPLOY_HASH="${DEPLOY%.*}"
-            DEPLOY_SERIAL="${DEPLOY##*.}"
-            BOOT_DIR="/mnt/root/ostree/boot.0/default/${DEPLOY_HASH}"
-            sudo mkdir -p "${BOOT_DIR}"
-            # symlink target is relative from the symlink's parent directory:
-            # boot.0/default/<hash>/ -> ../../../deploy/default/deploy/<hash>.<serial>
-            sudo ln -sfT "../../../deploy/default/deploy/${DEPLOY}" \
-              "${BOOT_DIR}/${DEPLOY_SERIAL}"
-            BOOT_ENTRY="${BOOT_DIR}/${DEPLOY_SERIAL}"
-            echo "Created symlink: ${BOOT_ENTRY}"
-          fi
-
-          OSTREE_PATH="${BOOT_ENTRY#/mnt/root}"
-
-          # ostree-system-generator regex only accepts /ostree/boot.[01]/...
-          # Newer bootc (Fedora 44+) installs deployments under a versioned directory
-          # (e.g. boot.1.1) for atomic updates. The generator fails to parse this path
-          # → /var never bind-mounted → dbus-broker/logind/GDM cascade failure.
-          # Fix: create a canonical boot.N symlink pointing to the versioned dir so the
-          # generator gets a path it can parse, while composefs stays untouched.
-          if [[ "${OSTREE_PATH}" =~ /ostree/(boot\.[0-9]+)\.[0-9]+ ]]; then
-            VERSIONED_NAME=$(echo "${OSTREE_PATH}" | grep -oE 'boot\.[0-9]+\.[0-9]+')
-            CANONICAL_NAME="${BASH_REMATCH[1]}"   # e.g. boot.1
-            CANONICAL_ABS="/mnt/root/ostree/${CANONICAL_NAME}"
-            if [[ ! -e "${CANONICAL_ABS}" ]]; then
-              sudo ln -s "${VERSIONED_NAME}" "${CANONICAL_ABS}"
-              echo "Created canonical boot symlink: ${CANONICAL_ABS} -> ${VERSIONED_NAME}"
+          # ostree images need a boot.N/default/<hash>/ symlink for
+          # ostree-prepare-root. Composefs boots through systemd-boot, which
+          # has no such requirement, so this whole block is ostree-only (#1215).
+          if [[ "${COMPOSEFS_BACKEND}" != "true" ]]; then
+            # Find the ostree boot entry symlink (boot.N/default/<hash>/serial).
+            # ostree-prepare-root requires this to be a symlink pointing to the
+            # deployment directory. bootc may fail at the bootloader step (bootupd
+            # not in image) before creating it. If missing, create it ourselves.
+            BOOT_ENTRY=$(sudo find /mnt/root/ostree -maxdepth 4 -type l -name '0' 2>/dev/null \
+              | grep -E '/boot\.[0-9]' | grep '/default/' | head -1)
+            if [[ -z "${BOOT_ENTRY}" ]]; then
+              echo "No boot.N symlink found — constructing from deployment hash"
+              DEPLOY_HASH="${DEPLOY%.*}"
+              DEPLOY_SERIAL="${DEPLOY##*.}"
+              BOOT_DIR="/mnt/root/ostree/boot.0/default/${DEPLOY_HASH}"
+              sudo mkdir -p "${BOOT_DIR}"
+              # symlink target is relative from the symlink's parent directory:
+              # boot.0/default/<hash>/ -> ../../../deploy/default/deploy/<hash>.<serial>
+              sudo ln -sfT "../../../deploy/default/deploy/${DEPLOY}" \
+                "${BOOT_DIR}/${DEPLOY_SERIAL}"
+              BOOT_ENTRY="${BOOT_DIR}/${DEPLOY_SERIAL}"
+              echo "Created symlink: ${BOOT_ENTRY}"
             fi
-            OSTREE_PATH="${OSTREE_PATH/${VERSIONED_NAME}/${CANONICAL_NAME}}"
-          fi
 
-          echo "ostree boot path: ${OSTREE_PATH}"
+            OSTREE_PATH="${BOOT_ENTRY#/mnt/root}"
+
+            # ostree-system-generator regex only accepts /ostree/boot.[01]/...
+            # Newer bootc (Fedora 44+) installs deployments under a versioned directory
+            # (e.g. boot.1.1) for atomic updates. The generator fails to parse this path
+            # → /var never bind-mounted → dbus-broker/logind/GDM cascade failure.
+            # Fix: create a canonical boot.N symlink pointing to the versioned dir so the
+            # generator gets a path it can parse, while composefs stays untouched.
+            if [[ "${OSTREE_PATH}" =~ /ostree/(boot\.[0-9]+)\.[0-9]+ ]]; then
+              VERSIONED_NAME=$(echo "${OSTREE_PATH}" | grep -oE 'boot\.[0-9]+\.[0-9]+')
+              CANONICAL_NAME="${BASH_REMATCH[1]}"   # e.g. boot.1
+              CANONICAL_ABS="/mnt/root/ostree/${CANONICAL_NAME}"
+              if [[ ! -e "${CANONICAL_ABS}" ]]; then
+                sudo ln -s "${VERSIONED_NAME}" "${CANONICAL_ABS}"
+                echo "Created canonical boot symlink: ${CANONICAL_ABS} -> ${VERSIONED_NAME}"
+              fi
+              OSTREE_PATH="${OSTREE_PATH/${VERSIONED_NAME}/${CANONICAL_NAME}}"
+            fi
+
+            echo "ostree boot path: ${OSTREE_PATH}"
+          fi
           # Mask services not needed in CI to shorten first-boot time.
           # NetworkManager-wait-online can block for up to 120s — most
           # expensive to leave unmasked on a SLIRP QEMU network.
@@ -621,7 +657,16 @@ jobs:
           #
           # systemd.journald.forward_to_console=1 — forward full journal to serial for
           #   diagnostics when SSH fails (output captured in vm-serial.log artifact).
-          KERNEL_ARGS="root=UUID=${ROOT_UUID} rw ostree=${OSTREE_PATH} systemd.firstboot=no console=ttyS0,115200 systemd.journald.forward_to_console=1 systemd.mask=brew-setup.service systemd.mask=NetworkManager-wait-online.service systemd.mask=firewalld.service systemd.mask=wpa_supplicant.service systemd.mask=flatpak-preinstall.service systemd.mask=podman-auto-update.service systemd.mask=podman-auto-update.timer systemd.mask=malcontent-webd.service systemd.mask=malcontent-webd-update.service systemd.mask=malcontent-control.service systemd.mask=speech-dispatcherd.service systemd.mask=avahi-daemon.service systemd.mask=avahi-daemon.socket systemd.mask=cups.service systemd.mask=cups.path systemd.mask=cups.socket systemd.mask=cups.browsed.service systemd.mask=blueman-mechanism.service systemd.mask=gnome-remote-desktop.service systemd.mask=bazzite-hardware-setup.service systemd.mask=greenboot-healthcheck.service systemd.mask=greenboot-set-rollback-trigger.service systemd.mask=systemd-udev-settle.service systemd.wants=sshd.service"
+          # The CI kargs every image boots with. ostree images add ostree=<path>
+          # (the booted deployment); composefs images boot from bootc's own
+          # composefs.digest= loader entry and need no ostree= karg (#1215).
+          # root= and rw are required either way.
+          CI_BOOT_KARGS="systemd.firstboot=no console=ttyS0,115200 systemd.journald.forward_to_console=1 systemd.mask=brew-setup.service systemd.mask=NetworkManager-wait-online.service systemd.mask=firewalld.service systemd.mask=wpa_supplicant.service systemd.mask=flatpak-preinstall.service systemd.mask=podman-auto-update.service systemd.mask=podman-auto-update.timer systemd.mask=malcontent-webd.service systemd.mask=malcontent-webd-update.service systemd.mask=malcontent-control.service systemd.mask=speech-dispatcherd.service systemd.mask=avahi-daemon.service systemd.mask=avahi-daemon.socket systemd.mask=cups.service systemd.mask=cups.path systemd.mask=cups.socket systemd.mask=cups.browsed.service systemd.mask=blueman-mechanism.service systemd.mask=gnome-remote-desktop.service systemd.mask=bazzite-hardware-setup.service systemd.mask=greenboot-healthcheck.service systemd.mask=greenboot-set-rollback-trigger.service systemd.mask=systemd-udev-settle.service systemd.wants=sshd.service"
+          if [[ "${COMPOSEFS_BACKEND}" == "true" ]]; then
+            KERNEL_ARGS="root=UUID=${ROOT_UUID} rw ${CI_BOOT_KARGS}"
+          else
+            KERNEL_ARGS="root=UUID=${ROOT_UUID} rw ostree=${OSTREE_PATH} ${CI_BOOT_KARGS}"
+          fi
           # Enforcing mode is the default (inputs.selinux_enforcing); passing
           # false falls back to the legacy SELinux-off boot.
           if [[ "${SELINUX_ENFORCING}" != "true" ]]; then
@@ -664,7 +709,13 @@ jobs:
           echo "SELinux: expected=${SELINUX_EXPECTED} policy=${SELINUX_POLICY}"
           echo "SELINUX_EXPECTED=${SELINUX_EXPECTED}" >> "$GITHUB_ENV"
           SELINUX_DIR="$(pwd)/results/selinux"
-          STATEROOT="/mnt/root/ostree/deploy/default"
+          # composefs sysroot is at /mnt/root/sysroot/state; ostree at
+          # /mnt/root/ostree/deploy/default (#1215).
+          if [[ "${COMPOSEFS_BACKEND}" == "true" ]]; then
+            STATEROOT="/mnt/root/sysroot/state"
+          else
+            STATEROOT="/mnt/root/ostree/deploy/default"
+          fi
           mkdir -p "${SELINUX_DIR}"
           if [[ "${SELINUX_EXPECTED}" == enforcing ]]; then
             for DEP in $(sudo find "${STATEROOT}/deploy" -maxdepth 1 -mindepth 1 -type d 2>/dev/null); do
@@ -681,7 +732,7 @@ jobs:
           # bootc may deploy with a different checksum than what `ls|head-1`
           # returns, so we iterate to ensure the booted deployment gets set up.
           BFT_UID=1001
-          for DEP in $(sudo find /mnt/root/ostree/deploy/default/deploy \
+          for DEP in $(sudo find "${STATEROOT}/deploy" \
               -maxdepth 1 -mindepth 1 -type d 2>/dev/null); do
             # CI VMs are not users: opt out of the daily countme ping
             # (projectbluefin-countme.service honours this marker).
@@ -835,7 +886,7 @@ jobs:
           sudo chmod 700 "${VAR}/home/bluefin-test/.ssh"
           sudo chmod 600 "${VAR}/home/bluefin-test/.ssh/authorized_keys"
           # Write key to AuthorizedKeysCommand target in every deployment
-          for DEP in $(sudo find /mnt/root/ostree/deploy/default/deploy \
+          for DEP in $(sudo find "${STATEROOT}/deploy" \
               -maxdepth 1 -mindepth 1 -type d 2>/dev/null); do
             sudo cp /tmp/vm_key.pub "${DEP}/etc/ssh/ci-authorized-keys"
             sudo chown root:root "${DEP}/etc/ssh/ci-authorized-keys"
@@ -890,7 +941,7 @@ jobs:
           fi
           # Pre-boot diagnostics: confirm key files and sshd drop-in are correct.
           echo "=== ci-authorized-keys ==="
-          for DEP in $(sudo find /mnt/root/ostree/deploy/default/deploy \
+          for DEP in $(sudo find "${STATEROOT}/deploy" \
               -maxdepth 1 -mindepth 1 -type d 2>/dev/null); do
             echo "--- ${DEP}/etc/ssh/ci-authorized-keys ---"
             sudo cat "${DEP}/etc/ssh/ci-authorized-keys" || echo "(missing)"

@@ -22,9 +22,14 @@ UNIT_SUFFIX = re.compile(r"\.(service|socket|path|timer|target|mount)$")
 
 
 def kernel_arg_masks(workflow: str) -> set[str]:
-    match = re.search(r'^\s*KERNEL_ARGS="([^"]*)"', workflow, re.MULTILINE)
-    assert match, "KERNEL_ARGS assignment not found in e2e.yml"
-    return set(re.findall(r"systemd\.mask=(\S+)", match.group(1)))
+    # The fast lane keeps the CI kargs in CI_BOOT_KARGS and combines them into
+    # KERNEL_ARGS per backend, so read every *_ARGS assignment and union the
+    # masks rather than only the literal KERNEL_ARGS line (#1215).
+    masks = set()
+    for match in re.finditer(r'^\s*[A-Z_]*ARGS="([^"]*)"', workflow, re.MULTILINE):
+        masks.update(re.findall(r"systemd\.mask=(\S+)", match.group(1)))
+    assert masks, "no systemd.mask= kargs found in e2e.yml"
+    return masks
 
 
 def symlink_loop_tokens(workflow: str) -> list[str]:
