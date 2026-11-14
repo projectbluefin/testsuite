@@ -108,7 +108,8 @@ def test_incomplete_package_is_an_artifact_failure(tmp_path, home):
     with pytest.raises(stage.StagingError) as exc:
         stage.stage(archive, _sha(archive), home, 1001, 1001, chown=_no_chown([]))
     assert exc.value.category == art.CATEGORY_ARTIFACT
-    assert "data/resources.gresource" in str(exc.value)
+    assert "missing required paths" in str(exc.value)
+    assert "resources.gresource" in str(exc.value)
 
 
 def test_unsafe_member_is_refused_before_extraction(tmp_path, home):
