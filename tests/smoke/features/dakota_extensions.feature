@@ -74,9 +74,7 @@ Feature: Dakota GNOME Shell extension presence and configuration
   # Audio Panel (projectbluefin/dakota#1833).
   # ---------------------------------------------------------------------------
 
-  # Quarantined: Dakota testing omits power-status-color although dakota still lists
-  # elements/bluefin/shell-extensions/power-status-color.bst (dropped by mistake).
-  # Tracking: projectbluefin/testsuite#1143 (Dakota issue could not be filed by hive).
+  # quarantine: projectbluefin/dakota#1875 dakota:testing ships the extension under the wrong UUID
   @dakota_only @extensions @quarantine
   Scenario: Power status color extension is installed on Dakota
     * GNOME Shell is accessible via AT-SPI

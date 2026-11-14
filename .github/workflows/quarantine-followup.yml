@@ -1,0 +1,69 @@
+# Quarantine follow-up — keep @quarantine scenarios from outliving their cause
+#
+# Every @quarantine tag cites the issue or PR that caused it
+# (`# quarantine: projectbluefin/<repo>#<N> <reason>`, enforced by the
+# Quarantine age job in pr-validate.yml). Once a day this asks GitHub whether
+# each citation is closed and keeps one testsuite issue per citation:
+#
+#   lift      the cause is closed; the issue tells an agent which tags to remove
+#   expiring  the cause is open and a quarantine is within 7 days of the age
+#             limit the Quarantine age job enforces; a maintainer decides
+#
+# It only reads the repository and writes issues. It never pushes, never opens
+# pull requests and needs no secret beyond the job's own token. Runs from any
+# branch other than main are forced to --dry-run.
+
+name: Quarantine follow-up
+
+on:
+  schedule:
+    # 11:17 UTC = 06:17 EST / 07:17 EDT.
+    - cron: "17 11 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Print the issue changes without making them"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: quarantine-followup
+  cancel-in-progress: false
+
+jobs:
+  followup:
+    name: Quarantine follow-up
+    if: github.repository == 'projectbluefin/testsuite'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Quarantine ages come from git history.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python 3.15
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.15"
+
+      - name: Open or update follow-up issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          # --grace-days must match the Quarantine age job in pr-validate.yml,
+          # so "near the limit" means near the day PR validation fails.
+          args=(--repo "$GITHUB_REPOSITORY" --sha "$GITHUB_SHA" --grace-days 30)
+          if [ "${DRY_RUN:-false}" = "true" ] || [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            args+=(--dry-run)
+          fi
+          python3 scripts/quarantine_followup.py "${args[@]}"

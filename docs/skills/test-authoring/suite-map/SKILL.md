@@ -1,7 +1,7 @@
 ---
 name: suite-map
 version: "1.0"
-last_updated: "2026-07-29"
+last_updated: "2026-11-14"
 id: suite-map
 one_line_purpose: Read the authoritative coverage matrix and @future gap list.
 entry_point: docs/skills/test-authoring/suite-map/SKILL.md
@@ -146,6 +146,7 @@ Set `image` (e.g. `ghcr.io/projectbluefin/dakota:latest`), `suites: lifecycle`, 
 | `@flatcar_suite` | Flatcar OS only |
 | `@hardware_emulation` | Requires full-hw VM spec (TPM, audio, watchdog) |
 | `@vm_only` | Scenario drives the device under test over SSH (or asserts VM-only boot state); the smoke `environment.py` skips it in container lanes, detected via `/run/.containerenv` (`tests/shared/runtime_env.py`) |
+| `@quarantine` | Known-broken regression coverage, skipped while its cause is fixed. Needs a `# quarantine: projectbluefin/<repo>#<N> <reason>` citation directly above its tags (see [Quarantine citations](#quarantine-citations)); expires after 30 days |
 | `@pending` | Placeholder coverage gap; intentionally skipped until a valid harness exists |
 | `@future` | Not yet implemented or blocked on infra |
 | `@homed_migration` | systemd-homed migration scenarios; dakota lifecycle; SSH-mode; skip-safe when homed absent |
@@ -153,6 +154,39 @@ Set `image` (e.g. `ghcr.io/projectbluefin/dakota:latest`), `suites: lifecycle`, 
 | `@kde_smoke` | KDE Plasma smoke-suite identifier; used by `e2e.yml` suite registration (#645) |
 | `@informational` | Bake-period tier; scenario runs and reports results but does not gate promotion until promoted to `@critical` |
 | `@requires_cached_image` | Scenario needs the OCI image named in its own steps to be pre-pulled on the DUT; `tests/shared/image_cache.py` probes `podman image exists` from `before_scenario` and skips while it is absent. A **runtime capability gate** like `@requires_brew`, not a non-runnable tag — never pair it with `@pending`/`@future`, which mask it (#501) |
+
+## Quarantine citations
+
+Every `@quarantine` tag names its cause on a comment line directly above the tags,
+in this exact form:
+
+```gherkin
+  # quarantine: projectbluefin/dakota#1875 power-status-color missing from dakota:testing
+  @extensions @quarantine
+  Scenario: Power status color extension is enabled
+```
+
+| Rule | Why |
+|---|---|
+| `projectbluefin/<repo>#<number>`, nothing else (no URL, no bare `#N`) | `scripts/quarantine_followup.py` asks GitHub whether that issue or PR is closed |
+| Cite the cause, not a testsuite tracking issue, when the cause lives elsewhere | The follow-up fires when the cited item closes; a tracker can stay open after the fix ships |
+| A one-line reason after the reference | Readers see why without opening the issue |
+| The citation sits in the comment/tag lines that end at the keyword, with no blank line | It must be unambiguous which tag it belongs to |
+| Exactly one citation per `@quarantine` | One cause, one follow-up |
+| A feature-level `@quarantine` (above `Feature:`) covers every scenario in the file; a scenario with its own `@quarantine` needs its own citation | Both levels are checked |
+| Delete the citation when you lift the tag | A citation with no `@quarantine` under it fails the check |
+
+The `Quarantine age` job in `pr-validate.yml` runs `python3 scripts/quarantine_citations.py`,
+which fails on a missing, malformed, duplicated or stray citation. Old free-text comments
+(`# Quarantined: ...`, `# Tracking: ...`) do not count.
+
+`.github/workflows/quarantine-followup.yml` runs daily. When a citation closes, it opens
+one testsuite issue per citation saying which tags to remove (labels `kind/cleanup`,
+`triage/accepted`, so the hive can pick it up). When a citation is still open and a
+quarantine is within 7 days of the age limit, it opens a `needs-human` issue instead.
+Both carry a `<!-- quarantine-followup: <kind> <citation> -->` marker; later runs update
+that issue rather than file another, and close it when it no longer applies. Details:
+[`quarantine-age`](../quarantine-age/SKILL.md#follow-up-issues).
 
 ## Coverage snapshot
 
