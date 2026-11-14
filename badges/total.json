@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
   "label": "total coverage",
-  "message": "433 active / 6 quarantined",
-  "color": "yellow"
+  "message": "439 active / 0 quarantined",
+  "color": "green"
 }
