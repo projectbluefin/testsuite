@@ -535,13 +535,11 @@ runs:
           $SSH "sudo chown -hR bluefin-test:bluefin-test /tmp/gnome_e2e"
           BEHAVE_USERDATA=""
           [[ "${GNOME_E2E_SUITE}" == "extensions" ]] && BEHAVE_USERDATA="-D disposable_guest=true"
-          # Keep tests in the desktop user's manager, not the harness SSH
-          # session. The manager supplies the graphical environment; env -i
-          # keeps harness credentials out of its client invocation.
+          # Behave runs as the desktop user with a clean environment and no
+          # qecore-headless (it needs sudo). The wrapper reads the live
+          # session's display, session bus and accessibility bus itself.
           $SSH "sudo -u bluefin-test -H -- env -i HOME=/var/home/bluefin-test USER=bluefin-test LOGNAME=bluefin-test LANG=C.UTF-8 \
-            PATH=/opt/gnomeos-harness/bin:/usr/bin:/bin XDG_RUNTIME_DIR=/run/user/1001 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1001/bus \
-            systemd-run --user --wait --pipe --collect --service-type=exec --working-directory=/tmp/gnome_e2e \
-            --setenv=PYTHONPATH=/tmp/gnome_e2e --setenv=PATH=/opt/gnomeos-harness/bin:/usr/bin:/bin \
+            PATH=/opt/gnomeos-harness/bin:/usr/bin:/bin PYTHONPATH=/tmp/gnome_e2e \
             /opt/gnomeos-harness/bin/python3 /tmp/gnome_e2e/gnomeos_canary_behave.py /opt/gnomeos-harness/bin/behave \
             /tmp/gnome_e2e/tests/${GNOME_E2E_SUITE}/features/ ${BEHAVE_USERDATA} \
             --format json.pretty --outfile /tmp/gnome_e2e/results/results.json \

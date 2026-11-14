@@ -53,12 +53,6 @@ starts it and leaves `/run/podman/podman.sock` listening even after the service
 exits (run 43534016020). Keep the isolation check unchanged and remove the
 unneeded management endpoint, rather than accepting it in the report.
 
-Isolated behave is launched as a transient service in the desktop user's
-systemd manager, not inside the harness account's SSH session. The manager
-supplies the graphical session environment; a clean client invocation does
-not pass harness credentials to it. `--wait --pipe` retains test output and
-the exit status, and `--collect` removes the transient unit afterwards.
-
 The workflow already exists on the repository's default branch, so GitHub
 offers manual dispatch directly from any ref (including a fork PR branch).
 It also supports `workflow_call` from an existing workflow for fork
