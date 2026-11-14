@@ -12,9 +12,10 @@ Companion to [gnome-extensions-validation.md](gnome-extensions-validation.md), w
 the guest, the isolated session and the service gate. This page covers how one exact
 extension package gets into that guest and how its run is judged.
 
-> **No green run yet.** Just Perfection is the only profile the workflow offers. The
-> network widgets (SJC Gold, Stock Market) wait for the HTTPS fixtures #909 describes;
-> Shade is not offered until someone runs it.
+> **One green run so far:** Just Perfection on GNOME OS `nightly.20261114.0` (Shell 51.1),
+> run 43612114661: all 7 `@just_perfection` scenarios passed, 11/11 isolation checks. It is
+> the only profile offered. The network widgets (SJC Gold, Stock Market) wait for the HTTPS
+> fixtures #909 describes; Shade is not offered until someone runs it.
 
 ## Flow (`.github/workflows/extension-validation.yml`, manual only)
 
@@ -41,13 +42,13 @@ extension package gets into that guest and how its run is judged.
 
 ## What fails, and as what
 
-| Failure | Where | Category |
-|---|---|---|
-| No ZIP, malformed or missing builder hash, desktop home missing, target already present, symlink in the path, no collection profile | staging | `harness` |
-| Archive names a UUID with no contract, or unreadable metadata | staging | `metadata` |
-| Hash mismatch, unsafe member, missing required path | staging | `artifact` |
-| Schema compile or Shell version read fails | Install Python test stack | step error |
-| Any scenario carrying the tag not `passed` (skipped and quarantined included), or none carry it | gate | gate reason |
+| Failure                                                                                                                             | Where                     | Category    |
+| ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------- | ----------- |
+| No ZIP, malformed or missing builder hash, desktop home missing, target already present, symlink in the path, no collection profile | staging                   | `harness`   |
+| Archive names a UUID with no contract, or unreadable metadata                                                                       | staging                   | `metadata`  |
+| Hash mismatch, unsafe member, missing required path                                                                                 | staging                   | `artifact`  |
+| Schema compile or Shell version read fails                                                                                          | Install Python test stack | step error  |
+| Any scenario carrying the tag not `passed` (skipped and quarantined included), or none carry it                                     | gate                      | gate reason |
 
 A refused ZIP fails the install step after the disk is unmounted, so nothing boots and no
 scenario can be blamed on an extension that was never installed. `suite: extensions`
@@ -65,6 +66,18 @@ without a staged extension also fails the gate.
   `skipped`, so every scenario the tag covers is listed there; each must be `passed`.
   Feature tags count (Just Perfection tags its whole feature), as do Examples tags (the
   lifecycle outline tags each profile's row).
+
+## Failures real GNOME OS runs found
+
+| Symptom                                                                                            | Cause                                                                                                                                                       | Fix                                                                                                                                  |
+| -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Staging refused the real ZIP: `missing required paths: data/resources.gresource` (run 43606155009) | `gnome-extensions pack --extra-source=data/x` stores `x` at the archive root; `lib/Prefs/Prefs.js` loads `${path}/resources.gresource`                      | Contract requires `resources.gresource`                                                                                              |
+| `No accessible preferences window`, the other 6 passed (run 43606969251)                           | The Shell's prefs service has no `Gtk.Application`, so its windows have no GTK application id                                                               | Match Mutter's WM class (Wayland app id `org.gnome.Shell.Extensions`) too                                                            |
+| Every scenario: `did not become enabled` (run 43609183896)                                         | Stopping GDM timed out and SIGKILLed the first Shell; its `OnFailure=` unit `org.gnome.Shell-disable-extensions.service` set `disable-user-extensions true` | After the restart the action sets it back to `false` (the Shell watches the key) and records it in `results/extension-discovery.txt` |
+
+The third is a race: run 43606969251 and the green run missed it. Rebuilds are not
+byte-identical (run 43606155009: same members and CRCs, different bytes), which is why the
+hash comes from this run's builder rather than the contract.
 
 ## Run it
 

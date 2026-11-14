@@ -196,5 +196,5 @@ A host socket, key, or mount exposed to the guest desktop is a regression: stop 
 - [ ] Repeatable boot + load + run commands validated in the lab (**unverified**; blocked on a
       `gnome-ponytail-daemon` overlay, which the preflight reports by name)
 - [x] Exact candidate ZIP built offline, hash-checked, staged before boot ([staging](gnome-extensions-staging.md))
-- [ ] At least one green extension-validation run captured and attached
+- [x] At least one green extension-validation run captured: run 43612114661 (Just Perfection)
 - [ ] Lane closed
