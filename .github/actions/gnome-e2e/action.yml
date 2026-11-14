@@ -571,6 +571,27 @@ runs:
           # restart plus this settle passed (diag run 43543641291).
           sleep 15
           echo "GNOME session restarted for the isolated desktop user"
+          if [[ -n "${GNOME_E2E_EXTENSION_UUID:-}" ]]; then
+            # Stopping GDM can time out and SIGKILL the first Shell; its
+            # OnFailure= unit (org.gnome.Shell-disable-extensions.service)
+            # then sets disable-user-extensions for the desktop user, and the
+            # test login refuses every user extension (run 43609183896). The
+            # staged candidate has not been enabled yet, so that failure is
+            # the harness's. The Shell watches the key; no restart is needed.
+            $SSH "${DESKTOP_GSETTINGS} org.gnome.shell disable-user-extensions false" || {
+              echo "::error::could not re-allow user extensions for bluefin-test"
+              exit 1
+            }
+            # Evidence that the restarted Shell found the staged candidate in
+            # the desktop user's directory (not enabled yet).
+            DESKTOP_ENV="sudo -u bluefin-test env XDG_RUNTIME_DIR=/run/user/1001 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1001/bus"
+            {
+              $SSH "${DESKTOP_ENV} gsettings get org.gnome.shell disable-user-extensions" | sed 's/^/disable-user-extensions: /'
+              $SSH "${DESKTOP_ENV} gnome-extensions info ${GNOME_E2E_EXTENSION_UUID}"
+            } > results/extension-discovery.txt 2>&1 \
+              || echo "::warning::GNOME Shell does not report the staged extension ${GNOME_E2E_EXTENSION_UUID}"
+            cat results/extension-discovery.txt
+          fi
           exit 0
         fi
 

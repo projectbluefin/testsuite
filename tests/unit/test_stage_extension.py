@@ -218,3 +218,14 @@ def test_workflow_builds_offline_and_passes_the_recorded_hash():
     assert lane["extension-zip"] == "${{ steps.build.outputs.zip }}"
     assert lane["extension-sha256"] == "${{ steps.build.outputs.sha256 }}"
     assert "secrets." not in WORKFLOW.read_text()
+
+
+def test_user_extensions_are_reallowed_after_the_harness_restarts_the_shell():
+    # A Shell SIGKILLed by the GDM stop runs org.gnome.Shell-disable-extensions
+    # (run 43609183896); the reset must come after the restart, before behave.
+    action = yaml.safe_load(ACTION.read_text())
+    run = _step(action, "Install Python test stack")["run"]
+    restart = run.index('$SSH "sudo systemctl start gdm"')
+    reallow = run.index("org.gnome.shell disable-user-extensions false")
+    assert restart < reallow
+    assert 'if [[ -n "${GNOME_E2E_EXTENSION_UUID:-}" ]]; then' in run[restart:reallow]
