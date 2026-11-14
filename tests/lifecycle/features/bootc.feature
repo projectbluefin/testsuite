@@ -137,7 +137,7 @@ Feature: bootc upgrade and rollback lifecycle
   Scenario: Bluefin version is tracked in os-release
     * Run SSH command: "cat /etc/os-release"
     * SSH command return code is "0"
-    * os-release reports Fedora Bluefin identity
+    * os-release reports Bluefin identity
 
   @lifecycle @upgrade @idempotent
   Scenario: bootc upgrade is idempotent when already at latest
