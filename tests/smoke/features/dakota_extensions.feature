@@ -74,8 +74,9 @@ Feature: Dakota GNOME Shell extension presence and configuration
   # Audio Panel (projectbluefin/dakota#1833).
   # ---------------------------------------------------------------------------
 
-  # quarantine: projectbluefin/dakota#1875 dakota:testing ships the extension under the wrong UUID
-  @dakota_only @extensions @quarantine
+  # Dakota shipped it as power-status-color@local, a pre-split bluefin-bling
+  # pin, until projectbluefin/dakota#1876 moved it to @projectbluefin.io.
+  @dakota_only @extensions
   Scenario: Power status color extension is installed on Dakota
     * GNOME Shell is accessible via AT-SPI
     * GNOME extension "power-status-color@projectbluefin.io" is installed

@@ -6,8 +6,7 @@ Feature: Power status color extension alerts
   flag and to high system uptime, honors alert precedence, and tears down
   cleanly on disable.
 
-  # quarantine: projectbluefin/dakota#1875 dakota:testing ships the extension under the wrong UUID
-  @extensions @power_status @quarantine
+  @extensions @power_status
   Scenario: Power status color extension is enabled
     * GNOME Shell is accessible via AT-SPI
     * GNOME extension "power-status-color@projectbluefin.io" is re-enabled
@@ -15,8 +14,7 @@ Feature: Power status color extension alerts
     * No gnome-shell extension load journal errors exist
     * No power-status-color extension GJS or St warnings exist in the journal
 
-  # quarantine: projectbluefin/dakota#1875 dakota:testing ships the extension under the wrong UUID
-  @extensions @power_status @quarantine @atspi
+  @extensions @power_status @atspi
   Scenario: Power button indicates reboot required when flag file exists
     Given GNOME Shell is accessible via AT-SPI
     And GNOME extension "power-status-color@projectbluefin.io" is re-enabled
@@ -26,8 +24,7 @@ Feature: Power status color extension alerts
     When file "/run/reboot-required" is removed from the host
     Then Quick Settings power button does not have style class "power-status-reboot" within 5 seconds
 
-  # quarantine: projectbluefin/dakota#1875 dakota:testing ships the extension under the wrong UUID
-  @extensions @power_status @quarantine
+  @extensions @power_status
   Scenario: Uptime overdue alert takes precedence over reboot required
     Given GNOME Shell is accessible via AT-SPI
     And GNOME extension "power-status-color@projectbluefin.io" is re-enabled
@@ -41,8 +38,7 @@ Feature: Power status color extension alerts
     And file "/run/reboot-required" is removed from the host
     Then Quick Settings power button has no power status alert style classes
 
-  # quarantine: projectbluefin/dakota#1875 dakota:testing ships the extension under the wrong UUID
-  @extensions @power_status @quarantine @regression
+  @extensions @power_status @regression
   Scenario: Extension cleans up style classes and timers on disable
     Given GNOME Shell is accessible via AT-SPI
     And GNOME extension "power-status-color@projectbluefin.io" is re-enabled

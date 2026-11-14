@@ -95,7 +95,7 @@ def test_shared_ssh_helper_needs_ssh_and_lifecycle_lanes():
 
 def test_shared_kde_and_extension_helpers_route_to_their_suites():
     assert suites_for_path("tests/shared/kde_webdriver.py") == ("kde-smoke",)
-    assert suites_for_path("tests/shared/extension_session.py") == ("extensions",)
+    assert suites_for_path("tests/shared/extension_session.py") == (ACTION,)
 
 
 def test_verdict_gate_script_routes_to_kde_gnome_gui_and_action_lanes():
@@ -200,3 +200,23 @@ def test_cli_accepts_path_arguments():
         check=True,
     )
     assert json.loads(proc.stdout)["vm_required"] is False
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "tests/extensions/features/steps/lifecycle_steps.py",
+        "tests/extensions/features/just_perfection.feature",
+        "tests/shared/gnome_extensions_artifacts.py",
+        "scripts/build_extension_artifact.py",
+        "scripts/stage_extension.py",
+        ".github/workflows/extension-validation.yml",
+    ],
+)
+def test_extension_paths_never_boot_in_e2e_yml(path):
+    # The extensions suite's before_all refuses a non-disposable guest, so a
+    # PR touching it must not ask e2e.yml to boot it (run 43614202176).
+    assert suites_for_path(path) == (ACTION,)
+    result = plan([path], pr=True)
+    assert "extensions" not in result["suites"]
+    assert result["composite_action"] == [ACTION]
