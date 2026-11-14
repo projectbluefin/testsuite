@@ -30,6 +30,11 @@ def _import_text_editor_steps(tree_available: bool = True):
 
     app_support_stub = types.ModuleType("app_support")
     app_support_stub.launch_background = MagicMock(return_value="command")
+    from tests.shared import app_support as shared_app_support  # noqa: PLC0415
+    app_support_stub.describe_subtree = shared_app_support.describe_subtree
+    app_support_stub.newest_active_frame = shared_app_support.newest_active_frame
+    app_support_stub.node_text = shared_app_support.node_text
+    app_support_stub.stop_app_instances = MagicMock()
     sys.modules["app_support"] = app_support_stub
 
     for key in list(sys.modules):
@@ -706,3 +711,85 @@ class TestTextEditorDiscardDialogIsOpen:
              patch("time.sleep"):
             self.m.text_editor_discard_dialog_is_open(context)
         assert context.text_editor_discard_dialog is dialog
+
+
+# ---------------------------------------------------------------------------
+# Scenario isolation and dialog hosts (#1211)
+# ---------------------------------------------------------------------------
+
+class TestTextEditorLaunchResetsState:
+    def test_launch_stops_instances_and_drops_drafts_first(self):
+        m = _import_text_editor_steps()
+        calls = []
+        m.stop_app_instances = lambda name, **kw: calls.append(("stop", name, kw.get("reset_paths")))
+        m.launch_background = lambda targets: calls.append(("launch",)) or "command"
+        m.launch_text_editor_via_command(MagicMock())
+        assert calls[0] == ("stop", "gnome-text-edit", m.TEXT_EDITOR_STATE_DIRS)
+        assert calls[1] == ("launch",)
+        assert ".local/share/org.gnome.TextEditor" in m.TEXT_EDITOR_STATE_DIRS
+
+
+def _node(role, name="", children=(), showing=True):
+    node = MagicMock()
+    node.roleName = role
+    node.name = name
+    node.showing = showing
+    kids = list(children)
+
+    def find(pred, kids=kids):
+        found = []
+        for kid in kids:
+            if pred(kid):
+                found.append(kid)
+            found.extend(kid.findChildren(pred))
+        return found
+
+    node.findChildren.side_effect = find
+    return node
+
+
+class TestDiscardDialogAsAlert:
+    def test_alert_with_discard_all_button_counts(self):
+        m = _import_text_editor_steps()
+        alert = _node("alert", children=[_node("button", "Discard All")])
+        editor = _node("application", "gnome-text-editor", children=[alert])
+        with patch.object(m, "_text_editor_app", return_value=editor):
+            context = MagicMock()
+            m.text_editor_discard_dialog_is_open(context)
+        assert context.text_editor_discard_dialog is alert
+
+
+class TestSaveDialogInFileChooserWindow:
+    def _run(self, m, apps):
+        root = MagicMock()
+        root.applications.return_value = apps
+        editor = _node("application", "gnome-text-editor", children=[_node("frame", "Draft - Text Editor")])
+        with patch.object(m, "_text_editor_app", return_value=editor), \
+             patch.object(m.tree, "root", root), \
+             patch.object(m, "sleep"):
+            context = MagicMock()
+            m.text_editor_save_dialog_is_open(context)
+        return context
+
+    def test_nautilus_save_a_file_window_counts(self):
+        m = _import_text_editor_steps()
+        chooser = _node("frame", "Save a File", children=[_node("text"), _node("button", "Save")])
+        context = self._run(m, [_node("application", "org.gnome.Nautilus", children=[chooser])])
+        assert context.text_editor_save_dialog is chooser
+
+    def test_portal_window_counts(self):
+        m = _import_text_editor_steps()
+        chooser = _node("dialog", "Save File", children=[_node("button", "Save")])
+        context = self._run(m, [_node("application", "xdg-desktop-portal-gtk", children=[chooser])])
+        assert context.text_editor_save_dialog is chooser
+
+    def test_plain_files_window_does_not_count(self):
+        m = _import_text_editor_steps()
+        files = _node("frame", "Home", children=[_node("text"), _node("button", "Search")])
+        with pytest.raises(AssertionError, match="Text Editor save dialog was not found"):
+            self._run(m, [_node("application", "org.gnome.Nautilus", children=[files])])
+
+    def test_editor_main_frame_is_not_a_dialog(self):
+        m = _import_text_editor_steps()
+        assert "frame" not in m.DIALOG_ROLES
+        assert "frame" in m.PORTAL_WINDOW_ROLES

@@ -101,7 +101,7 @@ where Ptyxis ships. The rest are obsolete on 51; keep their GNOME 50 paths while
 any tested image runs GNOME 50. Notification dismissal checks that the test
 notification is gone, not that no banner shows: Shell holds earlier banners on
 screen while the session is idle, as a headless VM always is. Calculator and
-Text Editor divergences on plain GNOME OS 51:
+Text Editor on plain GNOME OS 51 (stacked windows, display text, save chooser):
 [`references/gnome-51-app-divergences.md`](references/gnome-51-app-divergences.md).
 The Files steps for rows 4-6 print `gnome-51-audit row N: <reading>` (the branch that matched) in each smoke log; keep it when editing them.
 
@@ -493,7 +493,7 @@ Load these when you hit the specific topic:
 - [MIME, display, and session configuration in containerized tests.](references/display-config.md)
 - [Deep dive: Preinstalled Flatpak desktop app launch checks](references/preinstalled-flatpak-desktop-app-launch-checks.md)
 - [GNOME 50 → 51 workaround audit and its targeted probe evidence.](references/gnome-51-audit.md)
-- [Calculator and Text Editor divergences on plain GNOME OS 51.](references/gnome-51-app-divergences.md)
+- [Calculator and Text Editor scenarios on plain GNOME OS 51: causes and fixes.](references/gnome-51-app-divergences.md)
 
 ## Overview, clone paint, and helper fault injection (issue #919)
 

@@ -12,6 +12,10 @@ from tests.shared.app_support import (  # noqa: F401
     _ssh_launch,
     _ssh_run,
     atspi_click,
+    describe_subtree,
     launch_background,
     launch_target_available,
+    newest_active_frame,
+    node_text,
+    stop_app_instances,
 )

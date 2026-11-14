@@ -10,7 +10,13 @@ try:
     from qecore.common_steps import *  # noqa: F401,F403
 except Exception:  # noqa: BLE001
     pass
-from app_support import launch_background
+from app_support import (
+    describe_subtree,
+    launch_background,
+    newest_active_frame,
+    node_text,
+    stop_app_instances,
+)
 
 
 def _skip_if_no_atspi(context) -> bool:
@@ -60,6 +66,8 @@ def _calculator_app():
 def launch_calculator_via_command(context) -> None:
     if _skip_if_no_atspi(context):
         return
+    # Each launch of the running app opens another window; start from none.
+    stop_app_instances("gnome-calculator")
     context.calculator_launch_target = launch_background(CALCULATOR_LAUNCH_TARGETS)
 
 
@@ -67,7 +75,7 @@ def _calculator_window():
     app = _calculator_app()
     frames = app.findChildren(lambda n: n.roleName in {"frame", "filler"} and n.showing)
     assert frames, "Visible GNOME Calculator window not found"
-    return frames[0]
+    return newest_active_frame(frames)
 
 
 def _normalize(text: str) -> str:
@@ -80,18 +88,29 @@ def _button_targets(name: str) -> set[str]:
     return {_normalize(alias) for alias in aliases}
 
 
-def _display_candidates():
-    window = _calculator_window()
+def _inside_button(node) -> bool:
+    """True when a node sits under a keypad or menu button (its label, not the display)."""
+    parent = getattr(node, "parent", None)
+    for _ in range(12):
+        if parent is None:
+            return False
+        role = getattr(parent, "roleName", "")
+        if isinstance(role, str) and "button" in role:
+            return True
+        if role == "frame":
+            return False
+        parent = getattr(parent, "parent", None)
+    return False
+
+
+def _display_candidates(window=None):
+    window = window or _calculator_window()
     candidates = []
     for node in window.findChildren(
-        lambda n: n.showing and n.roleName in DISPLAY_ROLES
+        lambda n: n.showing and n.roleName in DISPLAY_ROLES and not _inside_button(n)
     ):
         name = (getattr(node, "name", "") or "").strip()
-        try:
-            text = (getattr(node, "text", "") or "").strip()
-        except Exception:  # noqa: BLE001
-            text = ""
-        value = text or name
+        value = node_text(node) or name
         if value:
             candidates.append(value)
     return candidates
@@ -170,8 +189,10 @@ def click_calculator_button(context, name: str) -> None:
 def calculator_display_shows(context, expected: str) -> None:
     normalized_expected = _normalize(expected)
     last_candidates = []
+    window = None
     for _ in range(20):
-        last_candidates = _display_candidates()
+        window = _calculator_window()
+        last_candidates = _display_candidates(window)
         normalized_candidates = [_normalize(candidate) for candidate in last_candidates]
         if any(
             candidate == normalized_expected or candidate.endswith(normalized_expected)
@@ -181,7 +202,32 @@ def calculator_display_shows(context, expected: str) -> None:
             return
         sleep(0.5)
     raise AssertionError(
-        f"Expected calculator display to show {expected!r}, found {last_candidates!r}"
+        f"Expected calculator display to show {expected!r}, found {last_candidates!r}\n"
+        f"Calculator window tree:\n{describe_subtree(window) if window is not None else '(none)'}"
+    )
+
+
+DISPLAY_FIELD_ROLES = {"text", "entry"}
+
+
+@step("Calculator display is cleared")
+def calculator_display_is_cleared(context) -> None:
+    """The input field is empty or 0: GNOME 51 clears to an empty field, older
+    releases to 0. History labels are not the input field and are ignored."""
+    values = []
+    window = None
+    for _ in range(20):
+        window = _calculator_window()
+        fields = window.findChildren(
+            lambda n: n.showing and n.roleName in DISPLAY_FIELD_ROLES and not _inside_button(n)
+        )
+        values = [node_text(field) or (getattr(field, "name", "") or "").strip() for field in fields]
+        if fields and all(value in {"", "0"} for value in values):
+            return
+        sleep(0.5)
+    raise AssertionError(
+        f"Expected the calculator input field to be empty or 0, found {values!r}\n"
+        f"Calculator window tree:\n{describe_subtree(window) if window is not None else '(none)'}"
     )
 
 

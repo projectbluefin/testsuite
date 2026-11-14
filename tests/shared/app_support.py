@@ -117,6 +117,109 @@ def _ssh_launch(cmd: str, env: dict[str, str] | None = None) -> None:
     )
 
 
+def _node_is_active(node) -> bool:
+    try:
+        from gi.repository import Atspi
+
+        return bool(node.getState().contains(Atspi.StateType.ACTIVE))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def newest_active_frame(frames: list):
+    """Pick the window the user is looking at from an app's showing frames.
+
+    The focused window carries the AT-SPI ``active`` state. Without one, take
+    the last frame: the accessibility tree lists windows in creation order, so
+    that is the newest (for example the window Ctrl+N just opened).
+    """
+    for frame in frames:
+        if _node_is_active(frame):
+            return frame
+    return frames[-1]
+
+
+def node_text(node) -> str:
+    """A node's text: dogtail's ``text``, else the AT-SPI Text interface.
+
+    GNOME Calculator 51's display is a ``text`` node whose dogtail ``text``
+    reads empty while the window shows a value.
+    """
+    try:
+        text = getattr(node, "text", "")
+    except Exception:  # noqa: BLE001
+        text = ""
+    if isinstance(text, str) and text.strip():
+        return text.strip()
+    try:
+        from gi.repository import Atspi
+
+        iface = node.get_text_iface()
+        if iface is None:
+            return ""
+        count = Atspi.Text.get_character_count(iface)
+        value = Atspi.Text.get_text(iface, 0, count)
+        return value.strip() if isinstance(value, str) else ""
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def describe_subtree(node, max_depth: int = 30, max_lines: int = 200) -> str:
+    """Render an AT-SPI subtree (role, name, text, states) for a failure message."""
+    lines: list[str] = []
+
+    def _walk(n, depth: int) -> None:
+        if len(lines) >= max_lines:
+            return
+        role = getattr(n, "roleName", "?")
+        name = (getattr(n, "name", "") or "").strip()
+        text = node_text(n)
+        try:
+            states = ",".join(
+                s.value_nick for s in n.getState().get_states()
+                if s.value_nick in {"active", "editable", "focused", "showing", "visible"}
+            )
+        except Exception:  # noqa: BLE001
+            states = ""
+        lines.append(f"{'  ' * depth}{role} name={name!r} text={text!r} [{states}]")
+        if depth < max_depth:
+            for child in list(getattr(n, "children", []) or []):
+                _walk(child, depth + 1)
+
+    try:
+        _walk(node, 0)
+    except Exception as exc:  # noqa: BLE001
+        lines.append(f"(tree walk stopped: {exc})")
+    return "\n".join(lines)
+
+
+def stop_app_instances(process_name: str, reset_paths: tuple[str, ...] = ()) -> None:
+    """Stop every running instance of an app so the next launch starts clean.
+
+    Single-instance GNOME apps open one more window per launch, so without this
+    each scenario's Background stacks a window on the last one and steps read a
+    window the scenario never touched. ``process_name`` is matched exactly
+    (``pkill -x``) after cutting it to the kernel's 15-character process name,
+    so ``gnome-calculator`` matches the running ``gnome-calculato``.
+    ``reset_paths`` are ``$HOME``-relative state directories removed once the
+    app has exited, for apps that restore their last session on launch.
+    """
+    name = shlex.quote(process_name[:15])
+    cmd = (
+        f"pkill -TERM -x {name} 2>/dev/null; "
+        f"for _ in 1 2 3 4 5 6 7 8 9 10; do pgrep -x {name} >/dev/null || break; sleep 0.5; done; "
+        f"pkill -KILL -x {name} 2>/dev/null; "
+        f"for _ in 1 2 3 4; do pgrep -x {name} >/dev/null || break; sleep 0.5; done"
+    )
+    for path in reset_paths:
+        cmd += f'; rm -rf -- "$HOME"/{shlex.quote(path)}'
+    cmd += "; true"
+    if _IN_CONTAINER:
+        _ssh_run(cmd, timeout=20)
+    else:
+        subprocess.run(["sh", "-c", cmd], capture_output=True, text=True, timeout=20)
+
+
 def _launch_flatpak(
     app_id: str,
     env: dict[str, str] | None,
