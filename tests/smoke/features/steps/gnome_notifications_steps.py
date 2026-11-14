@@ -92,11 +92,28 @@ def notification_request_returns_positive_id(context) -> None:
 
 
 @step("Dismiss the notification via gdbus CloseNotification")
-def dismiss_notification_via_gdbus(context) -> None:
+def dismiss_notification_via_gdbus(context, run=subprocess.run, pause=sleep) -> None:
     notification_id = getattr(context, "notification_id", None)
     assert notification_id is not None, (
         "No notification ID captured — run 'A test desktop notification is sent via gdbus' first"
     )
+    # The dismissal check can only prove CloseNotification removed the
+    # notification if Shell was seen holding it first; otherwise a tray API
+    # change (or a notification that never arrived) would read as "gone".
+    title = _sent_title(context)
+    state = {}
+    for _ in range(NOTIFICATION_SEEN_TIMEOUT_S * 2):
+        state = _tray_state(title, run)
+        if not state.get("error") and (state.get("queued") or state.get("shown")):
+            break
+        pause(0.5)
+    else:
+        raise AssertionError(
+            f"'{title}' was never seen in the message tray or as the banner within "
+            f"{NOTIFICATION_SEEN_TIMEOUT_S}s of sending, so its dismissal cannot be "
+            f"checked; last tray state: {state}"
+        )
+    context.test_notification_seen = True
     _, returncode, stderr = _run(
         f"gdbus call --session "
         f"--dest org.freedesktop.Notifications "
@@ -117,52 +134,98 @@ def dismiss_notification_via_gdbus(context) -> None:
 # or not (#827 audit row 10, probe 3: our notification leaves the tray at once;
 # the held banner clears ~2 s after any input).
 def banner_gone_js(title: str) -> str:
-    """Shell.Eval JS: is the notification titled ``title`` neither the visible
-    banner nor in the tray? Returns a JSON object with the details."""
+    """Shell.Eval JS: where is the notification titled ``title``?
+
+    Returns a JSON object: ``shown`` (it is the visible banner), ``queued`` (it
+    is in the message tray) and ``error`` (the tray could not be read). An
+    error is never reported as gone.
+    """
     return (
-        "(() => { const t = Main.messageTray; const title = " + json.dumps(title) + ";"
-        " const b = t._banner;"
-        " const shown = !!(b && b.visible && b.notification && b.notification.title === title);"
-        " let queued = false;"
-        " try { queued = t.getSources().some(s => s.notifications.some(n => n.title === title)); }"
-        " catch (e) { queued = false; }"
-        " let idle = null;"
+        "(() => { const title = " + json.dumps(title) + ";"
+        " let shown = false, queued = false, error = null, banner = null, idle = null;"
+        " try { const t = Main.messageTray; const b = t._banner;"
+        "  shown = !!(b && b.visible && b.notification && b.notification.title === title);"
+        "  banner = b ? ((b.notification && b.notification.title) || '?') : null;"
+        "  queued = t.getSources().some(s => s.notifications.some(n => n.title === title)); }"
+        " catch (e) { error = String(e); }"
         " try { idle = global.backend.get_core_idle_monitor().get_idletime(); } catch (e) {}"
-        " return JSON.stringify({ gone: !shown && !queued, shown: shown, queued: queued,"
-        "  banner: b ? ((b.notification && b.notification.title) || '?') : null, idle_ms: idle }); })()"
+        " return JSON.stringify({ shown: shown, queued: queued, error: error,"
+        "  banner: banner, idle_ms: idle }); })()"
     )
 
 
 BANNER_DISMISS_TIMEOUT_S = 20  # GNOME 50 banners can linger in QEMU
+NOTIFICATION_SEEN_TIMEOUT_S = 5
 
 
-def _banner_gone(title: str, run=subprocess.run) -> tuple[bool, str]:
-    """(test notification gone?, Shell.Eval output) for one read."""
-    result = run(
-        ["gdbus", "call", "--session",
-         "--dest", "org.gnome.Shell",
-         "--object-path", "/org/gnome/Shell",
-         "--method", "org.gnome.Shell.Eval",
-         banner_gone_js(title)],
-        capture_output=True, text=True, timeout=5,
+def _parse_eval_json(out: str):
+    """The object a JSON-returning Shell.Eval call produced, or None.
+
+    Shell.Eval answers ``(true, '"<JSON string>"')``: a GVariant string holding
+    the JSON encoding of the string the expression returned.
+    """
+    m = re.match(r"\(\s*(true|false)\s*,\s*'(.*)'\s*\)\s*$", out.strip(), re.S)
+    if not m or m.group(1) != "true":
+        return None
+    literal = m.group(2).replace("\\\\", "\x00").replace("\\'", "'").replace("\x00", "\\")
+    try:
+        value = json.loads(literal)
+        return json.loads(value) if isinstance(value, str) else None
+    except ValueError:
+        return None
+
+
+def _tray_state(title: str, run=subprocess.run) -> dict:
+    """Shell's view of the notification titled ``title``; ``error`` set on any failure."""
+    try:
+        result = run(
+            ["gdbus", "call", "--session",
+             "--dest", "org.gnome.Shell",
+             "--object-path", "/org/gnome/Shell",
+             "--method", "org.gnome.Shell.Eval",
+             banner_gone_js(title)],
+            capture_output=True, text=True, timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"error": f"gdbus failed: {exc}"}
+    state = _parse_eval_json(result.stdout)
+    if not isinstance(state, dict):
+        return {"error": f"unusable Shell.Eval reply: {result.stdout!r}"}
+    return state
+
+
+def _sent_title(context) -> str:
+    title = getattr(context, "test_notification_title", None)
+    assert title, (
+        "No test notification was sent in this scenario — run 'A test desktop "
+        "notification is sent via gdbus' first"
     )
-    out = result.stdout
-    flat = out.replace("\\", "").replace('"', "").replace(" ", "")
-    return "gone:true" in flat, out
+    return title
+
+
+def _banner_gone(title: str, run=subprocess.run) -> tuple[bool, dict]:
+    """(test notification gone?, tray state) for one read; an error is not gone."""
+    state = _tray_state(title, run)
+    gone = not state.get("error") and not state.get("shown") and not state.get("queued")
+    return gone, state
 
 
 @step("Notification banner is no longer showing via Shell.Eval")
 def notification_banner_no_longer_showing(context, run=subprocess.run, pause=sleep) -> None:
-    title = getattr(context, "test_notification_title", TEST_NOTIFICATION_TITLE)
-    last_out = ""
+    title = _sent_title(context)
+    assert getattr(context, "test_notification_seen", False), (
+        f"'{title}' was not seen before CloseNotification, so its dismissal cannot be "
+        "checked — run 'Dismiss the notification via gdbus CloseNotification' first"
+    )
+    state = {}
     for _ in range(BANNER_DISMISS_TIMEOUT_S * 2):
-        gone, last_out = _banner_gone(title, run)
+        gone, state = _banner_gone(title, run)
         if gone:
             return
         pause(0.5)
     raise AssertionError(
-        f"'{title}' is still shown or queued "
-        f"{BANNER_DISMISS_TIMEOUT_S}s after CloseNotification; Shell.Eval returned: {last_out!r}"
+        f"'{title}' is still shown or queued, or the tray could not be read, "
+        f"{BANNER_DISMISS_TIMEOUT_S}s after CloseNotification; last tray state: {state}"
     )
 
 
