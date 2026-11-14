@@ -90,6 +90,11 @@ _PROBE_APPS = {
     "calculator": ((("command", "gnome-calculator"), ("desktop", "org.gnome.Calculator.desktop")), None),
     "text-editor": ((("command", "gnome-text-editor"), ("desktop", "org.gnome.TextEditor.desktop")), None),
     "clocks": ((("desktop", "org.gnome.clocks.desktop"), ("flatpak", "org.gnome.clocks")), None),
+    "firefox": (
+        (("command", "firefox"), ("desktop", "firefox.desktop"), ("flatpak", "org.mozilla.firefox"),
+         ("desktop", "org.mozilla.firefox.desktop")),
+        {"GNOME_ACCESSIBILITY": "1", "ACCESSIBILITY_ENABLED": "1", "GTK_A11Y": "atk-bridge", "ATSPI_DISABLE_P2P": "1"},
+    ),
 }
 
 
@@ -109,7 +114,7 @@ def probe_launch(context) -> None:
 @step("Record GNOME 51 audit probe 3 rows 4 and 6 application toplevels")
 @_guarded("4+6")
 def probe_rows_4_6(context) -> None:
-    sleep(8)  # let the three apps map their windows
+    sleep(15)  # let the apps (Firefox is slow) map their windows
     names = []
     for app in tree.root.applications():
         name = (_attr(app, "name", "") or "").strip("'\" ")
@@ -142,7 +147,10 @@ def probe_row_5(context) -> None:
             )
             _emit("5", app=name, home_items=[
                 {"role": _attr(i, "roleName"), "name": _attr(i, "name"), "showing": _attr(i, "showing"),
-                 "parent_role": _attr(_attr(i, "parent"), "roleName")}
+                 "parent_role": _attr(_attr(i, "parent"), "roleName"),
+                 "parent_name": _attr(_attr(i, "parent"), "name"),
+                 "grandparent": [_attr(_attr(_attr(i, "parent"), "parent"), "roleName"),
+                                 _attr(_attr(_attr(i, "parent"), "parent"), "name")]}
                 for i in items[:20]
             ])
             return
@@ -189,3 +197,28 @@ def probe_row_10_dismissed(context) -> None:
             first_null = t
         sleep(0.5)
     _emit("10", phase="after-close", first_banner_null_s=first_null, readings=readings[:12], last=readings[-1])
+
+
+_OWNER_JS = (
+    "(() => { const t = Main.messageTray; const b = t._banner;"
+    " let idle = null;"
+    " try { idle = global.backend.get_core_idle_monitor().get_idletime(); } catch (e) {}"
+    " let tray = [];"
+    " try { tray = t.getSources().map(s => s.notifications.map(n => n.title)).flat(); } catch (e) { tray = String(e); }"
+    " return JSON.stringify({"
+    "  banner: b ? { visible: b.visible, title: (b.notification && b.notification.title) || null } : null,"
+    "  tray: tray, idle_ms: idle }); })()"
+)
+
+
+@step('Record GNOME 51 audit probe 3 row 10 banner owner "{phase}"')
+@_guarded("10b")
+def probe_row_10_owner(context, phase) -> None:
+    readings = []
+    for _ in range(6 if phase != "sent" else 1):
+        sleep(1.0)
+        try:
+            readings.append(_shell_eval(_OWNER_JS).strip())
+        except AssertionError as exc:
+            readings.append(f"error: {exc}")
+    _emit("10b", phase=phase, readings=readings)

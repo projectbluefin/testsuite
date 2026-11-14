@@ -27,3 +27,13 @@ Feature: GNOME 51 audit probe 3 (#827, temporary)
     * Notification request returns a positive notification ID
     * Dismiss the notification via gdbus CloseNotification
     * Record GNOME 51 audit probe 3 row 10 banner after dismissal
+
+  @gnome51_audit_probe
+  Scenario: Record GNOME 51 audit probe 3 banner owner and idle hold
+    * GNOME Shell is accessible via AT-SPI
+    * A test desktop notification is sent via gdbus
+    * Record GNOME 51 audit probe 3 row 10 banner owner "sent"
+    * Dismiss the notification via gdbus CloseNotification
+    * Record GNOME 51 audit probe 3 row 10 banner owner "closed"
+    * Key combo: "<Shift>" with uinput
+    * Record GNOME 51 audit probe 3 row 10 banner owner "after-input"
