@@ -31,6 +31,7 @@ on:
       - scripts/extension_candidates.py
       - scripts/extension_validation.py
       - tests/shared/gnome_extensions_artifacts.py
+      - tests/extensions/**
 
 permissions:
   contents: read
