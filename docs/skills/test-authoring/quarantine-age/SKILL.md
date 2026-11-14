@@ -89,7 +89,8 @@ The workflow passes `--grace-days 30`, the same as the `quarantine-age` job, so 
 limit" means near the day PR validation starts failing. Change both together.
 
 Issues are found again by the hidden marker `<!-- quarantine-followup: <kind> <citation> -->`,
-never by title. A later run updates the title and body in place when the content changes
+never by title, and only among issues `github-actions[bot]` filed, so a marker pasted into
+someone else's issue is ignored. A later run updates the title and body in place when the content changes
 (a moved `main` alone is not a change), closes duplicates as not planned, and closes a
 follow-up whose quarantines are gone or whose kind no longer applies. Labels are only set at
 creation, so triage and hive stage labels are left alone. If a cited issue was closed without

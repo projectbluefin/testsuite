@@ -125,6 +125,7 @@ def _args(root: Path, today: date, **extra) -> SimpleNamespace:
         today=today,
         dry_run=True,
         no_bodies=False,
+        issue_author=qf.ISSUE_AUTHOR,
     )
     values.update(extra)
     return SimpleNamespace(**values)
@@ -259,7 +260,12 @@ def test_utah_lift_asks_for_a_manual_utah_run(tmp_path):
 
 
 def _existing(plan_action: qf.Action, number: int, **overrides) -> dict:
-    issue = {"number": number, "title": plan_action.title, "body": plan_action.body}
+    issue = {
+        "number": number,
+        "title": plan_action.title,
+        "body": plan_action.body,
+        "author": qf.ISSUE_AUTHOR,
+    }
     issue.update(overrides)
     return issue
 
@@ -302,6 +308,21 @@ def test_changed_content_updates_in_place_and_closes_duplicates(tmp_path):
     assert github.writes[2][2] == {"state": "closed", "state_reason": "not_planned"}
 
 
+def test_marker_in_someone_elses_issue_is_ignored(tmp_path):
+    root = _repo(tmp_path, {"tests/smoke/features/a.feature": _feature(CITE)})
+    statuses = {"projectbluefin/dakota#1875": CLOSED_ISSUE}
+    first, _ = qf.run(_args(root, date(2026, 11, 14)), FakeGitHub(statuses))
+    planted = _existing(first.actions[0], 40, author="someone")
+    stray = {
+        "number": 41,
+        "title": "x",
+        "body": "<!-- quarantine-followup: lift projectbluefin/utah#1 -->",
+        "author": "someone",
+    }
+    plan, _ = qf.run(_args(root, date(2026, 11, 14)), FakeGitHub(statuses, [planted, stray]))
+    assert [(a.kind, a.number) for a in plan.actions] == [("create", None)]
+
+
 def test_followup_for_lifted_quarantine_is_closed(tmp_path):
     root = _repo(
         tmp_path,
@@ -311,6 +332,7 @@ def test_followup_for_lifted_quarantine_is_closed(tmp_path):
         "number": 70,
         "title": "old",
         "body": "<!-- quarantine-followup: lift projectbluefin/dakota#1875 -->\nold",
+        "author": qf.ISSUE_AUTHOR,
     }
     unrelated = {"number": 71, "title": "x", "body": "no marker"}
     github = FakeGitHub({}, [leftover, unrelated])
@@ -324,6 +346,7 @@ def test_expiring_issue_closes_when_the_cause_closes(tmp_path):
         "number": 80,
         "title": "old",
         "body": "<!-- quarantine-followup: expiring projectbluefin/dakota#1875 -->",
+        "author": qf.ISSUE_AUTHOR,
     }
     github = FakeGitHub({"projectbluefin/dakota#1875": CLOSED_ISSUE}, [warning])
     plan, _ = qf.run(_args(root, date(2026, 11, 14)), github)

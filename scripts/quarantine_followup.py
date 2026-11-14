@@ -49,6 +49,8 @@ from quarantine_citations import QuarantineBlock, scan  # noqa: E402
 MARKER_PREFIX = "quarantine-followup:"
 MARKER_RE = re.compile(r"<!--\s*quarantine-followup:\s*(?P<key>[^>]+?)\s*-->")
 WARN_DAYS = 7
+# The account the workflow's GITHUB_TOKEN files issues as.
+ISSUE_AUTHOR = "github-actions[bot]"
 EASTERN = ZoneInfo("America/New_York")
 
 # Labels set when an issue is created. A lift is mechanical, agent-ready work;
@@ -185,7 +187,8 @@ class GitHub:
                 "--paginate",
                 "--jq",
                 ".[] | select(.pull_request == null) "
-                "| {number, title, body, labels: [.labels[].name]}",
+                "| {number, title, body, author: .user.login, "
+                "labels: [.labels[].name]}",
             ]
         )
         return [json.loads(line) for line in out.splitlines() if line.strip()]
@@ -575,10 +578,20 @@ def _without_sha(body: str) -> str:
     return _SHA_RE.sub("<sha>", body.replace("\r\n", "\n"))
 
 
-def plan_actions(followups: list[Followup], open_issues: list[dict[str, Any]]) -> Plan:
+def plan_actions(
+    followups: list[Followup],
+    open_issues: list[dict[str, Any]],
+    *,
+    author: str = ISSUE_AUTHOR,
+) -> Plan:
+    """Decide the writes. Only issues ``author`` filed count as follow-ups,
+    so a marker pasted into someone else's issue is never edited or closed.
+    """
     plan = Plan()
     existing: dict[str, list[dict[str, Any]]] = {}
     for issue in open_issues:
+        if author and (issue.get("author") or "").lower() != author.lower():
+            continue
         match = MARKER_RE.search(issue.get("body") or "")
         if match:
             existing.setdefault(match.group("key").strip(), []).append(issue)
@@ -717,6 +730,11 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     )
     parser.add_argument("--warn-days", type=int, default=WARN_DAYS)
     parser.add_argument(
+        "--issue-author",
+        default=ISSUE_AUTHOR,
+        help="Only this account's issues are follow-ups (default: %(default)s)",
+    )
+    parser.add_argument(
         "--today", type=date.fromisoformat, default=None, help=argparse.SUPPRESS
     )
     parser.add_argument("--dry-run", action="store_true", help="Print the plan; write nothing")
@@ -753,7 +771,9 @@ def run(args: argparse.Namespace, github: GitHub) -> tuple[Plan, list[str]]:
         threshold_days=threshold,
         warn_days=args.warn_days,
     )
-    plan = plan_actions(followups, github.open_issues(args.repo))
+    plan = plan_actions(
+        followups, github.open_issues(args.repo), author=args.issue_author
+    )
     plan.notes.extend(notes)
     plan.notes.extend(f"invalid citation (fails PR validation): {p}" for p in problems)
     return plan, [i.block.citation.ref for i in items if i.block.citation]
