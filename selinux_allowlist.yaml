@@ -20,4 +20,10 @@
 # any enforced denial without a matching entry. Prefer filing the denial in
 # the owning image repo over adding an entry here.
 
-allowed_denials: []
+allowed_denials:
+  - source_context: "system_u:system_r:tuned_t:s0"
+    target_context: "system_u:system_r:tuned_t:s0"
+    tclass: "capability2"
+    permission: "mac_admin"
+    comm: "chcon"
+    reason: "TuneD invokes chcon during profile setup which probes CAP_MAC_ADMIN not granted by upstream targeted policy"
