@@ -49,13 +49,13 @@ metadata:
 ## Stack
 
 
-| Layer | Component | Install |
-|---|---|---|
-| BDD runner | behave | pip |
-| Session bridge | qecore-headless | pip |
-| GUI automation | dogtail (AT-SPI) | pip |
-| Wayland coord bridge | gnome-ponytail-daemon | `sudo dnf install gnome-ponytail-daemon` inside VM |
-| Shell bridge | `org.gnome.Shell.Eval` | built-in (requires `unsafe_mode=true`) |
+| Layer                | Component              | Install                                            |
+| -------------------- | ---------------------- | -------------------------------------------------- |
+| BDD runner           | behave                 | pip                                                |
+| Session bridge       | qecore-headless        | pip                                                |
+| GUI automation       | dogtail (AT-SPI)       | pip                                                |
+| Wayland coord bridge | gnome-ponytail-daemon  | `sudo dnf install gnome-ponytail-daemon` inside VM |
+| Shell bridge         | `org.gnome.Shell.Eval` | built-in (requires `unsafe_mode=true`)             |
 
 ## Screen Lock/Unlock D-Bus calls (GNOME 50)
 
@@ -91,9 +91,18 @@ test manual session locking via `loginctl lock-session` / `loginctl unlock-sessi
 and logind `LockedHint`, which remain fully operational even when automatic idle
 lock is disabled.
 
-## GNOME 51 workarounds audit (issue #827)
+## GNOME 51 (issue #827)
 
-GNOME 51 (GA 2026-09-16) is Wayland-only and freezes the extension API. Keep every GNOME 50 workaround until a `gnomeos-51` run proves it obsolete — inventory, ground rules and validation procedure in [`references/gnome-51-audit.md`](references/gnome-51-audit.md).
+`dakota:testing` and `utah:testing` run GNOME Shell 51.1 (qecore 4.19.3 works).
+Each GNOME 50 workaround's GNOME 51 verdict, with probe evidence, is in
+[`references/gnome-51-audit.md`](references/gnome-51-audit.md). Still needed on
+51: the Files AT-SPI name `org.gnome.Nautilus`, and Ptyxis's `Terminal` title
+where Ptyxis ships. The rest are obsolete on 51; keep their GNOME 50 paths while
+any tested image runs GNOME 50. Notification dismissal checks that the test
+notification is gone, not that no banner shows: Shell holds earlier banners on
+screen while the session is idle, as a headless VM always is. Calculator and
+Text Editor divergences on plain GNOME OS 51:
+[`references/gnome-51-app-divergences.md`](references/gnome-51-app-divergences.md).
 
 ## Remote session commands from the runner container
 
@@ -474,15 +483,6 @@ helper; key contract points:
 Reuse this helper rather than a new `gdbus`-poll loop. See
 `docs/skills/ci-ops/ops/references/qecore-headless-restarts-gdm-bus-socket-churn.md`.
 
-## GNOME 51 workarounds audit
-
-`dakota:testing` runs GNOME 51.1; its e2e smoke runs exercise workarounds on
-GNOME 51. Keep GNOME 50 workarounds while any tested image still needs them.
-See `references/gnome-51-audit.md` for run evidence and per-workaround verdicts.
-Calculator display lookup and Text Editor new-document/quit diverged on plain
-GNOME OS 51. When the PR validation plan selects VM-covered suites, the check
-runs `dakota:testing`; it cannot capture AT-SPI trees for apps that image lacks.
-
 ## On-demand references
 
 Load these when you hit the specific topic:
@@ -491,7 +491,8 @@ Load these when you hit the specific topic:
 - [Top-bar interactions and Shell.Eval parsing on GNOME 50+.](references/top-bar.md)
 - [MIME, display, and session configuration in containerized tests.](references/display-config.md)
 - [Deep dive: Preinstalled Flatpak desktop app launch checks](references/preinstalled-flatpak-desktop-app-launch-checks.md)
-- [GNOME 50 → 51 workaround audit, live run evidence, and the Calculator / Text Editor divergences.](references/gnome-51-audit.md)
+- [GNOME 50 → 51 workaround audit and its targeted probe evidence.](references/gnome-51-audit.md)
+- [Calculator and Text Editor divergences on plain GNOME OS 51.](references/gnome-51-app-divergences.md)
 
 ## Overview, clone paint, and helper fault injection (issue #919)
 

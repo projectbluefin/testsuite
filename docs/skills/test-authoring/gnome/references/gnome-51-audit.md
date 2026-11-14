@@ -1,6 +1,6 @@
 ---
 name: gnome-51-audit
-description: "Audit of GNOME 50-specific workarounds against GNOME 51 — per-workaround verdict, the live gnomeos-51 run evidence, and the Calculator / Text Editor divergences found in that run."
+description: "Audit of GNOME 50-specific workarounds against GNOME 51 — per-workaround verdict, the live gnomeos-51 run evidence, the targeted probes behind each verdict, and qecore on GNOME 51."
 metadata:
   type: reference
   audience: agents
@@ -36,28 +36,26 @@ Version-branch or fix a workaround only after a run proves behavior diverges.
 
 ## The twelve GNOME 50 workarounds
 
-| # | Workaround | Status (GNOME 51) | Where |
-|---|---|---|---|
-| 1 | Re-prepend `global.context.unsafe_mode = true` before every `Shell.Eval` (GNOME 50 reset it) | **OBSOLETE ON 51** — §Targeted probes (round 2): `global.context.unsafe_mode`, read by a raw `Shell.Eval` that does not re-enable it, stayed `true` after a 3 s idle, an overview open and close over D-Bus, a notification, a GNOME Text Editor window opening and closing, and both screen-lock paths with their unlocks, on `dakota:testing` and `utah:testing`. GNOME 50's reset did not happen. Keep the prepend while any tested image runs GNOME 50; it is harmless. Modal dialogs other than the lock screen were not exercised | `tests/smoke/features/steps/steps.py`; documented in `SKILL.md` "Screen Lock/Unlock" / "Overview search entry" |
-| 2 | Double-quoted `Shell.Eval` results `(true, '"true"')` | **OBSOLETE ON 51 as a version quirk** — §Targeted probes (round 2): `Shell.Eval` returns the result JSON-encoded on both images: `true` → `(true, 'true')`, `'abc'` → `(true, '"abc"')`, objects and arrays as JSON, `undefined` → `''`. A quoted `'"true"'` only appears when the expression evaluates to the string `"true"`. Keep `_eval_bool`'s optional quotes for string results | `tests/smoke/features/steps/steps.py` |
-| 3 | Extension `state=6` via `Shell.Eval` → use `GetExtensionInfo` D-Bus | **OBSOLETE ON 51** — §Targeted probes (round 2): for the 12 extensions sampled on each image (all `ACTIVE`), `Main.extensionManager.lookup(uuid).state` via `Shell.Eval` returned `1`, matching `GetExtensionInfo` (`1`) and `gnome-extensions show` (`ACTIVE`); GNOME 50's constant `6` did not occur. Keep `GetExtensionInfo`: it is the public API and needs no unsafe mode | `tests/smoke/features/steps/steps.py`; `SKILL.md` "Extension state via D-Bus" |
-| 4 | `filler`/`frame` toplevel-role fallback + require populated subtree | **WORKS ON 51** — Files, Calculator, Text Editor, and fractional/integer scale windows resolved their toplevels; the run does not prove which fallback was needed | `tests/shared/gnome_shell_steps.py`; `SKILL.md` "Window-role checks must prove the subtree is populated" |
-| 5 | Nautilus sidebar role (`home_folder_is_in_the_sidebar`) | **WORKS ON 51** — `home_folder_is_in_the_sidebar` passed; necessity remains unproven | `tests/smoke/features/steps/gnome_files_steps.py` |
-| 6 | Nautilus AT-SPI app-name handling (`FILES_APP_NAMES`, `_nautilus_app`) | **WORKS ON 51** — Files launched, navigated, and closed; necessity remains unproven | `tests/smoke/features/steps/gnome_files_steps.py` |
-| 7 | Ptyxis window title (`user@host:~`) | **STILL REQUIRED on `utah:testing`; not testable on `dakota:testing`** — §Targeted probes (round 2): on utah (`/usr/bin/ptyxis`) a new window was titled `Terminal` (WM class `org.gnome.Ptyxis`) and its AT-SPI frame was named `Terminal`, so a check for a `Ptyxis` title would fail. `dakota:testing` ships no Ptyxis (its terminal is Ghostty), which is why smoke-a skipped the scenario | `tests/smoke/features/steps/gnome_apps_steps.py:34-38` |
-| 8 | ScreenSaver D-Bus `Lock` (not `screenShield.lock(true)`) | **OBSOLETE ON 51** — §Targeted probes (round 2): `Main.screenShield.lock(true)` via `Shell.Eval` locked the session on both images (`org.gnome.ScreenSaver.GetActive` → `true`), and `SetActive false` unlocked it; `org.gnome.ScreenSaver.Lock` behaved the same. GNOME 50's "deprecated and fails" no longer holds. Keep the D-Bus `Lock`: it is the public API and needs no unsafe mode | `tests/smoke/features/steps/steps.py`; `SKILL.md` "Screen Lock/Unlock D-Bus calls" |
-| 9 | `Main.overview.visible` reads `false` in QEMU; do not assert it | **OBSOLETE ON 51** — the targeted probe (§Targeted probes) read `Main.overview.visible` as `false`, `true`, `false` across an overview open and close in QEMU on GNOME Shell 51.1, matching `OverviewActive` each time, on `dakota:testing` and `utah:testing`. Keep checking `OverviewActive`: it needs no `Shell.Eval` or unsafe mode | `tests/smoke/features/steps/steps.py`; `SKILL.md` "Activities overview (GNOME 50 QEMU)" |
-| 10 | Notification banner dismissal check | **WORKS ON 51** — `toast_notification_banner_can_be_dismissed` passed; necessity remains unproven | `tests/smoke/features/steps/gnome_notifications_steps.py` |
-| 11 | Panel buttons `showing=False` before overview toggle | **OBSOLETE ON 51** — the first probe read the Activities toggle as `showing=True`; §Targeted probes (round 2) found the clock (a `menu` with no accessible name, holding the date and time label) and the `System` menu in the same top-bar panel, and both read `showing=True` before, during and after an overview toggle on both images. GNOME 50's "every panel button reports `showing=False`" holds for none of the three | `tests/shared/gnome_shell_steps.py` |
-| 12 | keyring skip on GDM restart | **WORKS ON 51** — §Targeted probes (round 2): with qecore's keyring setup skipped, every smoke-b scenario passed on both images. The login keyring is unusable without it: on dakota the `login` collection exists but is locked; on utah `gnome-keyring-daemon` runs with no `login` collection (default alias `/`); a `secret-tool store` blocked until a 15 s timeout on both. No smoke scenario stores a secret. Whether qecore's setup, which restarts GDM, would still break the run is not measured: it would restart the session under test | `tests/smoke/features/environment.py` |
+| #   | Workaround                                                                                   | Status (GNOME 51)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | Where                                                                                                          |
+| --- | -------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| 1   | Re-prepend `global.context.unsafe_mode = true` before every `Shell.Eval` (GNOME 50 reset it) | **OBSOLETE ON 51** — §Targeted probes (round 2): `global.context.unsafe_mode`, read by a raw `Shell.Eval` that does not re-enable it, stayed `true` after a 3 s idle, an overview open and close over D-Bus, a notification, a GNOME Text Editor window opening and closing, and both screen-lock paths with their unlocks, on `dakota:testing` and `utah:testing`. GNOME 50's reset did not happen. Keep the prepend while any tested image runs GNOME 50; it is harmless. Modal dialogs other than the lock screen were not exercised                                                                                                                                                                                                                                                                                                                                                                                           | `tests/smoke/features/steps/steps.py`; documented in `SKILL.md` "Screen Lock/Unlock" / "Overview search entry" |
+| 2   | Double-quoted `Shell.Eval` results `(true, '"true"')`                                        | **OBSOLETE ON 51 as a version quirk** — §Targeted probes (round 2): `Shell.Eval` returns the result JSON-encoded on both images: `true` → `(true, 'true')`, `'abc'` → `(true, '"abc"')`, objects and arrays as JSON, `undefined` → `''`. A quoted `'"true"'` only appears when the expression evaluates to the string `"true"`. Keep `_eval_bool`'s optional quotes for string results                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | `tests/smoke/features/steps/steps.py`                                                                          |
+| 3   | Extension `state=6` via `Shell.Eval` → use `GetExtensionInfo` D-Bus                          | **OBSOLETE ON 51** — §Targeted probes (round 2): for the 12 extensions sampled on each image (all `ACTIVE`), `Main.extensionManager.lookup(uuid).state` via `Shell.Eval` returned `1`, matching `GetExtensionInfo` (`1`) and `gnome-extensions show` (`ACTIVE`); GNOME 50's constant `6` did not occur. Keep `GetExtensionInfo`: it is the public API and needs no unsafe mode                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | `tests/smoke/features/steps/steps.py`; `SKILL.md` "Extension state via D-Bus"                                  |
+| 4   | `filler`/`frame` toplevel-role fallback + require populated subtree                          | **OBSOLETE ON 51 for every app measured** — §Targeted probes (round 3): on both images the toplevel of Files (`org.gnome.Nautilus`, 172 descendants) and Settings (`gnome-control-center`, 150), and on utah Firefox (29 children), was a populated `frame`; no `filler` toplevel and no bare childless `filler` occurred. Calculator, Text Editor and Clocks ship on neither image, so were not measured. Keep `{frame, filler}` and the populated-subtree check while any tested image runs GNOME 50                                                                                                                                                                                                                                                                                                                                                                                                                            | `tests/shared/gnome_shell_steps.py`; `SKILL.md` "Window-role checks must prove the subtree is populated"       |
+| 5   | Nautilus sidebar role (`home_folder_is_in_the_sidebar`)                                      | **OBSOLETE ON 51** — §Targeted probes (round 3): replaying the step's own search, its only match on both images was a `list item` named `Open Personal Folder` in the unnamed sidebar `list`: the pre-GNOME 50 role. GNOME 50's `button` did not occur in the sidebar (the `Home` `button` is the path bar's). The `Personal Folder` name match is what finds it. Keep accepting `button` while any tested image runs GNOME 50                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | `tests/smoke/features/steps/gnome_files_steps.py`                                                              |
+| 6   | Nautilus AT-SPI app-name handling (`FILES_APP_NAMES`, `_nautilus_app`)                       | **STILL REQUIRED** — §Targeted probes (round 3): Files registers in AT-SPI as `org.gnome.Nautilus` on both images, not the pre-GNOME 50 `nautilus`, so a lookup by `nautilus` alone finds nothing                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | `tests/smoke/features/steps/gnome_files_steps.py`                                                              |
+| 7   | Ptyxis window title (`user@host:~`)                                                          | **STILL REQUIRED on `utah:testing`; not testable on `dakota:testing`** — §Targeted probes (round 2): on utah (`/usr/bin/ptyxis`) a new window was titled `Terminal` (WM class `org.gnome.Ptyxis`) and its AT-SPI frame was named `Terminal`, so a check for a `Ptyxis` title would fail. `dakota:testing` ships no Ptyxis (its terminal is Ghostty), which is why smoke-a skipped the scenario                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | `tests/smoke/features/steps/gnome_apps_steps.py:34-38`                                                         |
+| 8   | ScreenSaver D-Bus `Lock` (not `screenShield.lock(true)`)                                     | **OBSOLETE ON 51** — §Targeted probes (round 2): `Main.screenShield.lock(true)` via `Shell.Eval` locked the session on both images (`org.gnome.ScreenSaver.GetActive` → `true`), and `SetActive false` unlocked it; `org.gnome.ScreenSaver.Lock` behaved the same. GNOME 50's "deprecated and fails" no longer holds. Keep the D-Bus `Lock`: it is the public API and needs no unsafe mode                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | `tests/smoke/features/steps/steps.py`; `SKILL.md` "Screen Lock/Unlock D-Bus calls"                             |
+| 9   | `Main.overview.visible` reads `false` in QEMU; do not assert it                              | **OBSOLETE ON 51** — the targeted probe (§Targeted probes) read `Main.overview.visible` as `false`, `true`, `false` across an overview open and close in QEMU on GNOME Shell 51.1, matching `OverviewActive` each time, on `dakota:testing` and `utah:testing`. Keep checking `OverviewActive`: it needs no `Shell.Eval` or unsafe mode                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | `tests/smoke/features/steps/steps.py`; `SKILL.md` "Activities overview (GNOME 50 QEMU)"                        |
+| 10  | Notification banner dismissal check                                                          | **BROKEN ON 51 — fixed** — §Targeted probes (round 3): the GNOME 50 check also required `Main.messageTray._bannerBin` hidden, which GNOME 51 never does, and treated any visible banner as ours, so it always fell through to a force-dismiss and a warning and could not fail. After `CloseNotification` this scenario's notification leaves the tray; the banner still on screen is an earlier one (other scenarios and retries send without closing) that Shell holds while the session is idle. Each sent notification now gets a unique title; the close step first requires Shell to hold it, and the check then requires it to be neither the visible banner nor in the tray (a tray read error never counts as gone). It passes on both images ([43556476178](https://github.com/projectbluefin/testsuite/actions/runs/43556476178), [43556485608](https://github.com/projectbluefin/testsuite/actions/runs/43556485608)) | `tests/smoke/features/steps/gnome_notifications_steps.py`                                                      |
+| 11  | Panel buttons `showing=False` before overview toggle                                         | **OBSOLETE ON 51** — the first probe read the Activities toggle as `showing=True`; §Targeted probes (round 2) found the clock (a `menu` with no accessible name, holding the date and time label) and the `System` menu in the same top-bar panel, and both read `showing=True` before, during and after an overview toggle on both images. GNOME 50's "every panel button reports `showing=False`" holds for none of the three                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | `tests/shared/gnome_shell_steps.py`                                                                            |
+| 12  | keyring skip on GDM restart                                                                  | **WORKS ON 51** — §Targeted probes (round 2): with qecore's keyring setup skipped, every smoke-b scenario passed on both images. The login keyring is unusable without it: on dakota the `login` collection exists but is locked; on utah `gnome-keyring-daemon` runs with no `login` collection (default alias `/`); a `secret-tool store` blocked until a 15 s timeout on both. No smoke scenario stores a secret. Whether qecore's setup, which restarts GDM, would still break the run is not measured: it would restart the session under test                                                                                                                                                                                                                                                                                                                                                                               | `tests/smoke/features/environment.py`                                                                          |
 
-Rows 4, 5, 6, and 10 worked in the run in §Run evidence; a passing scenario
-does not prove that the workaround is required. Rows 1, 2, 3, 7, 8, 9, 11 and
-12 were measured by targeted probes (§Targeted probes and §Targeted probes
-(round 2)). Row 7 is still required where Ptyxis ships (`utah:testing`);
-`dakota:testing` has no Ptyxis. **This audit is incomplete**: issue #827 still
-needs targeted comparisons for rows 4, 5, 6 and 10, which passed but have not
-been run without their workarounds.
+Every row now has a GNOME 51 verdict from a targeted probe (§Targeted probes,
+rounds 1–3). Still required on 51: row 6, and row 7 where Ptyxis ships
+(`utah:testing`). Row 10 was broken and is fixed. The rest are obsolete on 51
+or, for row 12, work without the workaround; keep their GNOME 50 paths while
+any tested image runs GNOME 50.
 
 ## Run target
 
@@ -139,53 +137,43 @@ What each reading did:
 Every probe scenario passed. Both utah runs failed only at the SELinux denial
 gate, on utah#1198's `chcon` `mac_admin` denials.
 
+### Targeted probes (round 3)
+
+A third temporary smoke scenario (commits `ea968538` to `e4aa74e5`, removed
+before merge) read, in `smoke-b` on GNOME Shell 51.1 with qecore 4.19.3: each
+app's AT-SPI toplevels (row 4), the sidebar matches of the step's own search
+(row 5), the application names (row 6), and for row 10 the message tray, the
+visible banner's notification and the session idle time around
+`CloseNotification`, before and after one uinput keypress.
+
+| Image            | Run                                                                                 |
+| ---------------- | ----------------------------------------------------------------------------------- |
+| `dakota:testing` | [43549588532](https://github.com/projectbluefin/testsuite/actions/runs/43549588532) |
+| `utah:testing`   | [43549598764](https://github.com/projectbluefin/testsuite/actions/runs/43549598764) |
+
+Row 10 in numbers: the visible banner was never this scenario's notification
+but an earlier one (`Settings`, or another test notification left open); this
+scenario's notification left the tray within 1 s of `CloseNotification`; the
+session had been idle 34–282 s; one `<Shift>` reset the idle time and the held
+banner cleared within 2.3 s. The same hold showed with the close sent at once or
+after 1 s (runs 43540402711, 43544509681, 43546740107, 43554149449,
+43554157456). The fixed step passed in smoke-a on both images (runs above).
+
+### qecore on GNOME 51
+
+Every GNOME 51 run above used qecore 4.19.3 (the pin in
+`container/Containerfile.runner`, `container/Containerfile.gnomeos-harness`
+and the gnome-e2e action), with dogtail 2.0.3 and behave 1.3.3, read from the
+test process on both images. qecore-headless and its common steps work there:
+smoke-a, smoke-b and the GNOME OS canary pass. qecore's releases since (4.20 to
+4.22.1) name no GNOME 51 change; 4.22 adds handling for a missing keyring,
+which matches row 12 on utah.
+
 ## Run findings — Calculator and Text Editor divergences
 
-These are **not** among the twelve workarounds above. In the plain `gnomeos-51`
-run above, Calculator and Text Editor scenarios diverged. In the `dakota:testing`
-v1 gate run above, both apps were absent and their scenarios skipped; that run
-does not show them passing or failing. When the PR validation plan selects
-VM-covered suites, the check runs `dakota:testing`; it cannot capture AT-SPI
-trees for apps that image does not ship.
-The findings below are **documented here, not fixed**.
-
-### Calculator display lookup — broken on 51
-
-- **Failing:** `basic_multiplication` ("display shows 42"),
-  `subtracting_to_a_negative_result` ("display shows -5").
-- **Passing (decoys):** `basic_addition` (3), `basic_division` (3),
-  `basic_subtraction` (5), `clear_button_resets_display` (0),
-  `decimal_arithmetic` (3), `calculator_launches`.
-- **Root cause:** `click_calculator_button` / `Calculator display shows` in
-  `tests/smoke/features/steps/gnome_calculator_steps.py` resolve the display via
-  `_display_candidates()`, which walks the window for nodes with role in
-  `{text, entry, label, static}` and a non-empty value. On GNOME 51 the display
-  node is **not** located, so the step falls back to the keypad **buttons**
-  (7, 8, 9, `×`, `÷`, `−`, `+`, `=`, …). A single positive digit that happens to
-  equal a button label (`3`, `5`, `0`) matches by accident and passes; `42` and
-  `-5` match no button and fail. The screenshot
-  `screenshot_smoke_failed_basic_multiplication.png` shows the calculator with
-  no display value matching.
-- **What the run proves:** the step did not locate the display node on this
-  `gnomeos-51` image. Capture the app's GNOME 51 AT-SPI tree to identify the
-  real display node or distinguish it from the keypad buttons.
-- **Also failing:** `calculator_closes_cleanly_via_ctrl_q` — `Ctrl+Q` did not
-  quit (see Text Editor below; shared key-combo path).
-
-### Text Editor new-document / quit — broken on 51
-
-- **Failing:** `text_editor_creates_new_empty_document_buffer` (`Ctrl+N`),
-  `text_editor_save_dialog_is_open` (`Ctrl+S`), `text_editor_discard_dialog_is_open`
-  (`Ctrl+Shift+S`), and the Text Editor coredump/quited scenarios.
-- **Passing:** `text_editor` `@input` ("Type text") — plain typing works.
-- **Root cause:** after `Ctrl+N` the buffer still shows the previous scenario's
-  content (`"Bluefin smoke testPrevious document content"`) instead of a new
-  empty buffer. `Ctrl+N` is not creating a new document on GNOME 51. Plain
-  character entry via uinput works, so the input layer is fine — the failure is
-  specific to the `Key combo` path (`Ctrl+N`/`Ctrl+S`/`Ctrl+Shift+S`).
-- **What the run shows:** the `Key combo` step did not drive the expected
-  accelerator for Text Editor on this `gnomeos-51` image. A run with `qecore`
-  debug logging is needed to establish whether the combo is dropped or mis-routed.
+These are not among the twelve workarounds. The plain `gnomeos-51` run's
+Calculator display lookup and Text Editor `Ctrl+N`/`Ctrl+Q` failures are in
+[gnome-51-app-divergences.md](gnome-51-app-divergences.md) (documented, not fixed).
 
 ## Bluefin-only failures (expected on gnomeos-51 — not divergences)
 
