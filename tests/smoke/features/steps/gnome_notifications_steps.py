@@ -1,13 +1,18 @@
 """Custom step definitions for GNOME notification smoke tests."""
+import json
 import os
 import re
 import subprocess
+import uuid
 from time import sleep
 
 from behave import step
 from tests.shared.ssh_config import ssh_argv
 
-# Summary of the notification the smoke scenarios send and dismiss.
+# Summary prefix of the notifications the smoke scenarios send. Each send adds
+# a unique suffix: scenarios that send without closing (and retries) leave
+# same-titled notifications in the tray, so a bare title cannot say whether
+# this scenario's notification was dismissed.
 TEST_NOTIFICATION_TITLE = "Test Notification"
 
 try:
@@ -49,12 +54,14 @@ def _parse_notification_id(output: str) -> int:
 
 @step("A test desktop notification is sent via gdbus")
 def send_test_desktop_notification(context) -> None:
+    title = f"{TEST_NOTIFICATION_TITLE} {uuid.uuid4().hex[:8]}"
+    context.test_notification_title = title
     output, returncode, stderr = _run(
         "gdbus call --session "
         "--dest org.freedesktop.Notifications "
         "--object-path /org/freedesktop/Notifications "
         "--method org.freedesktop.Notifications.Notify "
-        f"'' 0 '' '{TEST_NOTIFICATION_TITLE}' 'Testsuite notification body' '[]' '{{}}' 3000"
+        f"'' 0 '' '{title}' 'Testsuite notification body' '[]' '{{}}' 3000"
     )
     if returncode != 0:
         combined = (stderr + output).lower()
@@ -109,30 +116,34 @@ def dismiss_notification_via_gdbus(context) -> None:
 # in it, so it only ever "passed" through a force-dismiss and a warning, closed
 # or not (#827 audit row 10, probe 3: our notification leaves the tray at once;
 # the held banner clears ~2 s after any input).
-BANNER_GONE_JS = (
-    "(() => { const t = Main.messageTray; const title = '" + TEST_NOTIFICATION_TITLE + "';"
-    " const b = t._banner;"
-    " const shown = !!(b && b.visible && b.notification && b.notification.title === title);"
-    " let queued = false;"
-    " try { queued = t.getSources().some(s => s.notifications.some(n => n.title === title)); }"
-    " catch (e) { queued = false; }"
-    " let idle = null;"
-    " try { idle = global.backend.get_core_idle_monitor().get_idletime(); } catch (e) {}"
-    " return JSON.stringify({ gone: !shown && !queued, shown: shown, queued: queued,"
-    "  banner: b ? ((b.notification && b.notification.title) || '?') : null,"
-    "  destroyed: !!(b && b.notification && b.notification._destroyed), idle_ms: idle }); })()"
-)
+def banner_gone_js(title: str) -> str:
+    """Shell.Eval JS: is the notification titled ``title`` neither the visible
+    banner nor in the tray? Returns a JSON object with the details."""
+    return (
+        "(() => { const t = Main.messageTray; const title = " + json.dumps(title) + ";"
+        " const b = t._banner;"
+        " const shown = !!(b && b.visible && b.notification && b.notification.title === title);"
+        " let queued = false;"
+        " try { queued = t.getSources().some(s => s.notifications.some(n => n.title === title)); }"
+        " catch (e) { queued = false; }"
+        " let idle = null;"
+        " try { idle = global.backend.get_core_idle_monitor().get_idletime(); } catch (e) {}"
+        " return JSON.stringify({ gone: !shown && !queued, shown: shown, queued: queued,"
+        "  banner: b ? ((b.notification && b.notification.title) || '?') : null, idle_ms: idle }); })()"
+    )
+
+
 BANNER_DISMISS_TIMEOUT_S = 20  # GNOME 50 banners can linger in QEMU
 
 
-def _banner_gone(run=subprocess.run) -> tuple[bool, str]:
+def _banner_gone(title: str, run=subprocess.run) -> tuple[bool, str]:
     """(test notification gone?, Shell.Eval output) for one read."""
     result = run(
         ["gdbus", "call", "--session",
          "--dest", "org.gnome.Shell",
          "--object-path", "/org/gnome/Shell",
          "--method", "org.gnome.Shell.Eval",
-         BANNER_GONE_JS],
+         banner_gone_js(title)],
         capture_output=True, text=True, timeout=5,
     )
     out = result.stdout
@@ -142,14 +153,15 @@ def _banner_gone(run=subprocess.run) -> tuple[bool, str]:
 
 @step("Notification banner is no longer showing via Shell.Eval")
 def notification_banner_no_longer_showing(context, run=subprocess.run, pause=sleep) -> None:
+    title = getattr(context, "test_notification_title", TEST_NOTIFICATION_TITLE)
     last_out = ""
     for _ in range(BANNER_DISMISS_TIMEOUT_S * 2):
-        gone, last_out = _banner_gone(run)
+        gone, last_out = _banner_gone(title, run)
         if gone:
             return
         pause(0.5)
     raise AssertionError(
-        f"'{TEST_NOTIFICATION_TITLE}' is still shown or queued "
+        f"'{title}' is still shown or queued "
         f"{BANNER_DISMISS_TIMEOUT_S}s after CloseNotification; Shell.Eval returned: {last_out!r}"
     )
 

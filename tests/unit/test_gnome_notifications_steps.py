@@ -66,21 +66,27 @@ def _runner(outputs):
 def test_banner_check_tracks_the_test_notification_not_any_banner():
     # GNOME Shell holds an unrelated banner on screen while the session is
     # idle, and GNOME 51 keeps _bannerBin visible with no banner (#827 audit
-    # row 10), so the check is about our notification only.
+    # row 10), so the check is about this scenario's notification only.
     module = _import_gnome_notifications_steps()
-    js = module.BANNER_GONE_JS
+    js = module.banner_gone_js("Test Notification ab12cd34")
     assert "_bannerBin" not in js
-    assert f"const title = '{module.TEST_NOTIFICATION_TITLE}'" in js
+    assert 'const title = "Test Notification ab12cd34"' in js
     assert "b.notification.title === title" in js
     assert "getSources()" in js
 
 
-def test_sent_notification_uses_the_checked_title(monkeypatch):
+def test_each_sent_notification_gets_a_unique_checked_title(monkeypatch):
+    # Other scenarios (and retries) leave same-titled notifications in the
+    # tray, so the dismissal check needs this send's own title.
     module = _import_gnome_notifications_steps()
     sent = []
     monkeypatch.setattr(module, "_run", lambda cmd: (sent.append(cmd) or "(uint32 7,)", 0, ""))
-    module.send_test_desktop_notification(type("C", (), {})())
-    assert f"'{module.TEST_NOTIFICATION_TITLE}'" in sent[0]
+    first, second = type("C", (), {})(), type("C", (), {})()
+    module.send_test_desktop_notification(first)
+    module.send_test_desktop_notification(second)
+    assert first.test_notification_title != second.test_notification_title
+    assert first.test_notification_title.startswith(module.TEST_NOTIFICATION_TITLE + " ")
+    assert f"'{first.test_notification_title}'" in sent[0]
 
 
 def test_banner_gone_returns_as_soon_as_shell_says_so():
@@ -89,7 +95,7 @@ def test_banner_gone_returns_as_soon_as_shell_says_so():
         '(true, \'"{\\\\"gone\\\\":false,\\\\"shown\\\\":true}"\')',
         '(true, \'"{\\\\"gone\\\\":true,\\\\"shown\\\\":false}"\')',
     ])
-    module.notification_banner_no_longer_showing(None, run=run, pause=lambda s: None)
+    module.notification_banner_no_longer_showing(type("C", (), {"test_notification_title": "Test Notification x"})(), run=run, pause=lambda s: None)
     assert len(calls) == 2
 
 
@@ -97,6 +103,6 @@ def test_banner_still_showing_fails_instead_of_force_dismissing():
     module = _import_gnome_notifications_steps()
     run, calls = _runner(['(true, \'"{\\\\"gone\\\\":false,\\\\"shown\\\\":true}"\')'])
     with pytest.raises(AssertionError, match="still shown or queued"):
-        module.notification_banner_no_longer_showing(None, run=run, pause=lambda s: None)
+        module.notification_banner_no_longer_showing(type("C", (), {"test_notification_title": "Test Notification x"})(), run=run, pause=lambda s: None)
     assert all("destroy()" not in " ".join(c) and "hide()" not in " ".join(c) for c in calls)
     assert len(calls) == module.BANNER_DISMISS_TIMEOUT_S * 2
