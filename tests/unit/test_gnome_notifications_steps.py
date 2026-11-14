@@ -85,15 +85,18 @@ def test_sent_notification_uses_the_checked_title(monkeypatch):
 
 def test_banner_gone_returns_as_soon_as_shell_says_so():
     module = _import_gnome_notifications_steps()
-    run, calls = _runner(["(true, 'false')", "(true, 'true')"])
+    run, calls = _runner([
+        '(true, \'"{\\\\"gone\\\\":false,\\\\"shown\\\\":true}"\')',
+        '(true, \'"{\\\\"gone\\\\":true,\\\\"shown\\\\":false}"\')',
+    ])
     module.notification_banner_no_longer_showing(None, run=run, pause=lambda s: None)
     assert len(calls) == 2
 
 
 def test_banner_still_showing_fails_instead_of_force_dismissing():
     module = _import_gnome_notifications_steps()
-    run, calls = _runner(["(true, 'false')"])
+    run, calls = _runner(['(true, \'"{\\\\"gone\\\\":false,\\\\"shown\\\\":true}"\')'])
     with pytest.raises(AssertionError, match="still shown or queued"):
         module.notification_banner_no_longer_showing(None, run=run, pause=lambda s: None)
-    assert all("destroy" not in " ".join(c) and "hide()" not in " ".join(c) for c in calls)
+    assert all("destroy()" not in " ".join(c) and "hide()" not in " ".join(c) for c in calls)
     assert len(calls) == module.BANNER_DISMISS_TIMEOUT_S * 2

@@ -25,3 +25,14 @@ Feature: GNOME notification smoke tests
   Scenario: No gnome-shell journal errors after notification
     * A test desktop notification is sent via gdbus
     * No gnome-shell notification journal errors are present
+
+  # Temporary #827 probe 3 (removed before merge): the banner after close,
+  # in the same shard and session state as the scenario above.
+  @gnome51_audit_probe
+  Scenario: Probe 3 banner owner after CloseNotification and one keypress
+    * A test desktop notification is sent via gdbus
+    * Record GNOME 51 audit probe 3 row 10 banner owner "sent"
+    * Dismiss the notification via gdbus CloseNotification
+    * Record GNOME 51 audit probe 3 row 10 banner owner "closed"
+    * Key combo: "<Shift>" with uinput
+    * Record GNOME 51 audit probe 3 row 10 banner owner "after-input"

@@ -116,14 +116,17 @@ BANNER_GONE_JS = (
     " let queued = false;"
     " try { queued = t.getSources().some(s => s.notifications.some(n => n.title === title)); }"
     " catch (e) { queued = false; }"
-    " return (!shown && !queued).toString(); })()"
+    " let idle = null;"
+    " try { idle = global.backend.get_core_idle_monitor().get_idletime(); } catch (e) {}"
+    " return JSON.stringify({ gone: !shown && !queued, shown: shown, queued: queued,"
+    "  banner: b ? ((b.notification && b.notification.title) || '?') : null,"
+    "  destroyed: !!(b && b.notification && b.notification._destroyed), idle_ms: idle }); })()"
 )
 BANNER_DISMISS_TIMEOUT_S = 20  # GNOME 50 banners can linger in QEMU
 
 
 def _banner_gone(run=subprocess.run) -> tuple[bool, str]:
-    import re
-
+    """(test notification gone?, Shell.Eval output) for one read."""
     result = run(
         ["gdbus", "call", "--session",
          "--dest", "org.gnome.Shell",
@@ -133,8 +136,8 @@ def _banner_gone(run=subprocess.run) -> tuple[bool, str]:
         capture_output=True, text=True, timeout=5,
     )
     out = result.stdout
-    m = re.search(r",\s*'\"?(true|false)\"?'\s*\)", out, re.IGNORECASE)
-    return bool(m and m.group(1).lower() == "true"), out
+    flat = out.replace("\\", "").replace('"', "").replace(" ", "")
+    return "gone:true" in flat, out
 
 
 @step("Notification banner is no longer showing via Shell.Eval")
