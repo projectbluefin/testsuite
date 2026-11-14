@@ -5,9 +5,11 @@ from types import SimpleNamespace
 import pytest
 
 from tests.shared.image_family import (
+    composefs_backend_from_markers,
     image_name,
     image_under_test,
     is_bluefin_image,
+    is_composefs_image,
     is_dakota_image,
     is_utah_image,
 )
@@ -117,3 +119,57 @@ def test_smoke_defaults_to_bluefin_when_no_image_is_known():
 )
 def test_is_utah_image_matches_image_name_only(image, expected):
     assert is_utah_image(image) is expected
+
+
+# composefs backend detection (#1215): composefs-native when the image has no
+# ostree prepare-root.conf. bootc's two backends are mutually exclusive, so the
+# ostree marker's absence is the decisive discriminator (see image_family.py).
+@pytest.mark.parametrize(
+    ("ostree_prepare_root_present", "expected"),
+    [
+        (True, False),   # ostree prepare-root present -> ostree (utah/bluefin)
+        (False, True),   # ostree prepare-root absent  -> composefs (dakota)
+    ],
+)
+def test_composefs_backend_from_markers(
+    ostree_prepare_root_present,
+    expected,
+):
+    assert (
+        composefs_backend_from_markers(ostree_prepare_root_present)
+        is expected
+    )
+
+
+@pytest.mark.parametrize(
+    ("ostree_prepare_root_present", "expected"),
+    [
+        (True, False),
+        (False, True),
+    ],
+)
+def test_is_composefs_image_matches_markers(
+    ostree_prepare_root_present,
+    expected,
+):
+    assert (
+        is_composefs_image(
+            "ghcr.io/projectbluefin/dakota:testing",
+            ostree_prepare_root_present=ostree_prepare_root_present,
+        )
+        is expected
+    )
+
+
+def test_composefs_and_ostree_are_mutually_exclusive():
+    # An ostree image (utah) ships prepare-root.conf, so it is never composefs
+    # regardless of any composefs marker.
+    assert is_composefs_image(
+        "ghcr.io/projectbluefin/utah:testing",
+        ostree_prepare_root_present=True,
+    ) is False
+    # A composefs image (dakota) is composefs only when prepare-root is absent.
+    assert is_composefs_image(
+        "ghcr.io/projectbluefin/dakota:testing",
+        ostree_prepare_root_present=False,
+    ) is True

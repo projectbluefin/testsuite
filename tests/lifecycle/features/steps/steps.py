@@ -599,6 +599,23 @@ def ostree_two_deployments(context):
     )
 
 
+@step("bootc status shows at least two deployments")
+def bootc_two_deployments(context):
+    """Verify bootc status reports at least two deployments after upgrade.
+
+    bootc status --format=json has no deployment list, but after an upgrade +
+    reboot the booted and rollback deployments are both present. Count the
+    non-null booted/staged/rollback entries in .status; a healthy upgraded VM
+    has booted + rollback (>= 2). Composefs equivalent of the ostree step.
+    """
+    status = _parse_bootc_status(context)
+    deployments = [status.get(key) for key in ("booted", "staged", "rollback")]
+    present = sum(1 for deployment in deployments if deployment is not None)
+    assert present >= 2, (
+        f"Expected at least 2 bootc deployments, found {present}. status={status}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # systemd-homed migration steps (dakota:testing → dakota:next)
 # MIGRATION_TARGET env var — defaults to ghcr.io/projectbluefin/dakota:next

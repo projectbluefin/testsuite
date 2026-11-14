@@ -35,3 +35,35 @@ def is_dakota_image(image: str) -> bool:
 
 def is_utah_image(image: str) -> bool:
     return "utah" in image_name(image)
+
+
+def composefs_backend_from_markers(ostree_prepare_root_present: bool) -> bool:
+    """Return True when an image installs with the composefs backend.
+
+    bootc selects the backend from the image's install config, which is
+    unchanged at runtime. It ships exactly one backend marker per image:
+      * ostree backend   -> /usr/lib/ostree/prepare-root.conf   (always present)
+      * composefs backend -> /usr/lib/composefs/setup-root.toml (no ostree marker)
+    The ostree marker is the reliable discriminator: composefs images never
+    ship ``prepare-root.conf``, so its absence selects the composefs backend.
+    We key on the ostree marker rather than betting on the composefs marker's
+    exact path (which varies across bootc versions). Any image that ships
+    ``prepare-root.conf`` installs with the ostree backend.
+    """
+    return not ostree_prepare_root_present
+
+
+def is_composefs_image(
+    image: str,
+    *,
+    ostree_prepare_root_present: bool = False,
+) -> bool:
+    """Return True when ``image`` should install with the composefs backend.
+
+    The backend is a property of the image, not its name, so the marker is
+    supplied by the caller (a runtime ``podman run`` probe of the image in
+    ``e2e.yml``). Kept mutually exclusive with the ostree path: an ostree image
+    ships ``prepare-root.conf`` (``ostree_prepare_root_present`` is True), so
+    the predicate is False regardless of any composefs marker.
+    """
+    return composefs_backend_from_markers(ostree_prepare_root_present)
