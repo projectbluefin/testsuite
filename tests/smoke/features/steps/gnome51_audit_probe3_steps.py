@@ -37,9 +37,9 @@ def _emit(row: str, **data) -> None:
 def _guarded(row: str):
     """Record any exception instead of failing: later readings still run."""
     def wrap(fn):
-        def inner(context):
+        def inner(context, *args, **kwargs):
             try:
-                fn(context)
+                fn(context, *args, **kwargs)
             except Exception as exc:  # diagnostic only
                 _emit(row, error=repr(exc))
         inner.__name__ = fn.__name__
@@ -145,6 +145,21 @@ def probe_row_5(context) -> None:
                 lambda n: bool(_attr(n, "name"))
                 and ("Home" in n.name or "Personal Folder" in n.name)
             )
+            # Exactly the search home_folder_is_in_the_sidebar does.
+            matched = []
+            for frame in app.findChildren(lambda n: _attr(n, "roleName") in ("frame", "filler") and _attr(n, "showing")):
+                for sidebar in frame.findChildren(
+                    lambda n: _attr(n, "roleName") in ("tree", "list") and _attr(n, "showing")
+                    and (_attr(n, "name") or "").strip() in ("Sidebar", "")
+                ):
+                    for item in sidebar.findChildren(
+                        lambda n: _attr(n, "roleName") in ("list item", "button") and _attr(n, "showing")
+                        and bool(_attr(n, "name"))
+                        and ("Home" in n.name or "Personal Folder" in n.name)
+                    ):
+                        matched.append({"role": _attr(item, "roleName"), "name": _attr(item, "name"),
+                                        "sidebar_role": _attr(sidebar, "roleName")})
+            _emit("5", app=name, step_matches=matched)
             _emit("5", app=name, home_items=[
                 {"role": _attr(i, "roleName"), "name": _attr(i, "name"), "showing": _attr(i, "showing"),
                  "parent_role": _attr(_attr(i, "parent"), "roleName"),
