@@ -6,6 +6,10 @@ from time import sleep
 
 from behave import step
 from tests.shared.ssh_config import ssh_argv
+
+# Summary of the notification the smoke scenarios send and dismiss.
+TEST_NOTIFICATION_TITLE = "Test Notification"
+
 try:
     from qecore.common_steps import *  # noqa: F401,F403
 except Exception:  # noqa: BLE001
@@ -50,7 +54,7 @@ def send_test_desktop_notification(context) -> None:
         "--dest org.freedesktop.Notifications "
         "--object-path /org/freedesktop/Notifications "
         "--method org.freedesktop.Notifications.Notify "
-        "'' 0 '' 'Test Notification' 'Testsuite notification body' '[]' '{}' 3000"
+        f"'' 0 '' '{TEST_NOTIFICATION_TITLE}' 'Testsuite notification body' '[]' '{{}}' 3000"
     )
     if returncode != 0:
         combined = (stderr + output).lower()
@@ -96,16 +100,23 @@ def dismiss_notification_via_gdbus(context) -> None:
     assert returncode == 0, f"CloseNotification failed for id={notification_id}: {stderr}"
 
 
-# True once no notification banner is on screen. The banner ref goes null
-# when Shell finishes the dismiss animation (GNOME 50 may keep it but hidden).
-# Do not also require Main.messageTray._bannerBin to be hidden: on GNOME 51
-# the bin stays visible with no banner in it, so that check never passed and
-# the step only ever "passed" through a force-dismiss and a warning, whether or
-# not CloseNotification worked (#827 audit row 10, probe 3).
+# True once the test notification is gone: not the visible banner and not in
+# the message tray. Do not test "no banner at all": GNOME Shell holds a banner
+# on screen while the session is idle, and a headless VM is always idle, so an
+# unrelated earlier banner ("Settings") stayed up for minutes after our
+# notification was already closed. The GNOME 50 version also required
+# Main.messageTray._bannerBin hidden, which GNOME 51 never does with no banner
+# in it, so it only ever "passed" through a force-dismiss and a warning, closed
+# or not (#827 audit row 10, probe 3: our notification leaves the tray at once;
+# the held banner clears ~2 s after any input).
 BANNER_GONE_JS = (
-    "(Main.messageTray._banner === null || "
-    "Main.messageTray._banner === undefined || "
-    "!Main.messageTray._banner.visible).toString()"
+    "(() => { const t = Main.messageTray; const title = '" + TEST_NOTIFICATION_TITLE + "';"
+    " const b = t._banner;"
+    " const shown = !!(b && b.visible && b.notification && b.notification.title === title);"
+    " let queued = false;"
+    " try { queued = t.getSources().some(s => s.notifications.some(n => n.title === title)); }"
+    " catch (e) { queued = false; }"
+    " return (!shown && !queued).toString(); })()"
 )
 BANNER_DISMISS_TIMEOUT_S = 20  # GNOME 50 banners can linger in QEMU
 
@@ -135,8 +146,8 @@ def notification_banner_no_longer_showing(context, run=subprocess.run, pause=sle
             return
         pause(0.5)
     raise AssertionError(
-        f"Notification banner still showing {BANNER_DISMISS_TIMEOUT_S}s after "
-        f"CloseNotification; Shell.Eval returned: {last_out!r}"
+        f"'{TEST_NOTIFICATION_TITLE}' is still shown or queued "
+        f"{BANNER_DISMISS_TIMEOUT_S}s after CloseNotification; Shell.Eval returned: {last_out!r}"
     )
 
 
