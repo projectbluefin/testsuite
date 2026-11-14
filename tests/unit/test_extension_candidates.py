@@ -97,8 +97,8 @@ def test_valid_candidate_records_its_identity(tmp_path):
 
 
 def test_archive_missing_a_required_path_is_refused(tmp_path):
-    zip_path = _jp_zip(tmp_path / "jp.zip", drop="data/resources.gresource")
-    with pytest.raises(candidates.CandidateError, match=r"\[artifact\].*resources.gresource"):
+    zip_path = _jp_zip(tmp_path / "jp.zip", drop="resources.gresource")
+    with pytest.raises(candidates.CandidateError, match=r"\[artifact\].*missing required paths: resources.gresource"):
         candidates.validate([zip_path])
 
 

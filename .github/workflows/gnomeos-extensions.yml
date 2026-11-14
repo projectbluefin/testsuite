@@ -30,6 +30,7 @@ on:
       - .github/actions/gnome-e2e/action.yml
       - scripts/extension_candidates.py
       - scripts/extension_validation.py
+      - tests/shared/gnome_extensions_artifacts.py
 
 permissions:
   contents: read
