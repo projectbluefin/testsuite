@@ -72,8 +72,7 @@ action hands `inputs.image` verbatim to `podman pull` / `bootc install`.
 ```yaml
 - uses: ./.github/actions/gnome-e2e
   with:
-    # requires an image that carries gnome-ponytail-daemon (blocker 1 above);
-    # digest from a not-yet-written `resolve` job (sketch: gnomeos-guest-provenance.md); expires in 2 weeks
+    # needs gnome-ponytail-daemon (blocker 1); digest from a resolve job (gnomeos-guest-provenance.md)
     image: quay.io/gnome_infrastructure/gnome-build-meta@${{ needs.resolve.outputs.digest }}
     suite: extensions   # uses tests/extensions/ (landed with #914)
 ```
@@ -120,8 +119,8 @@ Swap in another feature path as needed; re-run the step 2 canary to inspect enab
 ### 4. Gate the run, against the results copied back to the host workspace
 
 `gnome-e2e` runs the [service gate](#mandatory-service-gate) as a mandatory step
-(`if: always() && inputs.suite == 'extensions'`). No repo workflow or recipe calls the action
-with `suite: extensions` yet. Manual form, after a lab boot:
+(`if: always() && inputs.suite == 'extensions'`). `extension-validation.yml` calls it with one
+staged candidate ([staging](gnome-extensions-staging.md)). Manual form, after a lab boot:
 
 ```bash
 python3 scripts/extension_validation.py results/results.json; echo $?
@@ -196,5 +195,6 @@ A host socket, key, or mount exposed to the guest desktop is a regression: stop 
 - [x] Gate wired into the lane as a mandatory `gnome-e2e` step for `suite: extensions` (#991)
 - [ ] Repeatable boot + load + run commands validated in the lab (**unverified**; blocked on a
       `gnome-ponytail-daemon` overlay, which the preflight reports by name)
+- [x] Exact candidate ZIP built offline, hash-checked, staged before boot ([staging](gnome-extensions-staging.md))
 - [ ] At least one green extension-validation run captured and attached
 - [ ] Lane closed
