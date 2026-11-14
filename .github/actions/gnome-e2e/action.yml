@@ -490,6 +490,10 @@ runs:
             fi
             sleep 3
           done
+          # The socket appears before the shell finishes starting up. A settle
+          # wait alone did not fix the first session (diag run 43543638989);
+          # restart plus this settle passed (diag run 43543641291).
+          sleep 15
           echo "GNOME session restarted for the isolated desktop user"
           exit 0
         fi
