@@ -125,8 +125,10 @@ both workflows (`workflow_run`, `completed`) and, for `push` and `schedule` runs
 
 - on failure, cancellation or timeout, creates or reopens one issue per workflow,
   titled `[CI] <workflow name> failed on main`, listing the failed jobs;
-- on success, closes that workflow's issue, but only when the green run's SHA is
-  still `main` HEAD, so an older green run cannot close a newer alert.
+- on success, closes that workflow's issue, but only when no newer `push` or
+  `schedule` run of the same workflow has finished on `main`, so an older green
+  run cannot close a newer alert. It compares runs, not `main` HEAD, because the
+  builds are path-filtered: HEAD usually moves past the commit a build ran on.
 
 The title is built from `github.event.workflow_run.name` (passed through `env:`) in
 both the lookup and the create step, so the two runner builds never share or

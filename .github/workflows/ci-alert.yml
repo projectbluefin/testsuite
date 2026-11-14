@@ -121,14 +121,22 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           EXISTING: ${{ steps.find.outputs.issue_number }}
           RUN_URL: ${{ github.event.workflow_run.html_url }}
-          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
           WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          WORKFLOW_ID: ${{ github.event.workflow_run.workflow_id }}
+          RUN_NUMBER: ${{ github.event.workflow_run.run_number }}
         run: |
           set -euo pipefail
-          # An older successful run must not close an alert for a newer main HEAD.
-          head_sha=$(gh api "repos/${{ github.repository }}/commits/main" --jq .sha)
-          if [[ "${RUN_SHA}" != "${head_sha}" ]]; then
-            echo "Green run is for ${RUN_SHA}, but main HEAD is ${head_sha}; leaving alert as-is."
+          # An older successful run must not close an alert for a newer run.
+          # The runner builds are path-filtered, so main HEAD usually moves
+          # past the commit they built; compare against this workflow's own
+          # finished main runs instead.
+          newer=$(gh api --method GET --paginate --slurp \
+            "repos/${{ github.repository }}/actions/workflows/${WORKFLOW_ID}/runs" \
+            -f branch=main -f status=completed -f per_page=100 |
+            jq -r --argjson number "$RUN_NUMBER" \
+              '[.[].workflow_runs[] | select((.event == "push" or .event == "schedule") and .run_number > $number)] | max_by(.run_number) | .id // empty')
+          if [[ -n "$newer" ]]; then
+            echo "A newer main run of ${WORKFLOW_NAME} (${newer}) has finished; leaving the alert to it."
             exit 0
           fi
           state=$(gh issue view "${EXISTING}" --repo "${{ github.repository }}" --json state --jq .state)
