@@ -729,44 +729,65 @@ class TestTextEditorLaunchResetsState:
         assert ".local/share/org.gnome.TextEditor" in m.TEXT_EDITOR_STATE_DIRS
 
 
+def _node(role, name="", children=(), showing=True):
+    node = MagicMock()
+    node.roleName = role
+    node.name = name
+    node.showing = showing
+    kids = list(children)
+
+    def find(pred, kids=kids):
+        found = []
+        for kid in kids:
+            if pred(kid):
+                found.append(kid)
+            found.extend(kid.findChildren(pred))
+        return found
+
+    node.findChildren.side_effect = find
+    return node
+
+
 class TestDiscardDialogAsAlert:
     def test_alert_with_discard_all_button_counts(self):
         m = _import_text_editor_steps()
-        button = MagicMock()
-        button.name = "Discard All"
-        button.showing = True
-        button.roleName = "button"
-        alert = MagicMock()
-        alert.roleName = "alert"
-        alert.showing = True
-        alert.findChildren.side_effect = lambda pred: [b for b in [button] if pred(b)]
-        app = MagicMock()
-        app.findChildren.side_effect = lambda pred: [a for a in [alert] if pred(a)]
-        with patch.object(m, "_dialog_hosts", return_value=[(app, m.DIALOG_ROLES)]):
+        alert = _node("alert", children=[_node("button", "Discard All")])
+        editor = _node("application", "gnome-text-editor", children=[alert])
+        with patch.object(m, "_text_editor_app", return_value=editor):
             context = MagicMock()
             m.text_editor_discard_dialog_is_open(context)
         assert context.text_editor_discard_dialog is alert
 
 
-class TestSaveDialogInPortalWindow:
-    def test_portal_frame_with_save_button_counts(self):
-        m = _import_text_editor_steps()
-        save = MagicMock()
-        save.name = "Save"
-        save.showing = True
-        save.roleName = "button"
-        frame = MagicMock()
-        frame.roleName = "frame"
-        frame.showing = True
-        frame.findChildren.side_effect = lambda pred: [b for b in [save] if pred(b)]
-        editor = MagicMock()
-        editor.findChildren.side_effect = lambda pred: [f for f in [frame] if pred(f)]
-        portal = MagicMock()
-        portal.findChildren.side_effect = lambda pred: [f for f in [frame] if pred(f)]
-        with patch.object(m, "_dialog_hosts", return_value=[(editor, m.DIALOG_ROLES), (portal, m.PORTAL_WINDOW_ROLES)]):
+class TestSaveDialogInFileChooserWindow:
+    def _run(self, m, apps):
+        root = MagicMock()
+        root.applications.return_value = apps
+        editor = _node("application", "gnome-text-editor", children=[_node("frame", "Draft - Text Editor")])
+        with patch.object(m, "_text_editor_app", return_value=editor), \
+             patch.object(m.tree, "root", root), \
+             patch.object(m, "sleep"):
             context = MagicMock()
             m.text_editor_save_dialog_is_open(context)
-        assert context.text_editor_save_dialog is frame
+        return context
+
+    def test_nautilus_save_a_file_window_counts(self):
+        m = _import_text_editor_steps()
+        chooser = _node("frame", "Save a File", children=[_node("text"), _node("button", "Save")])
+        context = self._run(m, [_node("application", "org.gnome.Nautilus", children=[chooser])])
+        assert context.text_editor_save_dialog is chooser
+
+    def test_portal_window_counts(self):
+        m = _import_text_editor_steps()
+        chooser = _node("dialog", "Save File", children=[_node("button", "Save")])
+        context = self._run(m, [_node("application", "xdg-desktop-portal-gtk", children=[chooser])])
+        assert context.text_editor_save_dialog is chooser
+
+    def test_plain_files_window_does_not_count(self):
+        m = _import_text_editor_steps()
+        files = _node("frame", "Home", children=[_node("text"), _node("button", "Search")])
+        with pytest.raises(AssertionError, match="Text Editor save dialog was not found"):
+            self._run(m, [_node("application", "org.gnome.Nautilus", children=[files])])
 
     def test_editor_main_frame_is_not_a_dialog(self):
         m = _import_text_editor_steps()

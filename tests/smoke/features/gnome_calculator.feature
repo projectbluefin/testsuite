@@ -34,8 +34,9 @@ Feature: GNOME Calculator smoke tests
     * Click calculator button "8"
     * Click calculator button "+"
     * Click calculator button "1"
+    * Calculator display shows "8+1"
     * Clear calculator display
-    * Calculator display shows "0"
+    * Calculator display is cleared
 
   @calculator @multiplication
   Scenario: Basic multiplication

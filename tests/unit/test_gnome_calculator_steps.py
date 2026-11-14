@@ -342,3 +342,31 @@ class TestCalculatorLaunchStopsRunningInstances:
         m.launch_background = lambda targets: calls.append(("launch", targets[0][1])) or "command"
         m.launch_calculator_via_command(MagicMock())
         assert calls == [("stop", "gnome-calculator"), ("launch", "gnome-calculator")]
+
+
+class TestCalculatorDisplayIsCleared:
+    def setup_method(self):
+        self.m = _import_calculator_steps()
+
+    def _check(self, window):
+        with patch.object(self.m, "_calculator_window", return_value=window), \
+             patch.object(self.m, "sleep"):
+            self.m.calculator_display_is_cleared(MagicMock())
+
+    def test_empty_field_is_cleared(self):
+        self._check(_Node("frame", children=[_Node("text", text=""), *_keypad("8", "1")]))
+
+    def test_zero_field_is_cleared(self):
+        self._check(_Node("frame", children=[_Node("entry", text="0")]))
+
+    def test_leftover_expression_fails(self):
+        with pytest.raises(AssertionError, match="empty or 0, found \\['8\\+1'\\]"):
+            self._check(_Node("frame", children=[_Node("text", text="8+1")]))
+
+    def test_window_without_input_field_fails(self):
+        # Keypad labels alone must not read as a cleared display.
+        with pytest.raises(AssertionError, match="empty or 0, found \\[\\]"):
+            self._check(_Node("frame", children=_keypad("0", "1")))
+
+    def test_history_label_is_ignored(self):
+        self._check(_Node("frame", children=[_Node("list", children=[_Node("label", name="8+1")]), _Node("text", text="")]))

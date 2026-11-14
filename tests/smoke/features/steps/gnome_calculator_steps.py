@@ -207,6 +207,30 @@ def calculator_display_shows(context, expected: str) -> None:
     )
 
 
+DISPLAY_FIELD_ROLES = {"text", "entry"}
+
+
+@step("Calculator display is cleared")
+def calculator_display_is_cleared(context) -> None:
+    """The input field is empty or 0: GNOME 51 clears to an empty field, older
+    releases to 0. History labels are not the input field and are ignored."""
+    values = []
+    window = None
+    for _ in range(20):
+        window = _calculator_window()
+        fields = window.findChildren(
+            lambda n: n.showing and n.roleName in DISPLAY_FIELD_ROLES and not _inside_button(n)
+        )
+        values = [node_text(field) or (getattr(field, "name", "") or "").strip() for field in fields]
+        if fields and all(value in {"", "0"} for value in values):
+            return
+        sleep(0.5)
+    raise AssertionError(
+        f"Expected the calculator input field to be empty or 0, found {values!r}\n"
+        f"Calculator window tree:\n{describe_subtree(window) if window is not None else '(none)'}"
+    )
+
+
 @step("Clear calculator display")
 def clear_calculator_display(context) -> None:
     for candidate in ("clear", "C", "AC"):

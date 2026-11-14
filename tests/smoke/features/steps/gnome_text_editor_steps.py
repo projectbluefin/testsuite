@@ -39,8 +39,8 @@ DIALOG_ENTRY_ROLES = {"text", "entry", "document text"}
 BUTTON_ROLES = {"push button", "button"}
 # GTK 4 file choosers are dialogs; libadwaita's "Save Changes?" prompt is an alert.
 DIALOG_ROLES = {"dialog", "alert", "file chooser"}
-# The portal's file chooser is a top-level window of its own process, not a
-# dialog role (GNOME OS 51: "Save a File" under xdg-desktop-portal-gtk).
+# A file chooser shown by another process is a top-level window there, not
+# necessarily a dialog role.
 PORTAL_WINDOW_ROLES = DIALOG_ROLES | {"frame", "window"}
 # Text Editor keeps unsaved drafts and reopens them on the next launch.
 TEXT_EDITOR_STATE_DIRS = (
@@ -224,24 +224,44 @@ def _window_tree() -> str:
         return f"(no window: {exc})"
 
 
-def _dialog_hosts() -> list:
-    """(app, roles) pairs: Text Editor's own dialogs, and windows of any
-    file-chooser portal, which owns the save dialog when GTK uses portals."""
-    hosts = [(_text_editor_app(), DIALOG_ROLES)]
+def _visible_dialogs() -> list:
+    """Text Editor's own dialogs (libadwaita alerts sit inside its window)."""
+    return _text_editor_app().findChildren(lambda n: n.roleName in DIALOG_ROLES and n.showing)
+
+
+def _file_chooser_hosts() -> list:
+    """Apps that may own the file chooser: a portal backend, or Files.
+
+    GNOME OS 51 shows Text Editor's "Save a File" chooser in a top-level
+    window outside Text Editor, while Nautilus is registered.
+    """
+    hosts = []
     try:
         for app in tree.root.applications():
-            if "portal" in (getattr(app, "name", "") or "").casefold():
-                hosts.append((app, PORTAL_WINDOW_ROLES))
+            name = (getattr(app, "name", "") or "").strip("'\" ").casefold()
+            if "portal" in name or "nautilus" in name:
+                hosts.append(app)
     except Exception:  # noqa: BLE001
         pass
     return hosts
 
 
-def _visible_dialogs() -> list:
-    dialogs = []
-    for host, roles in _dialog_hosts():
-        dialogs.extend(host.findChildren(lambda n, roles=roles: n.roleName in roles and n.showing))
-    return dialogs
+def _has_save_button(window) -> bool:
+    return any(
+        (button.name or "").strip().casefold() == "save"
+        for button in window.findChildren(lambda n: n.showing and n.roleName in BUTTON_ROLES)
+    )
+
+
+def _file_chooser_windows() -> list:
+    """Showing file-chooser windows of other apps: only those with a "Save" button,
+    so an ordinary Files window never counts."""
+    windows = []
+    for host in _file_chooser_hosts():
+        for window in host.findChildren(lambda n: n.roleName in PORTAL_WINDOW_ROLES and n.showing):
+            if _has_save_button(window):
+                windows.append(window)
+    return windows
 
 
 def _dialog_debug() -> str:
@@ -254,7 +274,17 @@ def _dialog_debug() -> str:
         dialogs = [_visible_dialog_text(d) for d in _visible_dialogs()]
     except Exception as exc:  # noqa: BLE001
         dialogs = [f"(lookup failed: {exc})"]
-    return f"Visible dialogs: {dialogs}\nApplications: {apps}\nText Editor window tree:\n{_window_tree()}"
+    hosts = []
+    try:
+        for host in _file_chooser_hosts():
+            hosts.append(describe_subtree(host, max_depth=2, max_lines=20))
+    except Exception as exc:  # noqa: BLE001
+        hosts.append(f"(lookup failed: {exc})")
+    return (
+        f"Visible dialogs: {dialogs}\nApplications: {apps}\n"
+        f"File-chooser hosts:\n" + "\n".join(hosts) + "\n"
+        f"Text Editor window tree:\n{_window_tree()}"
+    )
 
 
 @step("Text Editor save dialog is open")
@@ -270,6 +300,10 @@ def text_editor_save_dialog_is_open(context) -> None:
             if entries or any("save" in (button.name or "").casefold() for button in buttons):
                 context.text_editor_save_dialog = dialog
                 return
+        choosers = _file_chooser_windows()
+        if choosers:
+            context.text_editor_save_dialog = choosers[0]
+            return
         sleep(0.5)
     raise AssertionError(f"Text Editor save dialog was not found. {_dialog_debug()}")
 
