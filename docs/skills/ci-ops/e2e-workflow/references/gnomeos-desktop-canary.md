@@ -8,10 +8,10 @@ metadata:
 ---
 # GNOME OS desktop canary
 
-This experiment addresses provisioning and desktop automation in #908. It is
-not the extension service and cannot close #908 by itself. A build or YAML
-check does not establish a boot; inspect actual run artifacts before making
-any GNOME OS validation claim.
+This canary covers provisioning and desktop automation for #908: a pinned
+GNOME OS guest, a real Wayland session, input read back through AT-SPI and the
+isolated session. It installs no candidate extension (#909 stages those). A build
+or YAML check proves no boot; inspect run artifacts before any GNOME OS claim.
 
 ## Run
 
@@ -124,8 +124,8 @@ archive checksum is enforced both before the build and inside it. The final
 image verifies native library linkage and Python imports. It contains a test
 overlay, so describe it as GNOME OS **with a harness**, never stock GNOME OS.
 
-The canary requires an empty extension inventory. It cannot be repurposed to
-validate candidate code with the current administrative desktop account. The
+The canary requires an empty extension inventory. Candidate code may run only
+in the isolated session, never as the shared administrative desktop account. The
 mandatory result gate rejects missing results, empty/all-skipped runs and
 hook/step errors. The applicable mandatory gate for this suite is
 `Gate extension-validation run`; the more general
@@ -176,6 +176,14 @@ script's first word to be an executable, so the action calls the wrapper
 through the harness Python (`/opt/gnomeos-harness/bin/python3`). The wrapper
 waits up to 60 seconds for the restarted shell, then execs anyway, so a
 missing value is reported by the canary's own first step.
+
+## Recorded runs
+
+Green at `081499a1` (merged as #1198) on GNOME OS `nightly.20261113.1`, harness
+built over `gnome-build-meta@sha256:aca58bdd…`: isolated run 43549129246 (all 11
+`session-isolation.json` checks `ok`, `wayland-0`, AT-SPI bus, gate `passed`) and
+shared run 43549131789. On `main` the push canary passed on `nightly.20261114.0`
+(run 43591388869). Nightly digests expire, so later runs resolve newer builds.
 
 ## Upstream contracts
 
