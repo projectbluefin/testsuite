@@ -84,7 +84,9 @@ Feature: Bluefin common dconf and GSettings defaults
     * SSH command return code is "0"
     * SSH command output stripped "is" "'xdg-terminal-exec'"
 
+  # Images get Compass when their common pin reaches projectbluefin/common#1599.
   Scenario: Compass launcher keybinding is configured
+    * Skip unless the image ships "/usr/share/flatpak/preinstall.d/compass.preinstall"
     * Run SSH command: "gsettings get org.gnome.settings-daemon.plugins.media-keys custom-keybindings"
     * SSH command return code is "0"
     * SSH command output contains "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/compass/"

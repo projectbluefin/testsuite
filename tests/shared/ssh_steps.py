@@ -93,6 +93,19 @@ def run_ssh_command(context, cmd):
     run_ssh(context, cmd)
 
 
+@step('Skip unless the image ships "{path}"')
+def skip_unless_image_ships(context, path):
+    """Skip the scenario on images that predate the feature under test.
+
+    For content that reaches images at different times (one image's pin may
+    lag another's): the scenario runs, and must pass, wherever the marker file
+    exists.
+    """
+    run_ssh(context, f"test -e {shlex.quote(path)}")
+    if context.ssh_rc != 0:
+        context.scenario.skip(f"image does not ship {path}")
+
+
 @step('Run long SSH command: "{cmd}"')
 def run_long_ssh_command(context, cmd):
     """Run a command that may take many minutes (bootc switch/upgrade pulling OCI layers)."""

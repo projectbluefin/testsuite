@@ -911,11 +911,20 @@ _WINDOWS_JS = (
 )
 
 
+COMPASS_PREINSTALL = "/usr/share/flatpak/preinstall.d/compass.preinstall"
+
+
 @step("Compass Flatpak is installed system-wide within {timeout:d} seconds")
 def compass_flatpak_installed_within(context, timeout: int) -> None:
     # flatpak-preinstall downloads a ~71 MB extra-data AppImage at boot.
     # The VM e2e lane masks flatpak-preinstall.service (no first-boot network
     # pulls), so Compass can never appear there: skip instead of timing out.
+    # Images get Compass when their common pin reaches projectbluefin/common#1599;
+    # where the preinstall file ships, Compass must install.
+    _, shipped, _ = _run_host("test -f " + COMPASS_PREINSTALL)
+    if shipped != 0:
+        context.scenario.skip(f"image does not ship {COMPASS_PREINSTALL}")
+        return
     state, _, _ = _run_host("systemctl is-enabled flatpak-preinstall.service")
     if state == "masked":
         context.scenario.skip("flatpak-preinstall.service is masked in this lane")
