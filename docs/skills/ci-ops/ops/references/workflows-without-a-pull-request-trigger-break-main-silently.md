@@ -115,6 +115,24 @@ echoes `steps.build.outputs.digest`) must be guarded with `if: github.event_name
 canonical shape of “PR-triggered counterpart” for a workflow that also publishes: build
 on PR, push on everything else.
 
+## Runner-image failures on main open an alert issue
+
+A PR trigger only covers changes made through a PR. The weekly cron rebuild of
+`build-runner.yml` and `build-kde-runner.yml` can still break on a new base image
+or pip release with no PR in sight. `.github/workflows/ci-alert.yml` listens for
+both workflows (`workflow_run`, `completed`) and, for `push` and `schedule` runs on
+`main`:
+
+- on failure, cancellation or timeout, creates or reopens one issue per workflow,
+  titled `[CI] <workflow name> failed on main`, listing the failed jobs;
+- on success, closes that workflow's issue, but only when the green run's SHA is
+  still `main` HEAD, so an older green run cannot close a newer alert.
+
+The title is built from `github.event.workflow_run.name` (passed through `env:`) in
+both the lookup and the create step, so the two runner builds never share or
+close each other's alert. If you rename either workflow's `name:`, update the
+`workflows:` list in `ci-alert.yml` in the same PR, or the alert stops firing.
+
 ## Status
 
 `build-runner.yml` and `build-kde-runner.yml` now both carry a `pull_request`
