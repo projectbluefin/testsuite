@@ -46,3 +46,41 @@ def test_parse_notification_id_raises_on_unparseable_output(output):
 
     with pytest.raises(AssertionError, match="Could not parse"):
         module._parse_notification_id(output)
+
+
+def _eval_result(value: str):
+    return types.SimpleNamespace(stdout=f"(true, '{value}')", returncode=0)
+
+
+def _run_dismiss_check(module, outputs):
+    from unittest.mock import patch
+
+    with patch.object(module.subprocess, "run", side_effect=outputs), \
+         patch.object(module, "sleep"):
+        module.notification_banner_no_longer_showing(None)
+
+
+def test_banner_check_reports_banner_closing_on_its_own(capsys):
+    module = _import_gnome_notifications_steps()
+
+    _run_dismiss_check(module, [_eval_result("false"), _eval_result("true")])
+
+    assert "gnome-51-audit row 10: banner closed on its own within 0.5s" in capsys.readouterr().out
+
+
+def test_banner_check_reports_force_dismiss(capsys):
+    module = _import_gnome_notifications_steps()
+
+    outputs = [_eval_result("false")] * 40 + [_eval_result("dismissed"), _eval_result("true")]
+    _run_dismiss_check(module, outputs)
+
+    assert "gnome-51-audit row 10: banner closed only after the Shell.Eval force-dismiss" in capsys.readouterr().out
+
+
+def test_banner_check_reports_soft_pass_when_banner_stays(capsys):
+    module = _import_gnome_notifications_steps()
+
+    _run_dismiss_check(module, [_eval_result("false")] * 42)
+
+    out = capsys.readouterr().out
+    assert "gnome-51-audit row 10: banner still showing after the force-dismiss; step passes on a warning" in out

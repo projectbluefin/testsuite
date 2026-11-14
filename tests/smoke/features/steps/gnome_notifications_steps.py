@@ -112,7 +112,7 @@ def notification_banner_no_longer_showing(context) -> None:
         "!Main.messageTray._bannerBin.visible)).toString()"
     )
     last_out = ""
-    for _ in range(40):  # 20s — GNOME 50 banners can linger longer in QEMU
+    for attempt in range(40):  # 20s — GNOME 50 banners can linger longer in QEMU
         result = subprocess.run(
             ["gdbus", "call", "--session",
              "--dest", "org.gnome.Shell",
@@ -124,6 +124,7 @@ def notification_banner_no_longer_showing(context) -> None:
         last_out = result.stdout
         m = re.search(r",\s*'\"?(true|false)\"?'\s*\)", last_out, re.IGNORECASE)
         if m and m.group(1).lower() == "true":
+            print(f"gnome-51-audit row 10: banner closed on its own within {attempt * 0.5:.1f}s", flush=True)
             return
         sleep(0.5)
 
@@ -158,7 +159,9 @@ def notification_banner_no_longer_showing(context) -> None:
     last_out = result.stdout
     m = re.search(r",\s*'\"?(true|false)\"?'\s*\)", last_out, re.IGNORECASE)
     if m and m.group(1).lower() == "true":
+        print("gnome-51-audit row 10: banner closed only after the Shell.Eval force-dismiss", flush=True)
         return
+    print("gnome-51-audit row 10: banner still showing after the force-dismiss; step passes on a warning", flush=True)
     # In headless GNOME 50 QEMU, the banner visibility JS check can return
     # "false" (still visible) even after a successful CloseNotification call.
     # This is a known environment limitation — not a functional regression.

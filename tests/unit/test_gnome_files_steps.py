@@ -556,3 +556,47 @@ class TestFilesIsNoLongerRunning:
              patch("subprocess.run"):
             with pytest.raises(AssertionError, match="GNOME Files is still visible"):
                 self.m.files_is_no_longer_running(MagicMock())
+
+
+# ---------------------------------------------------------------------------
+# GNOME 51 audit readings (rows 4, 5 and 6 of references/gnome-51-audit.md)
+# ---------------------------------------------------------------------------
+
+class TestGnome51AuditReadings:
+    def setup_method(self):
+        self.m = _import_files_steps()
+
+    def _window_app(self, role):
+        frame = MagicMock()
+        frame.roleName = role
+        frame.name = "Files"
+        frame.showing = True
+        app = MagicMock()
+        app.findChildren.return_value = [frame]
+        return app
+
+    def test_window_reports_toplevel_role(self, capsys):
+        with patch.object(self.m, "tree", _files_tree(self._window_app("filler"))):
+            self.m._nautilus_window(timeout=1)
+        assert "gnome-51-audit row 4: Files toplevel role='filler'" in capsys.readouterr().out
+
+    def test_reading_is_printed_once_per_run(self, capsys):
+        with patch.object(self.m, "tree", _files_tree(self._window_app("frame"))):
+            self.m._nautilus_window(timeout=1)
+            self.m._nautilus_window(timeout=1)
+        assert capsys.readouterr().out.count("gnome-51-audit row 4:") == 1
+
+    def test_app_reports_matched_name(self, capsys):
+        files = MagicMock()
+        files.name = "Files"
+        tree_mock = MagicMock()
+        tree_mock.root.applications.return_value = [files]
+        with patch.object(self.m, "tree", tree_mock):
+            self.m._nautilus_app(timeout=1)
+        assert "gnome-51-audit row 6: Files AT-SPI app name='Files'" in capsys.readouterr().out
+
+    def test_sidebar_reports_home_item_role(self, capsys):
+        window = TestHomeFolderIsInTheSidebar()._make_window_with_sidebar(item_role="button")
+        with patch.object(self.m, "_nautilus_window", return_value=window):
+            self.m.home_folder_is_in_the_sidebar(MagicMock())
+        assert "gnome-51-audit row 5: Files sidebar Home item roles=['button']" in capsys.readouterr().out
