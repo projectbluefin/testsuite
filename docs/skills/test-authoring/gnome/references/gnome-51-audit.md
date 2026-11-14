@@ -172,8 +172,8 @@ which matches row 12 on utah.
 ## Run findings — Calculator and Text Editor divergences
 
 These are not among the twelve workarounds. The plain `gnomeos-51` run's
-Calculator display lookup and Text Editor `Ctrl+N`/`Ctrl+Q` failures are in
-[gnome-51-app-divergences.md](gnome-51-app-divergences.md) (documented, not fixed).
+Calculator and Text Editor failures came from stacked windows and lookups, not
+GNOME 51 key handling; causes and fixes (#1211) are in [gnome-51-app-divergences.md](gnome-51-app-divergences.md).
 
 ## Bluefin-only failures (expected on gnomeos-51 — not divergences)
 
