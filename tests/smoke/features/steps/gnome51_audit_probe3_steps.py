@@ -21,6 +21,7 @@ from time import sleep
 
 from behave import step
 
+from app_support import launch_background
 from steps.steps import _shell_eval
 
 try:
@@ -79,6 +80,32 @@ def probe_qecore(context) -> None:
     _emit("qecore", versions=versions, shell=shell)
 
 
+# Whatever of these the image ships; a missing app is recorded, not fatal.
+_PROBE_APPS = {
+    "files": ((("command", "nautilus"), ("desktop", "org.gnome.Nautilus.desktop")), None),
+    "settings": (
+        (("command", "gnome-control-center"), ("desktop", "org.gnome.Settings.desktop")),
+        {"XDG_CURRENT_DESKTOP": "GNOME", "GNOME_ACCESSIBILITY": "1"},
+    ),
+    "calculator": ((("command", "gnome-calculator"), ("desktop", "org.gnome.Calculator.desktop")), None),
+    "text-editor": ((("command", "gnome-text-editor"), ("desktop", "org.gnome.TextEditor.desktop")), None),
+    "clocks": ((("desktop", "org.gnome.clocks.desktop"), ("flatpak", "org.gnome.clocks")), None),
+}
+
+
+@step("Launch GNOME 51 audit probe 3 apps")
+@_guarded("launch")
+def probe_launch(context) -> None:
+    launched = {}
+    for key, (targets, env) in _PROBE_APPS.items():
+        try:
+            launched[key] = launch_background(targets, env=env) if env else launch_background(targets)
+        except Exception as exc:  # noqa: BLE001
+            launched[key] = f"not launched: {exc}"
+        sleep(1.0)
+    _emit("launch", launched=launched)
+
+
 @step("Record GNOME 51 audit probe 3 rows 4 and 6 application toplevels")
 @_guarded("4+6")
 def probe_rows_4_6(context) -> None:
@@ -87,8 +114,7 @@ def probe_rows_4_6(context) -> None:
     for app in tree.root.applications():
         name = (_attr(app, "name", "") or "").strip("'\" ")
         names.append(name)
-        low = name.lower()
-        if not any(k in low for k in ("nautilus", "files", "calculator", "texteditor", "text editor", "gnome-text-editor")):
+        if name in ("gnome-shell", "") or name.startswith(("ibus", "xdg-desktop-portal")):
             continue
         tops = []
         for child in _attr(app, "children", []) or []:
@@ -99,7 +125,8 @@ def probe_rows_4_6(context) -> None:
                 "children": len(_attr(child, "children", []) or []),
                 "descendants": _desc_count(child),
             })
-        _emit("4", app=name, toplevels=tops)
+        if any(t["role"] in ("frame", "filler", "window", "dialog") for t in tops):
+            _emit("4", app=name, toplevels=tops)
     _emit("6", applications=names)
 
 
@@ -157,7 +184,8 @@ def probe_row_10_dismissed(context) -> None:
         state = _banner()
         t = round(time.monotonic() - start, 2)
         readings.append({"t": t, "state": state})
-        if first_null is None and '"banner_null":true' in state.replace(" ", ""):
+        flat = state.replace("\\", "").replace('"', "").replace("'", "")
+        if first_null is None and "banner_null:true" in flat:
             first_null = t
         sleep(0.5)
     _emit("10", phase="after-close", first_banner_null_s=first_null, readings=readings[:12], last=readings[-1])

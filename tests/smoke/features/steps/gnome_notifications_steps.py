@@ -96,78 +96,47 @@ def dismiss_notification_via_gdbus(context) -> None:
     assert returncode == 0, f"CloseNotification failed for id={notification_id}: {stderr}"
 
 
-@step("Notification banner is no longer showing via Shell.Eval")
-def notification_banner_no_longer_showing(context) -> None:
-    import re
-    # Wait up to 20 s for the banner to be dismissed from the message tray.
-    # The banner ref becomes null once Shell finishes the dismiss animation.
-    # GNOME 50 changed the banner API — check both _banner property and banner visibility.
-    # Use a compound expression that returns 'false' when no banner is showing.
-    banner_js = (
-        "((Main.messageTray._banner === null || "
-        "Main.messageTray._banner === undefined || "
-        "!Main.messageTray._banner.visible) && "
-        "(typeof Main.messageTray._bannerBin === 'undefined' || "
-        "Main.messageTray._bannerBin === null || "
-        "!Main.messageTray._bannerBin.visible)).toString()"
-    )
-    last_out = ""
-    for _ in range(40):  # 20s — GNOME 50 banners can linger longer in QEMU
-        result = subprocess.run(
-            ["gdbus", "call", "--session",
-             "--dest", "org.gnome.Shell",
-             "--object-path", "/org/gnome/Shell",
-             "--method", "org.gnome.Shell.Eval",
-             banner_js],
-            capture_output=True, text=True, timeout=5,
-        )
-        last_out = result.stdout
-        m = re.search(r",\s*'\"?(true|false)\"?'\s*\)", last_out, re.IGNORECASE)
-        if m and m.group(1).lower() == "true":
-            return
-        sleep(0.5)
+# True once no notification banner is on screen. The banner ref goes null
+# when Shell finishes the dismiss animation (GNOME 50 may keep it but hidden).
+# Do not also require Main.messageTray._bannerBin to be hidden: on GNOME 51
+# the bin stays visible with no banner in it, so that check never passed and
+# the step only ever "passed" through a force-dismiss and a warning, whether or
+# not CloseNotification worked (#827 audit row 10, probe 3).
+BANNER_GONE_JS = (
+    "(Main.messageTray._banner === null || "
+    "Main.messageTray._banner === undefined || "
+    "!Main.messageTray._banner.visible).toString()"
+)
+BANNER_DISMISS_TIMEOUT_S = 20  # GNOME 50 banners can linger in QEMU
 
-    # Banner still showing after 20s — force-dismiss via Shell.Eval.
-    dismiss_js = (
-        "try {"
-        "  if (Main.messageTray._banner && Main.messageTray._banner.destroy) {"
-        "    Main.messageTray._banner.destroy();"
-        "  } else if (Main.messageTray._bannerBin) {"
-        "    Main.messageTray._bannerBin.hide();"
-        "  }"
-        "} catch(e) {}; 'dismissed'"
-    )
-    subprocess.run(
+
+def _banner_gone(run=subprocess.run) -> tuple[bool, str]:
+    import re
+
+    result = run(
         ["gdbus", "call", "--session",
          "--dest", "org.gnome.Shell",
          "--object-path", "/org/gnome/Shell",
          "--method", "org.gnome.Shell.Eval",
-         dismiss_js],
+         BANNER_GONE_JS],
         capture_output=True, text=True, timeout=5,
     )
-    sleep(1)
-    # Final check after explicit dismiss
-    result = subprocess.run(
-        ["gdbus", "call", "--session",
-         "--dest", "org.gnome.Shell",
-         "--object-path", "/org/gnome/Shell",
-         "--method", "org.gnome.Shell.Eval",
-         banner_js],
-        capture_output=True, text=True, timeout=5,
-    )
-    last_out = result.stdout
-    m = re.search(r",\s*'\"?(true|false)\"?'\s*\)", last_out, re.IGNORECASE)
-    if m and m.group(1).lower() == "true":
-        return
-    # In headless GNOME 50 QEMU, the banner visibility JS check can return
-    # "false" (still visible) even after a successful CloseNotification call.
-    # This is a known environment limitation — not a functional regression.
-    # Treat as a warning rather than a hard failure to avoid blocking the suite.
-    print(
-        f"WARNING: Notification banner still showing after explicit dismiss "
-        f"(headless GNOME 50 QEMU limitation) — Shell.Eval returned: {last_out!r}. "
-        "Skipping hard assertion.",
-        flush=True,
+    out = result.stdout
+    m = re.search(r",\s*'\"?(true|false)\"?'\s*\)", out, re.IGNORECASE)
+    return bool(m and m.group(1).lower() == "true"), out
+
+
+@step("Notification banner is no longer showing via Shell.Eval")
+def notification_banner_no_longer_showing(context, run=subprocess.run, pause=sleep) -> None:
+    last_out = ""
+    for _ in range(BANNER_DISMISS_TIMEOUT_S * 2):
+        gone, last_out = _banner_gone(run)
+        if gone:
+            return
+        pause(0.5)
+    raise AssertionError(
+        f"Notification banner still showing {BANNER_DISMISS_TIMEOUT_S}s after "
+        f"CloseNotification; Shell.Eval returned: {last_out!r}"
     )
 
 
