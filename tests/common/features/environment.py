@@ -213,10 +213,6 @@ def before_scenario(context, scenario):
             f"(IMAGE={os.environ.get('IMAGE', 'unknown')})"
         )
         return
-    # Temporary: drop @skip_utah once #1076 replaces the scenarios it gates.
-    if "skip_utah" in scenario_tags and getattr(context, "is_utah_image", False):
-        scenario.skip("Skipping @skip_utah scenario: Utah's common pin no longer ships it")
-        return
     if "requires_brew" in scenario_tags and not _has_brew(context):
         scenario.skip("Homebrew not present on this image")
         return

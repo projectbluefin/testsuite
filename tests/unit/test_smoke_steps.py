@@ -316,3 +316,33 @@ class TestRunHost:
             stdout, rc, _ = m._run_host("echo hi")
         assert stdout == "hello world"
         assert rc == 0
+
+
+# ---------------------------------------------------------------------------
+# Compass install step: gated on the image shipping Compass (common#1599)
+# ---------------------------------------------------------------------------
+
+class TestCompassInstallGate:
+    def _run(self, responses):
+        m = _import_steps()
+        calls = []
+
+        def fake(cmd, timeout=30):
+            calls.append(cmd)
+            return responses.pop(0)
+
+        context = MagicMock()
+        with patch.object(m, "_run_host", side_effect=fake), patch.object(m, "sleep"):
+            m.compass_flatpak_installed_within(context, 600)
+        return context, calls
+
+    def test_image_without_compass_skips(self):
+        context, calls = self._run([("", 1, "")])
+        context.scenario.skip.assert_called_once()
+        assert "compass.preinstall" in context.scenario.skip.call_args.args[0]
+        assert len(calls) == 1
+
+    def test_image_with_compass_must_install_it(self):
+        context, calls = self._run([("", 0, ""), ("enabled", 0, ""), ("org.tunaos.compass", 0, "")])
+        context.scenario.skip.assert_not_called()
+        assert calls[-1] == "flatpak info --system org.tunaos.compass"
