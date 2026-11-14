@@ -35,12 +35,14 @@ Bluefin/Dakota image:
 
 - GNOME OS as a bootc/ostree deployment, with kernel + initramfs extracted from the deployment
   for direct QEMU boot
-- GDM autologin for the `bluefin-test` user; passwordless sudo for test automation
+- GDM autologin for the `bluefin-test` desktop user, which has **no** SSH key, **no** sudo and
+  a locked password (isolated session, below)
 - **real** GNOME Wayland session (Mutter) + AT-SPI bus (at-spi2-core)
 - `gnome-ponytail-daemon` (virtual input) driven by **qecore-headless** — **absent from stock
   GNOME OS**; the [native harness overlay](gnomeos-desktop-canary.md) builds it against
   matching GNOME OS libraries. A successful guest run is still required
-- SSH (port 2222 → 22) as `bluefin-test` for the harness to drive the guest
+- SSH (port 2222 → 22) as the separate `gnome-e2e-harness` account, which alone holds the
+  per-run key and sudo, for the harness to drive the guest
 
 ## The four hive extensions
 
@@ -51,26 +53,19 @@ Bluefin/Dakota image:
 | `shade-inactive-windows` | `shade-inactive-windows-reborn@binhnguyensoft.com` |
 | `stock-market` | `stock-market@binhnguyensoft.com` |
 
-Their Behave collection (`tests/extensions/*`, landed via #914) has per-extension
-behaviour features plus a cross-cutting `extension_lifecycle.feature`.
+Behave collection (`tests/extensions/*`, #914): per-extension features + `extension_lifecycle.feature`.
 
 ## Repeatable commands
-> **UNVERIFIED — do not copy-paste as proven.** Nothing below has been executed end-to-end. One
-> hard blocker stands between this snippet and a real run:
->
-> 1. **Stock `gnomeos-nightly` has no `gnome-ponytail-daemon`.** The action requires it baked into
->    the OCI image — there is no dnf/rpm in the guest. The native overlay and baseline
->    caller are described in [gnomeos-desktop-canary.md](gnomeos-desktop-canary.md);
->    neither a successful boot nor candidate credential isolation is established yet.
->
-> Treat the commands as intended shape only; replace with the exact commands executed once a lab
-> run succeeds.
+> **UNVERIFIED — intended shape only; nothing below has run end-to-end.** Blocker 1: stock
+> `gnomeos-nightly` has no `gnome-ponytail-daemon` and the guest has no dnf/rpm, so it must be
+> baked into the OCI image ([native overlay](gnomeos-desktop-canary.md)). Neither a successful
+> boot nor candidate credential isolation is established yet.
 
 ### 1. Provision, boot, and run in one action invocation
 
 `gnome-e2e` is not a boot-only action: the same invocation provisions the guest **and** runs
-`tests/<suite>/features/` inside it under `qecore-headless` (`action.yml:384`). `suite` must
-therefore be set — it defaults to `smoke` (`action.yml:40-42`), which would boot GNOME OS and run
+`tests/<suite>/features/` inside it (step `Run behave via qecore-headless`). `suite` must
+therefore be set — it defaults to `smoke` (the `suite` input), which would boot GNOME OS and run
 the **Bluefin** smoke suite, testing the wrong thing. Pass a **digest resolved at dispatch time**, not a tag: the
 action hands `inputs.image` verbatim to `podman pull` / `bootc install`.
 
@@ -83,63 +78,50 @@ action hands `inputs.image` verbatim to `podman pull` / `bootc install`.
     suite: extensions   # uses tests/extensions/ (landed with #914)
 ```
 
-The action runs `bootc install to-disk`, runs the guest preflight (fails here today on stock GNOME
-OS: no `gnome-ponytail-daemon`), extracts kernel/initramfs, boots a KVM QEMU VM, waits for
-SSH then a live GNOME session, copies `tests/extensions` (plus `tests/shared`) into the guest, runs
-behave there, and writes `results/` (including `guest-provenance.json`) + `vm-serial.log` into
-the workspace.
+The action installs, preflights (fails today on stock GNOME OS), boots QEMU/KVM, waits for a live
+GNOME session, runs `tests/extensions` in the guest and writes `results/` + `vm-serial.log`.
 
 ### 2. Confirm a real session (canary)
 
-Run **inside the guest**, over the harness SSH key, while the VM is up:
+Run **inside the guest**, over the harness SSH key, while the VM is up. The harness account
+drops to the desktop user for session commands:
 
 ```bash
 ssh -i /tmp/gnome_e2e_key -o StrictHostKeyChecking=no \
-    -p 2222 bluefin-test@127.0.0.1 bash -l <<'REMOTE'
-  source /tmp/gnome_e2e_session.env
-  echo "session=$XDG_SESSION_TYPE display=$WAYLAND_DISPLAY"
-  gdbus call --session --dest org.a11y.atspi.Registry \
-    --object-path /org/a11y/atspi --method org.a11y.atspi.Registry.GetRegistry 2>&1 | head -1
-  gnome-extensions list
-REMOTE
+    -p 2222 gnome-e2e-harness@127.0.0.1 \
+  'sudo -u bluefin-test env XDG_RUNTIME_DIR=/run/user/1001 \
+     DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1001/bus \
+     sh -c "ls /run/user/1001/wayland-*; gnome-extensions list"'
 ```
 
-`session=wayland` and a non-empty AT-SPI registry reply confirm the real session and AT-SPI.
-`gnome-extensions list` is the pre-run inventory to confirm the four extensions are staged
-and discoverable before GNOME Shell starts (or verify which are discovered).
+A `wayland-N` socket confirms the session (the canary's evidence covers AT-SPI);
+`gnome-extensions list` confirms which of the four staged extensions GNOME Shell discovered.
 
 ### 3. Re-run individual scenarios in the guest
 
-Step 1 already runs the whole suite. To re-drive one feature, run it **in the guest under
-`qecore-headless`** — not on the host, and not bare `behave`: the scenarios need the guest's
-Wayland session, AT-SPI bus, and ponytail virtual input that only `qecore-headless` sets up.
-Mirrors `action.yml:384`:
+Step 1 already runs the whole suite. To re-drive one feature, run it **in the guest as the
+desktop user**, as the action's isolated branch does — not on the host. qecore-headless is not
+used: it needs sudo, which the desktop user must not have. `gnomeos_canary_behave.py` reads the
+live session's display, session bus and accessibility bus, then execs behave:
 
 ```bash
 ssh -i /tmp/gnome_e2e_key -o StrictHostKeyChecking=no \
-    -p 2222 bluefin-test@127.0.0.1 '
-  set -e
-  source /tmp/gnome_e2e_session.env
-  export PATH=$HOME/.local/bin:$PATH
-  export PYTHONPATH=/tmp/gnome_e2e
-  $HOME/.local/bin/qecore-headless \
-    "$(which behave) /tmp/gnome_e2e/tests/extensions/features/extension_lifecycle.feature \
-       --format json.pretty --outfile /tmp/gnome_e2e/results/results.json --no-capture"
-'
+    -p 2222 gnome-e2e-harness@127.0.0.1 \
+  'sudo -u bluefin-test -H -- env -i HOME=/var/home/bluefin-test LANG=C.UTF-8 \
+     PATH=/opt/gnomeos-harness/bin:/usr/bin:/bin PYTHONPATH=/tmp/gnome_e2e \
+     /opt/gnomeos-harness/bin/python3 /tmp/gnome_e2e/gnomeos_canary_behave.py \
+     /opt/gnomeos-harness/bin/behave \
+     /tmp/gnome_e2e/tests/extensions/features/extension_lifecycle.feature \
+     -D disposable_guest=true --no-capture'
 ```
 
-Swap in another per-extension feature path as needed. Re-run the `gnome-extensions list` canary
-after `extension_lifecycle.feature` to inspect active and enabled state.
+Swap in another feature path as needed; re-run the step 2 canary to inspect enabled state.
 
 ### 4. Gate the run, against the results copied back to the host workspace
 
-The `gnome-e2e` action runs the gate as its own **mandatory service-gate step**
-(`.github/actions/gnome-e2e/action.yml`, `if: always() && inputs.suite == 'extensions'`):
-a `suite: extensions` run fails the job on any empty / all-skipped / undefined /
-untested / hook-error / failed-boot / missing-result result, regardless of the general
-`scripts/e2e_summary.py` headline (which scores an all-skipped run green). No workflow or
-Justfile recipe in this repo calls the action with `suite: extensions` yet — a consumer
-runs it directly. The command below is still the manual form (re-run after a lab boot):
+`gnome-e2e` runs the [service gate](#mandatory-service-gate) as a mandatory step
+(`if: always() && inputs.suite == 'extensions'`). No repo workflow or recipe calls the action
+with `suite: extensions` yet. Manual form, after a lab boot:
 
 ```bash
 python3 scripts/extension_validation.py results/results.json; echo $?
@@ -164,37 +146,55 @@ scores an all-skipped run green for suites that ship only `@future` scenarios.
 ## Security posture
 
 The guest is a **test target**, not a trusted host. Extension code runs inside the guest desktop
-and must never reach the host:
+and must never reach the host, and (maintainer ruling on #908, Option A) must not hold any
+guest administration either.
 
 - **Isolated QEMU VM** — no direct host access.
 - **No host management sockets** — no Podman/Docker socket, no host D-Bus system bus, no host
   `~/.config` bind-mounted into the guest.
 - **No privileged host mounts** — the VM boots from a raw disk written by `bootc install`; the
   host filesystem is not writable from the guest.
-- **Credentials are guest-local and disposable** — the harness SSH key (`authorized_keys` in the
-  `bluefin-test` home, `action.yml:215`) and the `bluefin-test` autologin let the harness drive the
-  guest. Extension code runs in `gnome-shell` **as `bluefin-test`**, who also has `NOPASSWD:ALL`
-  sudo (`action.yml:224-226`), so extension code **can** read that key and escalate **inside the
-  guest**. Accepted: the key is generated per run, authorises nothing but this throwaway VM, and
-  grants no reach back to the host. Never reuse a long-lived or host-valid credential here.
+- **Isolated session** — `gnome-e2e` with `suite: extensions` (or `isolated-session: 'true'`)
+  splits the guest into two accounts with `scripts/guest_accounts.py` before boot:
+
+  | Account | Desktop session | SSH key | sudo | Password |
+  |---|---|---|---|---|
+  | `bluefin-test` (1001) | GDM autologin; tests and extensions run here | none | none | locked |
+  | `gnome-e2e-harness` (1002) | never | per-run key | `NOPASSWD:ALL` | locked |
+
+  The harness home is mode 0700. Behave runs as `bluefin-test` via `sudo -u` with a clean
+  environment and without qecore-headless (which calls sudo). The harness never runs a file the
+  desktop user can write with elevated rights: the checker lives in the harness home, and a
+  pre-existing `/tmp/gnome_e2e` (even a symlink) fails the run.
+- **Proven on the booted guest** — before any test, `scripts/guest_session_isolation.py` (as
+  root) checks the desktop user has no sudo, privileged group, password, SSH key, sshd key path
+  or polkit grant, the harness home is closed, and no host-share mount or docker/podman/libvirt
+  socket exists (full list in the script). Report: `session-isolation.json`, outside `results/`;
+  guest `results/` return as regular files only, never overwriting harness files. Any failure
+  stops the run. Accepted exception: `/dev/uinput` is 0666 for the virtual input.
+
+Limits that remain: a candidate shares a uid with behave, so it could alter that run's
+`results/`; the image's own polkit defaults for the active local session are unchanged; and
+QEMU user networking still lets the guest open connections to the runner, which has no
+management service listening. Shared mode (all other suites) still gives `bluefin-test` the key
+and sudo; never run candidate extensions there.
 
 A host socket, key, or mount exposed to the guest desktop is a regression: stop and file an issue.
 
 ## Status
 
-- [x] Provenance contract: tested build recorded per run in
-      `results/guest-provenance.json` (static pins expire after 2 weeks)
-- [ ] Provenance contract: resolve job that pins the digest per run
-      (sketched in `gnomeos-guest-provenance.md`; no workflow does this yet)
+- [x] Provenance: tested build recorded per run in `results/guest-provenance.json`
+- [ ] Provenance: resolve job pinning the digest per run (sketch only, no workflow yet)
 - [x] Guest inventory verified against the image layers; four hive extensions documented
 - [x] Pre-boot preflight (`scripts/guest_preflight.py`) fails closed on missing prerequisites
 - [x] Mandatory service gate implemented and unit-tested (`scripts/extension_validation.py`)
-- [x] Security posture recorded: guest-local, disposable credentials; no host reach
-- [x] Gate wired into the lane: `gnome-e2e` runs `scripts/extension_validation.py` as a
-      mandatory step when `suite == 'extensions'` (#991). No repo workflow/recipe calls the
-      action with `suite: extensions` yet — a consumer runs it directly.
-- [ ] Repeatable boot + load + run commands validated in the lab (**unverified**;
-      tests/extensions landed with #914; blocked on a `gnome-ponytail-daemon` overlay, which the
-      preflight now reports by name)
+- [x] Security posture recorded: no host reach
+- [x] Isolated session (Option A): separate harness account, desktop user with no key/sudo,
+      checked on the booted guest by `scripts/guest_session_isolation.py`. **Not yet run on
+      GNOME OS**: dispatch the canary with `isolated_session=true` and attach its
+      `session-isolation.json` and desktop evidence
+- [x] Gate wired into the lane as a mandatory `gnome-e2e` step for `suite: extensions` (#991)
+- [ ] Repeatable boot + load + run commands validated in the lab (**unverified**; blocked on a
+      `gnome-ponytail-daemon` overlay, which the preflight reports by name)
 - [ ] At least one green extension-validation run captured and attached
 - [ ] Lane closed

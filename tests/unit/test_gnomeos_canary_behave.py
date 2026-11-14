@@ -103,7 +103,8 @@ def test_action_runs_behave_through_the_wrapper_only_for_the_canary():
     canary = step.partition('if [[ "${GNOME_E2E_SUITE}" == "gnomeos-canary" ]]; then')[2].partition("\n        fi")[0]
     assert "gnomeos_canary_behave.py" in canary
     assert 'BEHAVE_PREFIX="/opt/gnomeos-harness/bin/python3 /tmp/gnome_e2e/gnomeos_canary_behave.py "' in canary
-    assert 'BEHAVE_PREFIX=""' in step.partition("if [[")[0]
+    shared = step.partition("\n        else\n")[2]
+    assert 'BEHAVE_PREFIX=""' in shared.partition("if [[")[0]
     assert '\\"${BEHAVE_PREFIX}\\$BEHAVE_BIN ' in step
 
 
