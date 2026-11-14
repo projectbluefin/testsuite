@@ -30,6 +30,13 @@
 # GNOME OS harness overlay (/opt/gnomeos-harness). Later caller steps reach the
 # guest as $GNOME_E2E_SSH_USER.
 #
+# Candidate extension (#909; suite: extensions, where it is required): pass the
+# packaged ZIP as extension-zip and the hash its builder recorded as
+# extension-sha256. scripts/stage_extension.py checks both against the
+# canonical contract and stages the ZIP into the desktop user's extension
+# directory before boot; behave then runs only that extension's scenarios
+# (its collection tag), and the gate requires every one of them to pass.
+#
 # The action writes results to ./results/ and vm-serial.log in the workspace.
 # For most suites the caller decides pass/fail from the behave-rc output; for
 # suite: extensions the action itself fails the job via the mandatory
@@ -70,6 +77,17 @@ inputs:
       driven by a separate harness admin account (#908). Always on for
       suite: extensions. Requires the GNOME OS harness overlay image.
     default: 'false'
+  extension-zip:
+    description: >
+      Workspace path of one packaged extension ZIP to stage into the guest
+      before the desktop starts. Required for suite: extensions; ignored
+      for every other suite.
+    default: ''
+  extension-sha256:
+    description: >
+      SHA256 the extension builder recorded for extension-zip. Staging
+      refuses the ZIP unless it matches.
+    default: ''
 
 outputs:
   behave-rc:
@@ -179,6 +197,8 @@ runs:
       env:
         GNOME_E2E_IMAGE: ${{ inputs.image }}
         GNOME_E2E_SUITE: ${{ inputs.suite }}
+        GNOME_E2E_EXTENSION_ZIP: ${{ inputs.extension-zip }}
+        GNOME_E2E_EXTENSION_SHA256: ${{ inputs.extension-sha256 }}
       run: |
         fallocate -l 30G disk.raw
 
@@ -332,6 +352,24 @@ runs:
           sudo chmod 440 "${D}/etc/sudoers.d/zz-bluefin-test"
         fi
 
+        # Candidate extension (#909): check the exact ZIP against its contract
+        # and the builder's hash, then stage it where GNOME Shell discovers it
+        # at the desktop user's first login. A refused ZIP fails the step after
+        # cleanup, so no scenario runs against an extension never installed.
+        STAGE_RC=0
+        if [[ "${GNOME_E2E_SUITE}" == "extensions" ]]; then
+          mkdir -p results
+          sudo python3 _testsuite/scripts/stage_extension.py "${GNOME_E2E_EXTENSION_ZIP}" \
+            --sha256 "${GNOME_E2E_EXTENSION_SHA256}" \
+            --home "${VAR}/home/bluefin-test" --uid 1001 --gid 1001 \
+            --output results/extension-staging.json || STAGE_RC=$?
+          sudo chown -R "$(id -u):$(id -g)" results
+          if [[ ${STAGE_RC} -eq 0 ]]; then
+            python3 -c 'import json, sys; r = json.load(open(sys.argv[1])); print("GNOME_E2E_EXTENSION_UUID=" + r["uuid"]); print("GNOME_E2E_EXTENSION_TAG=" + r["tag"])' \
+              results/extension-staging.json >> "$GITHUB_ENV"
+          fi
+        fi
+
         sudo mkdir -p "${D}/etc/gdm"
         printf '[daemon]\nAutomaticLoginEnable=True\nAutomaticLogin=bluefin-test\n' | \
           sudo tee "${D}/etc/gdm/custom.conf"
@@ -347,6 +385,10 @@ runs:
         df -h .
         if [[ ${PREFLIGHT_RC} -ne 0 ]]; then
           echo "::error::Guest preflight failed (rc=${PREFLIGHT_RC}); see results/guest-provenance.json"
+          exit 1
+        fi
+        if [[ ${STAGE_RC} -ne 0 ]]; then
+          echo "::error::Candidate extension was not staged (rc=${STAGE_RC}); see results/extension-staging.json"
           exit 1
         fi
 
@@ -465,6 +507,23 @@ runs:
           # No first-login welcome dialog over the overview in the test session.
           $SSH "${DESKTOP_GSETTINGS} org.gnome.shell welcome-dialog-last-shown-version '999'" \
             || echo "::warning::could not mark the welcome dialog as shown for bluefin-test"
+          if [[ -n "${GNOME_E2E_EXTENSION_UUID:-}" ]]; then
+            # gnome-extensions install compiles a packed extension's schemas;
+            # staging by extraction does it here, as the desktop user, before
+            # the restart below starts the session that loads the extension.
+            EXT_SCHEMAS="/var/home/bluefin-test/.local/share/gnome-shell/extensions/${GNOME_E2E_EXTENSION_UUID}/schemas"
+            $SSH "sudo -u bluefin-test sh -c 'test ! -d ${EXT_SCHEMAS} || glib-compile-schemas ${EXT_SCHEMAS}'" || {
+              echo "::error::could not compile the staged extension's settings schemas"
+              exit 1
+            }
+            # The Shell actually tested, not an image label (#909).
+            mkdir -p results
+            $SSH "gnome-shell --version" > results/guest-shell-version.txt || {
+              echo "::error::could not read the guest GNOME Shell version"
+              exit 1
+            }
+            cat results/guest-shell-version.txt
+          fi
           # Restart GDM, as qecore-headless does in shared mode, so tests run in
           # a second login: accessibility on from shell start, first-login
           # setup finished. In the first boot session the shell held a
@@ -512,6 +571,27 @@ runs:
           # restart plus this settle passed (diag run 43543641291).
           sleep 15
           echo "GNOME session restarted for the isolated desktop user"
+          if [[ -n "${GNOME_E2E_EXTENSION_UUID:-}" ]]; then
+            # Stopping GDM can time out and SIGKILL the first Shell; its
+            # OnFailure= unit (org.gnome.Shell-disable-extensions.service)
+            # then sets disable-user-extensions for the desktop user, and the
+            # test login refuses every user extension (run 43609183896). The
+            # staged candidate has not been enabled yet, so that failure is
+            # the harness's. The Shell watches the key; no restart is needed.
+            $SSH "${DESKTOP_GSETTINGS} org.gnome.shell disable-user-extensions false" || {
+              echo "::error::could not re-allow user extensions for bluefin-test"
+              exit 1
+            }
+            # Evidence that the restarted Shell found the staged candidate in
+            # the desktop user's directory (not enabled yet).
+            DESKTOP_ENV="sudo -u bluefin-test env XDG_RUNTIME_DIR=/run/user/1001 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1001/bus"
+            {
+              $SSH "${DESKTOP_ENV} gsettings get org.gnome.shell disable-user-extensions" | sed 's/^/disable-user-extensions: /'
+              $SSH "${DESKTOP_ENV} gnome-extensions info ${GNOME_E2E_EXTENSION_UUID}"
+            } > results/extension-discovery.txt 2>&1 \
+              || echo "::warning::GNOME Shell does not report the staged extension ${GNOME_E2E_EXTENSION_UUID}"
+            cat results/extension-discovery.txt
+          fi
           exit 0
         fi
 
@@ -585,6 +665,8 @@ runs:
           $SSH "sudo chown -hR bluefin-test:bluefin-test /tmp/gnome_e2e"
           BEHAVE_USERDATA=""
           [[ "${GNOME_E2E_SUITE}" == "extensions" ]] && BEHAVE_USERDATA="-D disposable_guest=true"
+          # Only the staged candidate's scenarios; the others stay skipped.
+          [[ -n "${GNOME_E2E_EXTENSION_TAG:-}" ]] && BEHAVE_USERDATA="${BEHAVE_USERDATA} --tags @${GNOME_E2E_EXTENSION_TAG}"
           # Behave runs as the desktop user with a clean environment and no
           # qecore-headless (it needs sudo). The wrapper reads the live
           # session's display, session bus and accessibility bus itself.
@@ -868,13 +950,24 @@ runs:
       shell: bash
       env:
         GNOME_E2E_BEHAVE_RC: ${{ steps.run.outputs.behave_rc }}
+        GNOME_E2E_SUITE: ${{ inputs.suite }}
       run: |
         GATE="_testsuite/scripts/extension_validation.py"
         if [[ ! -f "${GATE}" ]]; then
           echo "::error::Extension-validation gate script missing: ${GATE} not in the testsuite checkout (needs PR #916). Failing closed."
           exit 1
         fi
-        python3 "${GATE}" results/results.json
+        # suite: extensions passes only when the staged candidate's own
+        # scenarios (its collection tag) all ran and passed (#909).
+        REQUIRE_TAG=()
+        if [[ "${GNOME_E2E_SUITE}" == "extensions" ]]; then
+          if [[ -z "${GNOME_E2E_EXTENSION_TAG:-}" ]]; then
+            echo "::error::No candidate extension was staged; see results/extension-staging.json"
+            exit 1
+          fi
+          REQUIRE_TAG=(--require-tag "${GNOME_E2E_EXTENSION_TAG}")
+        fi
+        python3 "${GATE}" results/results.json "${REQUIRE_TAG[@]}"
         # A wrapper/after_all failure can leave passing scenario records. Both
         # the complete result gate and the actual process must succeed.
         if [[ "${GNOME_E2E_BEHAVE_RC}" != "0" ]]; then

@@ -344,8 +344,10 @@ def test_canonical_contracts_require_what_packaging_ships():
     misattributed."""
     jp = art.find_contract("just-perfection-desktop@just-perfection")
     assert jp is not None
-    # scripts/build.sh packs the compiled resource bundle and lib/ as extras.
-    assert "data/resources.gresource" in jp.required_paths
+    # scripts/build.sh packs the compiled resource bundle and lib/ as extras;
+    # gnome-extensions pack stores an extra source under its basename.
+    assert "resources.gresource" in jp.required_paths
+    assert "data/resources.gresource" not in jp.required_paths
     assert any(p.startswith("lib/") for p in jp.required_paths)
     assert any(p.startswith("schemas/") for p in jp.required_paths)
 
