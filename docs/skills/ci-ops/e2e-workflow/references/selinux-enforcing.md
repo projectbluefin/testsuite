@@ -65,6 +65,15 @@ read only by `ostree`/`bootc`, which run unconfined.
 Never fix a denial by relabeling the whole tree, `-F` over candidate files,
 `chcon` to a broad type, `setenforce 0`, or a permissive domain.
 
+The injected `ci-user.conf` uses non-recursive `d` entries for the home and
+`.ssh` directories. `d` creates them and adjusts their own mode, ownership
+and SELinux label on later boots. Do not add a recursive `Z` home rule: after
+the runner container is loaded, it would rewrite Podman storage below the
+home on every lifecycle reboot. Run 43526643244 showed it traversing image
+hardlinks and generating `systemd_tmpfiles_t` denials while reading
+`/proc/sys/fs/protected_hardlinks`. Keep the AVC gate unchanged; fix the
+harness traversal, not the candidate policy or the allowlist.
+
 ## AVC collection and canary
 
 `selinux_collect_avc.sh` runs in the guest as root and prints AVC/USER_AVC
