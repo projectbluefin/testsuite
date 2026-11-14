@@ -107,6 +107,21 @@ Feature: bootc upgrade and rollback lifecycle
     * SSH command return code is "0"
     * ostree status shows two deployments
 
+  @lifecycle @composefs
+  Scenario: bootc status reports at least two deployments after upgrade
+    # composefs equivalent of the ostree scenario: bootc status has no
+    # deployment list, but after an upgrade + reboot the booted and rollback
+    # deployments are both present, so counting non-null booted/staged/rollback
+    # entries gives >=2. Gated to the composefs backend; skipped on ostree.
+    * VM is restored to the pre-upgrade baseline deployment
+    * Run long SSH command: "sudo bootc upgrade"
+    * SSH command return code is "0"
+    * bootc upgrade output indicates image was staged
+    * Reboot VM and wait for SSH
+    * Run SSH command: "sudo bootc status --format=json"
+    * SSH command return code is "0"
+    * bootc status shows at least two deployments
+
   @lifecycle @upgrade @version
   Scenario: os-release version changes are tracked after upgrade
     * VM is restored to the pre-upgrade baseline deployment

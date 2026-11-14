@@ -6,7 +6,7 @@ No GNOME session interaction needed — pure CLI commands.
 """
 import os
 
-from tests.shared.ssh_steps import *  # noqa: F401,F403
+from tests.shared.ssh_steps import run_ssh
 
 try:
     from tests.shared.timing import record_end, record_start
@@ -49,6 +49,50 @@ def homed_migration_skip_reason(environ=None):
     return None
 
 
+def _gate_backend_scenarios(context, scenario):
+    """Skip lifecycle scenarios whose backend does not match this run.
+
+    The ostree-only scenarios (ostree admin pin/status) only apply to the
+    ostree backend, and the composefs deployment-count scenario only applies
+    to the composefs backend. Skip here, before any step runs, so a
+    backend-specific command never executes on the wrong backend (for example
+    `ostree admin status` on a composefs-native image, which errors because
+    the ostree tree is absent). Kept mutually exclusive with utah's ostree
+    path: utah has no composefs marker, so it keeps every ostree scenario and
+    skips the composefs one.
+    """
+    tags = scenario.effective_tags
+    if "ostree" not in tags and "composefs" not in tags:
+        return
+    if "composefs" in tags and "ostree" not in tags and _ostree_backend(context):
+        # composefs-only scenario on an ostree image.
+        scenario.skip(
+            "bootc status deployment count is the composefs equivalent of "
+            "ostree admin status; this run boots the ostree backend"
+        )
+    elif "ostree" in tags and "composefs" not in tags and not _ostree_backend(context):
+        # ostree-only scenario on a composefs-native image.
+        scenario.skip(
+            "ostree admin pin/status are ostree-only; this run boots the "
+            "composefs backend, which has no ostree tree"
+        )
+
+
+def _ostree_backend(context) -> bool:
+    """True when the running VM booted via bootc's ostree backend.
+
+    bootc selects the backend from the image's install config, which is
+    unchanged at runtime: ostree images ship /usr/lib/ostree/prepare-root.conf,
+    composefs images never do. The ostree marker is the reliable discriminator
+    for the same reason the install step keys on it (see e2e.yml) -- the
+    composefs marker path varies across bootc versions, but prepare-root.conf is
+    always present for ostree and never for composefs. Detect from the running
+    image so the lifecycle scenario gating never keys on the image name.
+    """
+    _, rc = run_ssh(context, "test -f /usr/lib/ostree/prepare-root.conf", timeout=15)
+    return rc == 0
+
+
 def before_all(context):
     """Set up SSH connection parameters from environment."""
     context.vm_ip = os.environ.get("VM_IP", "")
@@ -76,6 +120,7 @@ def before_scenario(context, scenario):
             print(f"SKIP Scenario {scenario.name}: {reason}", flush=True)
             scenario.skip(reason)
             return
+    _gate_backend_scenarios(context, scenario)
     context.scenario = scenario
     context.command_stdout = ""
     context.ssh_rc = None
@@ -89,6 +134,22 @@ def before_scenario(context, scenario):
 
 def after_scenario(context, scenario):
     record_end(context, scenario)
+
+
+def _is_backend_mismatch_skip(scenario) -> bool:
+    """True when a backend-tagged scenario was skipped for a backend mismatch.
+
+    A @ostree or @composefs scenario only runs on its matching backend;
+    before_scenario skips it on the other backend, leaving status 'skipped'
+    with exactly one backend tag. This distinguishes that skip from a real
+    failure (status 'failed') so the qualification gate does not flag a
+    backend-incompatible scenario as missing evidence.
+    """
+    tags = set(getattr(scenario, "effective_tags", getattr(scenario, "tags", ())))
+    return (
+        scenario.status.name == "skipped"
+        and ("ostree" in tags) != ("composefs" in tags)
+    )
 
 
 def _assert_required_lifecycle_passed(features):
@@ -108,6 +169,7 @@ def _assert_required_lifecycle_passed(features):
         for feature in features
         for scenario in feature.walk_scenarios()
         if not is_non_runnable(scenario)
+        and not _is_backend_mismatch_skip(scenario)
         and any(
             step.name == "bootc upgrade output indicates image was staged"
             for step in scenario.steps
