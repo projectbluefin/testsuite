@@ -96,6 +96,10 @@ RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("scripts/v1_gate_pins.py", ()),
     ("scripts/v1_gate_preexisting.py", ()),
     ("scripts/vm_validation_plan.py", ()),
+    # Quarantine bookkeeping: PR validation and a scheduled issue job only.
+    ("scripts/quarantine_citations.py", ()),
+    ("scripts/quarantine_followup.py", ()),
+    (".github/workflows/quarantine-followup.yml", ()),
     # Shared helpers: route by the path that imports them.
     ("tests/shared/kde_*", ("kde-smoke",)),
     # The extensions suite refuses to run outside a disposable GNOME OS guest

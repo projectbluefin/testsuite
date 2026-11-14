@@ -1,7 +1,7 @@
 ---
 name: quarantine-age
 version: "1.0"
-last_updated: "2026-07-20"
+last_updated: "2026-11-14"
 id: quarantine-age
 one_line_purpose: Apply quarantine expiry policy to stale scenarios.
 entry_point: docs/skills/test-authoring/quarantine-age/SKILL.md
@@ -20,9 +20,10 @@ metadata:
 
 ## When to Use
 
-- Changing `scripts/check_quarantine_age.py`
-- Changing the `quarantine-age` job in `.github/workflows/pr-validate.yml`
-- Debugging CI failures caused by expired `@quarantine` scenarios
+- Changing `scripts/check_quarantine_age.py`, `scripts/quarantine_citations.py` or `scripts/quarantine_followup.py`
+- Changing the `quarantine-age` job in `.github/workflows/pr-validate.yml` or `.github/workflows/quarantine-followup.yml`
+- Debugging CI failures caused by expired or uncited `@quarantine` scenarios
+- Acting on a `quarantine-followup` issue
 
 ## When NOT to Use
 
@@ -59,6 +60,48 @@ JSON mode (`--json`) emits every current quarantine entry, including `days`, `qu
 - That job must check out the repository with `fetch-depth: 0`; shallow history breaks age detection.
 - The rollout job currently runs `python3 scripts/check_quarantine_age.py --grace-days 30` to avoid blocking PRs immediately while still aging out stale quarantines.
 - Any workflow using `--json` still needs full history and the full `tests/` tree checked out; otherwise age calculations and counts will be incomplete.
+
+## Citations
+
+Every `@quarantine` carries `# quarantine: projectbluefin/<repo>#<N> <reason>` on the line
+directly above its tags; the format and rules are in
+[suite-map, Quarantine citations](../suite-map/SKILL.md#quarantine-citations). The
+`quarantine-age` job runs `python3 scripts/quarantine_citations.py` as a second step
+(`if: !cancelled()`, so both results show) and fails on a missing, malformed, duplicated or
+stray citation. It is offline: it checks the format, not whether the issue exists.
+
+## Follow-up issues
+
+`.github/workflows/quarantine-followup.yml` (daily at 06:17 EST / 07:17 EDT, plus
+`workflow_dispatch` with a `dry_run` input) runs `scripts/quarantine_followup.py`. Its token
+has `contents: read` and `issues: write` only; it never pushes or opens PRs. Runs from a
+branch other than `main` are forced to `--dry-run`.
+
+For each distinct citation it asks GitHub (`gh api graphql`) whether the issue or PR is
+closed, and keeps at most one open testsuite issue per citation:
+
+| Kind | When | Labels at creation | What the issue asks |
+|---|---|---|---|
+| `lift` | The citation is closed (completed, not planned, merged or closed unmerged) | `kind/cleanup`, `triage/accepted` | Remove the tags and citations it lists (file:line at the run's SHA), regenerate the snapshot, open a `Fixes` PR; the PR VM check proves it on `dakota:testing`. A utah citation asks a maintainer for a Manual Test Run on `utah:testing` |
+| `expiring` | The citation is open and the oldest quarantine citing it is within `--warn-days` (7) of the limit, or past it | `kind/cleanup`, `needs-human` | A maintainer picks: fix the cause, reclassify to `@pending`/`@future`, or re-cite |
+
+The workflow passes `--grace-days 30`, the same as the `quarantine-age` job, so "near the
+limit" means near the day PR validation starts failing. Change both together.
+
+Issues are found again by the hidden marker `<!-- quarantine-followup: <kind> <citation> -->`,
+never by title, and only among issues `github-actions[bot]` filed, so a marker pasted into
+someone else's issue is ignored. A later run updates the title and body in place when the content changes
+(a moved `main` alone is not a change), closes duplicates as not planned, and closes a
+follow-up whose quarantines are gone or whose kind no longer applies. Labels are only set at
+creation, so triage and hive stage labels are left alone. If a cited issue was closed without
+a fix, the lift issue still opens: the quarantine now cites something closed, so either the
+VM check shows the scenario passes, or it gets re-cited to an open issue.
+
+Preview without writing anything:
+
+```bash
+python3 scripts/quarantine_followup.py --dry-run --grace-days 30
+```
 
 ## Choosing the right tag when a quarantine ages out
 
@@ -107,6 +150,7 @@ Never delete a scenario to clear the gate — the coverage intent is the asset. 
 ## Verification
 
 - [ ] `python3 -m ruff check tests/ scripts/ --select E,F,W --ignore E501` passes
-- [ ] `python3 -m pytest tests/unit/test_quarantine_age.py tests/unit/test_quarantine.py -v` passes
+- [ ] `python3 -m pytest tests/unit/test_quarantine_age.py tests/unit/test_quarantine.py tests/unit/test_quarantine_citations.py tests/unit/test_quarantine_followup.py -v` passes
+- [ ] `python3 scripts/quarantine_citations.py` passes
 - [ ] `python3 -m py_compile scripts/check_quarantine_age.py` passes
 - [ ] The workflow uses SHA-pinned actions and `actions/checkout` has `fetch-depth: 0`
