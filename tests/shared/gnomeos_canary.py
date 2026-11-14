@@ -8,7 +8,6 @@ import os
 from pathlib import Path
 import secrets
 import shlex
-import signal
 import subprocess
 import sys
 import time
@@ -34,34 +33,10 @@ def command(*args):
     return subprocess.run(args, check=True, capture_output=True, text=True, timeout=15).stdout.strip()
 
 
-ENTRY_TRACE = "entry-trace.txt"
-
-
-def _entry_trace(message, _start=time.monotonic()):
-    """Append one timed line to the entry child's trace (best effort)."""
-    try:
-        with open(RESULTS / ENTRY_TRACE, "a", encoding="utf-8") as trace:
-            trace.write(f"{time.monotonic() - _start:7.2f}s {message}\n")
-    except OSError:
-        pass
-
-
 def entry_window():
-    # When the window never maps, the probe sends SIGUSR1 and this dumps
-    # where the child is stuck (window_wait_diagnostics).
-    import faulthandler
-    import signal
-    try:
-        stack_file = open(RESULTS / ENTRY_TRACE, "a", encoding="utf-8")
-        faulthandler.register(signal.SIGUSR1, file=stack_file, all_threads=True)
-    except (OSError, ValueError, AttributeError):
-        pass
-    _entry_trace(f"start pid={os.getpid()} WAYLAND_DISPLAY={os.environ.get('WAYLAND_DISPLAY')!r} "
-                 f"GDK_BACKEND={os.environ.get('GDK_BACKEND')!r}")
     import gi
     gi.require_version("Gtk", "3.0")
     from gi.repository import Gtk
-    _entry_trace("Gtk imported")
     window = Gtk.Window(title=TITLE)
     entry = Gtk.Entry()
     entry.get_accessible().set_name(ENTRY_NAME)
@@ -71,7 +46,6 @@ def entry_window():
     window.show_all()
     entry.grab_focus()
     window.present()
-    _entry_trace("window shown")
     Gtk.main()
 
 
@@ -83,27 +57,8 @@ def window_wait_diagnostics(child, run=subprocess.run):
         except (OSError, subprocess.SubprocessError) as error:
             return f"error: {error}"
         return (done.stdout or done.stderr).strip()[:2000]
-    returncode = child.poll() if child is not None else None
-    entry_wchan = ""
-    pid = getattr(child, "pid", None)
-    if pid and returncode is None:
-        try:
-            entry_wchan = Path(f"/proc/{pid}/wchan").read_text(encoding="utf-8")
-        except OSError:
-            pass
-        try:
-            os.kill(pid, signal.SIGUSR1)  # faulthandler stack dump
-            time.sleep(1)
-        except OSError:
-            pass
-    try:
-        entry_trace = (RESULTS / ENTRY_TRACE).read_text(encoding="utf-8")[-4000:]
-    except OSError:
-        entry_trace = ""
     return {
-        "entry_child_returncode": returncode,
-        "entry_wchan": entry_wchan,
-        "entry_trace": entry_trace,
+        "entry_child_returncode": child.poll() if child is not None else None,
         "introspect_windows": call(
             "gdbus", "call", "--session", "--dest", "org.gnome.Shell.Introspect",
             "--object-path", "/org/gnome/Shell/Introspect",
@@ -245,32 +200,6 @@ def _focused(ponytail):
     return current is not None and bool(current.get("has-focus"))
 
 
-SHELL_STATE_JS = (
-    "JSON.stringify({startingUp: Main.layoutManager._startingUp, "
-    "overview: Main.overview.visible, modal: Main.modalCount, actionMode: Main.actionMode, "
-    "focus: global.display.focus_window ? global.display.focus_window.title : null, "
-    "keyFocus: global.stage.key_focus ? String(global.stage.key_focus) : null, "
-    "locked: Main.sessionMode.isLocked, mode: Main.sessionMode.currentMode})"
-)
-
-
-_REAL_POPEN = subprocess.Popen  # unit tests replace it; skip diagnostics then
-
-
-def shell_state():
-    """Diagnostic snapshot of the shell's focus and modal state (best effort)."""
-    if subprocess.Popen is not _REAL_POPEN:
-        return "skipped"
-    try:
-        done = subprocess.run(
-            ["gdbus", "call", "--session", "--dest", "org.gnome.Shell",
-             "--object-path", "/org/gnome/Shell", "--method", "org.gnome.Shell.Eval",
-             SHELL_STATE_JS], capture_output=True, text=True, timeout=10)
-        return (done.stdout or done.stderr).strip()[:600]
-    except Exception as error:  # noqa: BLE001 - diagnostics must never fail the probe
-        return f"error: {error}"
-
-
 def focus_by_click(ponytail, window, timeout=10, delay=0.5):
     """Give the connected window keyboard focus with real virtual input.
 
@@ -282,12 +211,10 @@ def focus_by_click(ponytail, window, timeout=10, delay=0.5):
     """
     if window.get("has-focus"):
         return "already"
-    states = [f"before-escape {shell_state()}"]
     ponytail.generateKeysymEvent(XK_ESCAPE)
     time.sleep(delay * 2)
     if _focused(ponytail):
         return "escape"
-    states.append(f"after-escape {shell_state()}")
     x, y = int(window["width"]) // 2, max(1, int(window["height"]) - 30)
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -295,9 +222,7 @@ def focus_by_click(ponytail, window, timeout=10, delay=0.5):
         time.sleep(delay)
         if _focused(ponytail):
             return "click"
-    states.append(f"after-clicks {shell_state()}")
-    raise AssertionError("Canary window never took keyboard focus after a virtual click; "
-                         + " | ".join(states))
+    raise AssertionError("Canary window never took keyboard focus after a virtual click")
 
 
 def launch_entry():

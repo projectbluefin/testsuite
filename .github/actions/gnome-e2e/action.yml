@@ -468,9 +468,13 @@ runs:
             || echo "::warning::could not mark the welcome dialog as shown for bluefin-test"
           # Restart GDM, as qecore-headless does in shared mode, so tests run in
           # a second login: accessibility on from shell start, first-login
-          # setup finished. In the first boot session Escape and virtual clicks
-          # never left the overview (run 43539744972); every green shared-mode
-          # canary ran after this restart.
+          # setup finished. In the first boot session the shell held a
+          # system-modal dialog with its "Skip" button focused (modal 2,
+          # actionMode SYSTEM_MODAL; diag run 43543636641): the canary's
+          # Escape closed that dialog instead of the overview, and the
+          # overview then hid the window from the virtual clicks. Restart plus
+          # settle passed (diag run 43543641291); a settle alone (43543638989)
+          # or the full gnome-session environment (43543643241) did not.
           $SSH "sudo systemctl stop gdm"
           DEADLINE=$((SECONDS + 60))
           while $SSH "sudo test -S /run/user/1001/wayland-0" 2>/dev/null; do
