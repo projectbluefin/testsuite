@@ -53,24 +53,80 @@ CANARY_COVERED_PATHS = frozenset({"scripts/extension_validation.py"})
 ACTION_LANE = "gnome-e2e-action"
 CANARY_SUITE = "gnomeos-canary"
 
+# Action-lane paths an extension-validation.yml run exercises (#1218): it
+# builds and stages a candidate (#909) and runs the action with
+# suite=extensions, so the staging code, the extension suite and its shared
+# helpers run there and nowhere else.
+EXTENSIONS_COVERED_PREFIXES = (
+    "tests/extensions/",
+    "tests/shared/extension_",
+    "tests/shared/gnome_extensions_",
+)
+EXTENSIONS_COVERED_PATHS = frozenset(
+    {
+        "scripts/build_extension_artifact.py",
+        "scripts/stage_extension.py",
+        "scripts/extension_validation.py",
+        ".github/workflows/extension-validation.yml",
+    }
+)
+
 
 def _canary_runs(path: str) -> bool:
     path = path.removeprefix("./")
     return path.startswith(CANARY_COVERED_PREFIX) or path in CANARY_COVERED_PATHS
 
 
+def _extensions_run(path: str) -> bool:
+    path = path.removeprefix("./")
+    return path.startswith(EXTENSIONS_COVERED_PREFIXES) or path in EXTENSIONS_COVERED_PATHS
+
+
+def _action_paths(plan: dict) -> list[str]:
+    return [path for path, lanes in plan.get("reasons", {}).items() if ACTION_LANE in lanes]
+
+
 def canary_covers(plan: dict) -> bool:
     """True when the canary runs every path that needs the composite-action lane."""
-    action_paths = [
-        path for path, lanes in plan.get("reasons", {}).items() if ACTION_LANE in lanes
-    ]
+    action_paths = _action_paths(plan)
     return bool(action_paths) and all(_canary_runs(path) for path in action_paths)
+
+
+def lanes_needed(
+    plan: dict,
+    canary_gaps: tuple[str, ...] = (),
+    extension_gaps: tuple[str, ...] | None = None,
+) -> tuple[bool, bool, bool]:
+    """(covered, run canary, run extension validation) for the action lane.
+
+    The canary covers the action and extension_validation.py; an
+    extension-validation run covers the staging code and the extension suite.
+    ``canary_gaps`` are changed action steps the canary skips;
+    ``extension_gaps`` the ones neither the canary nor an extension run
+    executes (``v1_gate_canary_scope.py --with-extensions``). Without
+    ``extension_gaps`` the extension run is never trusted with a step.
+    """
+    paths = _action_paths(plan)
+    if not paths:
+        return False, False, False
+    canary = any(_canary_runs(path) for path in paths)
+    extensions = any(_extensions_run(path) and not _canary_runs(path) for path in paths)
+    remaining = canary_gaps
+    if canary_gaps and extension_gaps is not None and len(extension_gaps) < len(canary_gaps):
+        # Steps only the extension suite runs are covered by running it.
+        extensions = True
+        remaining = extension_gaps
+    elif extensions and extension_gaps is not None:
+        remaining = extension_gaps
+    covered = all(_canary_runs(p) or _extensions_run(p) for p in paths) and not remaining
+    return covered, canary, extensions
 
 
 def decide(
     plan: dict,
     ungated: frozenset[str] = UNGATED_SUITES,
     canary_gaps: tuple[str, ...] = (),
+    extension_gaps: tuple[str, ...] | None = None,
 ) -> dict[str, str]:
     """Return the gate decision for one validation plan.
 
@@ -82,9 +138,12 @@ def decide(
     boot = [s for s in requested if s not in ungated]
     skipped = [s for s in requested if s in ungated]
     composite = set(plan.get("composite_action", []))
-    canary = bool(composite) and canary_covers(plan) and not canary_gaps
-    if canary:
+    covered, canary, extensions = lanes_needed(plan, canary_gaps, extension_gaps)
+    covered = covered and bool(composite)
+    if covered:
         composite = set()
+    else:
+        canary = extensions = False
     # The canary's own suite (tests/gnomeos-canary/) has no e2e.yml lane;
     # the canary workflow is that lane.
     unhosted = set(plan.get("no_hosted_lane", []))
@@ -94,6 +153,7 @@ def decide(
     # A PR plan (vm_validation_plan.py --pr) flags the canary itself.
     canary = canary or bool(plan.get("canary"))
     blockers = sorted(composite | unhosted)
+    gaps = extension_gaps if extensions and extension_gaps is not None else canary_gaps
 
     decision = {
         "action": "",
@@ -101,7 +161,16 @@ def decide(
         "ungated": ",".join(skipped),
         "reason": "",
         "canary": "true" if canary and not blockers else "false",
+        "extensions": "true" if extensions and not blockers else "false",
     }
+    runs = [
+        name
+        for name, needed in (
+            ("the GNOME OS desktop canary", canary),
+            ("extension validation", extensions),
+        )
+        if needed
+    ]
     if blockers:
         decision["action"] = "hold"
         decision["suites"] = ""
@@ -109,16 +178,15 @@ def decide(
             f"the change needs lanes e2e.yml cannot boot ({', '.join(blockers)}); "
             "validate them by hand, then run this workflow with force"
         )
-        if canary_gaps:
+        if gaps:
             decision["reason"] += (
-                "; the GNOME OS canary skips these changed action steps: "
-                + ", ".join(canary_gaps)
+                "; no GNOME OS run the gate makes executes these changed action steps: "
+                + ", ".join(gaps)
             )
-    elif canary and not boot:
+    elif runs and not boot:
         decision["action"] = "canary"
         decision["reason"] = (
-            "the gnome-e2e composite action changed; run the GNOME OS desktop "
-            "canary before moving v1"
+            "the gnome-e2e action lane changed; run " + " and ".join(runs) + " before moving v1"
         )
         if skipped:
             decision["reason"] += f"; not gated: {', '.join(skipped)} (#706)"
@@ -134,8 +202,8 @@ def decide(
     else:
         decision["action"] = "gate"
         decision["reason"] = f"boot {', '.join(boot)} before moving v1"
-        if canary:
-            decision["reason"] += " and run the GNOME OS desktop canary"
+        if runs:
+            decision["reason"] += " and run " + " and ".join(runs)
         if skipped:
             decision["reason"] += f"; not gated: {', '.join(skipped)} (#706)"
     return decision
@@ -146,7 +214,12 @@ def main(argv: list[str]) -> int:
     # One step per line or comma, from scripts/v1_gate_canary_scope.py.
     raw = os.environ.get("V1_GATE_CANARY_GAPS", "")
     gaps = tuple(g.strip() for g in raw.replace(",", "\n").splitlines() if g.strip())
-    for key, value in decide(plan, canary_gaps=gaps).items():
+    # Unset (an older caller) means the extension run covers no action step.
+    ext_raw = os.environ.get("V1_GATE_EXTENSION_GAPS")
+    ext_gaps = None
+    if ext_raw is not None:
+        ext_gaps = tuple(g.strip() for g in ext_raw.replace(",", "\n").splitlines() if g.strip())
+    for key, value in decide(plan, canary_gaps=gaps, extension_gaps=ext_gaps).items():
         print(f"{key}={value}")
     return 0
 

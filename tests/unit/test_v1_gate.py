@@ -147,3 +147,101 @@ def test_cli_prints_github_output_lines():
     assert "suites=common" in out
     assert "canary=false" in out
     assert all("=" in line for line in out)
+
+
+# ---------------------------------------------------------------------------
+# Extension-staging changes run extension-validation.yml (#1218)
+# ---------------------------------------------------------------------------
+
+EXTENSION_PATHS = [
+    "scripts/stage_extension.py",
+    "scripts/build_extension_artifact.py",
+    ".github/workflows/extension-validation.yml",
+    "tests/extensions/features/steps/lifecycle_steps.py",
+    "tests/shared/gnome_extensions_artifacts.py",
+]
+
+
+def test_extension_staging_change_runs_extension_validation_not_a_hold():
+    for path in EXTENSION_PATHS:
+        d = decide(plan([path]), extension_gaps=())
+        assert d["action"] == "canary", path
+        assert d["extensions"] == "true", path
+        assert d["canary"] == "false", path
+        assert "extension validation" in d["reason"], path
+
+
+def test_extension_and_action_change_run_both():
+    d = decide(
+        plan([".github/actions/gnome-e2e/action.yml", "scripts/stage_extension.py"]),
+        extension_gaps=(),
+    )
+    assert d["action"] == "canary"
+    assert d["canary"] == "true"
+    assert d["extensions"] == "true"
+
+
+def test_action_steps_only_the_extension_suite_runs_are_covered_by_it():
+    # The canary skips an extensions-only step; an extension run executes it.
+    d = decide(
+        plan([".github/actions/gnome-e2e/action.yml"]),
+        canary_gaps=("Stage the extension candidate",),
+        extension_gaps=(),
+    )
+    assert d["action"] == "canary"
+    assert d["canary"] == "true"
+    assert d["extensions"] == "true"
+
+
+def test_steps_neither_run_executes_still_hold():
+    d = decide(
+        plan([".github/actions/gnome-e2e/action.yml"]),
+        canary_gaps=("Mandatory-coverage gate",),
+        extension_gaps=("Mandatory-coverage gate",),
+    )
+    assert d["action"] == "hold"
+    assert d["extensions"] == "false"
+    assert "Mandatory-coverage gate" in d["reason"]
+
+
+def test_without_extension_gaps_the_extension_run_covers_no_action_step():
+    # An older caller that never computed --with-extensions keeps the hold.
+    d = decide(
+        plan([".github/actions/gnome-e2e/action.yml"]),
+        canary_gaps=("Stage the extension candidate",),
+    )
+    assert d["action"] == "hold"
+
+
+def test_no_extension_run_without_an_extension_change():
+    d = decide(plan([".github/actions/gnome-e2e/action.yml"]), extension_gaps=())
+    assert d["extensions"] == "false"
+    d = decide(plan(["tests/smoke/features/x.feature"]), extension_gaps=())
+    assert d["extensions"] == "false"
+    assert d["canary"] == "false"
+
+
+def test_extension_change_with_a_suite_change_gates_and_validates():
+    d = decide(plan(["scripts/stage_extension.py", "tests/smoke/features/x.feature"]), extension_gaps=())
+    assert d["action"] == "gate"
+    assert d["suites"] == "smoke"
+    assert d["extensions"] == "true"
+
+
+def test_cli_reads_extension_gaps_from_the_environment():
+    plan_json = json.dumps(plan([".github/actions/gnome-e2e/action.yml"]))
+    result = subprocess.run(
+        [sys.executable, str(REPO_ROOT / "scripts/v1_gate.py")],
+        input=plan_json,
+        capture_output=True,
+        text=True,
+        check=True,
+        env={
+            "V1_GATE_CANARY_GAPS": "Stage the extension candidate",
+            "V1_GATE_EXTENSION_GAPS": "",
+            "PATH": "/usr/bin:/bin",
+        },
+    )
+    lines = result.stdout.splitlines()
+    assert "action=canary" in lines
+    assert "extensions=true" in lines

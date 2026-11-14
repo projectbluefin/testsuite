@@ -192,3 +192,42 @@ def test_passed_gate_waits_for_a_passing_canary(tmp_path):
         CANARY_RESULT="success",
     )
     assert _moved(calls)
+
+
+def test_passed_extension_validation_moves_v1(tmp_path):
+    calls = _run(
+        tmp_path,
+        ACTION="canary",
+        CANARY="false",
+        CANARY_RESULT="skipped",
+        EXTENSIONS="true",
+        EXTENSIONS_RESULT="success",
+    )
+    assert _moved(calls)
+    assert "Extension validation passed" in (tmp_path / "summary.md").read_text()
+
+
+def test_failed_extension_validation_holds_v1(tmp_path):
+    calls = _run(
+        tmp_path,
+        ACTION="canary",
+        CANARY="true",
+        CANARY_RESULT="success",
+        EXTENSIONS="true",
+        EXTENSIONS_RESULT="failure",
+    )
+    assert not _moved(calls)
+    assert any(c.startswith("gh issue create") for c in calls)
+
+
+def test_extensions_job_calls_the_validation_workflow_with_the_merge_commit():
+    workflow = yaml.safe_load(WORKFLOW.read_text())
+    job = workflow["jobs"]["extensions"]
+    assert job["uses"] == "./.github/workflows/extension-validation.yml"
+    assert job["if"] == "needs.plan.outputs.extensions == 'true'"
+    assert job["with"]["test_ref"] == "${{ needs.plan.outputs.sha }}"
+    assert "extensions" in workflow["jobs"]["publish"]["needs"]
+    called = yaml.safe_load((REPO_ROOT / ".github/workflows/extension-validation.yml").read_text())
+    triggers = called[True] if True in called else called["on"]
+    assert "workflow_call" in triggers
+    assert set(triggers["workflow_call"]["inputs"]) >= {"profile", "test_ref"}
