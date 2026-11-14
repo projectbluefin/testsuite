@@ -1,0 +1,103 @@
+name: GNOME OS extension validation
+
+# Manual only (#909). Packs one hive extension from the revision its canonical
+# contract pins, offline in the GNOME OS devel image the harness was built
+# from, then boots a fresh GNOME OS guest with that exact ZIP staged before the
+# desktop starts and runs the extension's own Behave scenarios. Each run tests
+# one extension in its own guest. No secrets are used by any step.
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: "Extension to validate (key in tests/extensions/collection.json)."
+        type: choice
+        options:
+          - just-perfection
+        default: just-perfection
+      test_ref:
+        description: "Commit SHA or ref to test, for example a pull request head; empty means the dispatched commit."
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    # Same runner pin as the GNOME OS canary (#1123).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - name: Checkout
+        id: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.test_ref || github.sha }}
+          persist-credentials: false
+
+      - name: Free disk space
+        uses: projectbluefin/actions/bootc-build/setup-runner@d1f65645c53d413462117fe1f05d00b9d9382f89 # v1
+        with:
+          update-podman: "false"
+          apt-packages: skopeo
+
+      - name: Build native harness over pinned official GNOME OS
+        run: |
+          sudo bash scripts/build-gnomeos-harness.sh results
+          sudo chown -R "$(id -u):$(id -g)" results
+
+      # The devel image the harness was just built from, so the extension is
+      # packed by the same GNOME OS build it is tested on. --network=none and
+      # only the source tree mounted: the recipe reaches nothing else.
+      - name: Pack the extension from its pinned revision
+        id: build
+        env:
+          PROFILE: ${{ inputs.profile }}
+        run: |
+          BUILDER=$(python3 -c 'import json; print(json.load(open("results/harness-provenance.json"))["builder_image"])')
+          sudo --preserve-env=GITHUB_OUTPUT python3 scripts/build_extension_artifact.py \
+            "${PROFILE}" extension-artifact --builder-image "${BUILDER}"
+          sudo chown -R "$(id -u):$(id -g)" extension-artifact
+          cp extension-artifact/build-provenance.json results/extension-build-provenance.json
+
+      - name: Boot GNOME OS with the extension staged and run its scenarios
+        uses: ./.github/actions/gnome-e2e
+        with:
+          image: localhost/gnomeos-harness:canary
+          suite: extensions
+          testsuite-ref: ${{ steps.checkout.outputs.commit }}
+          free-disk-space: 'false'
+          extension-zip: ${{ steps.build.outputs.zip }}
+          extension-sha256: ${{ steps.build.outputs.sha256 }}
+
+      - name: Collect guest journal and stop VM
+        if: always()
+        run: |
+          mkdir -p results
+          GUEST_USER="${GNOME_E2E_SSH_USER:-gnome-e2e-harness}"
+          if [[ -f /tmp/gnome_e2e_key ]]; then
+            ssh -i /tmp/gnome_e2e_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              -o BatchMode=yes -o ConnectTimeout=5 -p 2222 "${GUEST_USER}@127.0.0.1" \
+              'sudo journalctl -b --no-pager' > results/guest-journal.txt 2>&1 || true
+            ssh -i /tmp/gnome_e2e_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              -o BatchMode=yes -o ConnectTimeout=5 -p 2222 "${GUEST_USER}@127.0.0.1" \
+              'cat /opt/gnomeos-harness/packages.txt' > results/harness-packages.txt 2>&1 || true
+          fi
+          if [[ -f /tmp/gnome_e2e_qemu.pid ]]; then
+            sudo kill "$(sudo cat /tmp/gnome_e2e_qemu.pid)" || true
+          fi
+          sudo chown -R "$(id -u):$(id -g)" results
+
+      - name: Retain provenance, staging and scenario evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: extension-validation-${{ inputs.profile }}
+          path: |
+            results/
+            extension-artifact/
+            session-isolation.json
+            bootc-install.log
+            vm-serial.log
+          if-no-files-found: error

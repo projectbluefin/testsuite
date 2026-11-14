@@ -65,7 +65,6 @@ HOSTED_SUITES = frozenset(
         "lifecycle",
         "installer",
         "kde-smoke",
-        "extensions",
     }
 )
 
@@ -99,8 +98,10 @@ RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("scripts/vm_validation_plan.py", ()),
     # Shared helpers: route by the path that imports them.
     ("tests/shared/kde_*", ("kde-smoke",)),
-    ("tests/shared/extension_*", ("extensions",)),
-    ("tests/shared/gnome_extensions_*", ("extensions",)),
+    # The extensions suite refuses to run outside a disposable GNOME OS guest
+    # (-D disposable_guest=true), so only the gnome-e2e action can boot it.
+    ("tests/shared/extension_*", (ACTION,)),
+    ("tests/shared/gnome_extensions_*", (ACTION,)),
     ("tests/shared/ssh_*", (SSH, LIFECYCLE)),
     ("tests/shared/*", (GUI, SSH)),
     # Runner images and the composed e2e overlay.
@@ -120,6 +121,11 @@ RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("scripts/assert_passed.py", ("kde-smoke", GUI, ACTION)),
     # Run only inside the gnome-e2e composite action, never by e2e.yml.
     ("scripts/extension_validation.py", (ACTION,)),
+    # Candidate build and staging (#909): only the action's extensions branch
+    # runs them, and only extension-validation.yml calls the action that way.
+    ("scripts/build_extension_artifact.py", (ACTION,)),
+    ("scripts/stage_extension.py", (ACTION,)),
+    (".github/workflows/extension-validation.yml", (ACTION,)),
     ("scripts/*", (GUI, SSH)),
     ("flatpak-app-list.txt", (GUI, SSH)),
 )
@@ -136,7 +142,9 @@ def suites_for_path(path: str) -> tuple[str, ...]:
         and parts[1] not in ("shared", "unit")
         and not path.endswith(".md")
     ):
-        return (parts[1],)
+        # The extensions suite runs only in the gnome-e2e action's disposable
+        # guest; e2e.yml cannot boot it.
+        return (ACTION,) if parts[1] == "extensions" else (parts[1],)
     for pattern, suites in RULES:
         if fnmatch.fnmatchcase(path, pattern):
             return suites

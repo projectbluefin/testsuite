@@ -140,6 +140,7 @@ Set `image` (e.g. `ghcr.io/projectbluefin/dakota:latest`), `suites: lifecycle`, 
 | `@smoke_suite` | Runs as part of the standard smoke suite |
 | `@bluefin` | Scenario runs on Bluefin-family image names (`bluefin`, `bazzite`, `utah`, `common`); smoke and common read `BASE_IMAGE` before `IMAGE`, so composed runs keep their family |
 | `@dakota_only` | Scenario runs only when the image name contains `dakota`; smoke and common read `BASE_IMAGE` before `IMAGE`. Only the image **name** is matched, so the `projectbluefin` org name cannot false-positive |
+| `@skip_utah` | Common scenario skips when the image name contains `utah`: it asserts content Bluefin's common pin still ships but Utah's newer pin does not. Remove it when the scenario is replaced (#1076) |
 | `@dx_only` / `@developer_suite` | DX variant only |
 | `@nvidia_only` | NVIDIA variant only |
 | `@flatcar_suite` | Flatcar OS only |
@@ -162,7 +163,7 @@ Set `image` (e.g. `ghcr.io/projectbluefin/dakota:latest`), `suites: lifecycle`, 
 
 <!-- coverage-snapshot:start -->
 
-555 scenarios across 82 feature files: 434 active, 6 quarantined, 115 `@future`/`@pending`/`@hardware_blocked`
+555 scenarios across 82 feature files: 440 active, 0 quarantined, 115 `@future`/`@pending`/`@hardware_blocked`
 
 | Suite | Scenarios | Active | Quarantined | Pending/Future | Notes |
 |---|---|---|---|---|---|
@@ -179,7 +180,7 @@ Set `image` (e.g. `ghcr.io/projectbluefin/dakota:latest`), `suites: lifecycle`, 
 | lifecycle | 24 | 22 | 0 | 2 | bootc upgrade / rollback / migration; switch is `@future` (needs a valid alternate image ref; pin activated with settled-deployment barrier) |
 | nvidia | 12 | 0 | 0 | 12 | `@future` / `@hardware_blocked` until GPU passthrough exists in the lab |
 | security | 7 | 7 | 0 | 0 | cosign verify: projectbluefin (bluefin, lts, dakota) + ublue-os (latest, LTS, DX, nvidia, GTS, DX-nvidia, negative) |
-| smoke | 222 | 170 | 6 | 46 | 39 `@pending` flatpak-permission audits blocked on CI never seeding system Flatpaks; MIME handler coverage (Firefox/Papers/Loupe/Text Editor/video); GNOME accessibility (AT-SPI daemon, high-contrast toggle, a11y panel); display fractional/integer scaling via Mutter DisplayConfig; Bluefin desktop identity (Wayland, hardware accel, Dash to Dock); GNOME regression guards in gnome_regression.feature; Dakota sudo-rs privilege and PAM checks |
+| smoke | 222 | 176 | 0 | 46 | 39 `@pending` flatpak-permission audits blocked on CI never seeding system Flatpaks; MIME handler coverage (Firefox/Papers/Loupe/Text Editor/video); GNOME accessibility (AT-SPI daemon, high-contrast toggle, a11y panel); display fractional/integer scaling via Mutter DisplayConfig; Bluefin desktop identity (Wayland, hardware accel, Dash to Dock); GNOME regression guards in gnome_regression.feature; Dakota sudo-rs privilege and PAM checks |
 | software | 35 | 27 | 0 | 8 | Bazaar GUI (`@bazaar_ui`: launch, view content per tab, typed search with a visible result, Ctrl+Q quit) + CLI presence/info/remote + config YAML parse (non-empty mappings; empty dir fails) active on images that carry Bazaar; CLI (Flathub remote + permissions DB) active on all images; Flatpak per-app permission management active on all images; FlatPark remote + Compass (`org.tunaos.compass`) system install/permission/export/uninstall lifecycle active (x86_64 only) and the shipped `compass@tunaos.org` default gated on the image enabling it (#1073); upstream GNOME Software scenarios are `@future` (#847) |
 | vanilla-gnome | 15 | 15 | 0 | 0 | Baseline GNOME Shell parity check; runs on any GNOME image; org.gnome.desktop.a11y.interface reduced-motion + keyboard-focus-visible-timeout gsettings round-trips (@requires_gnome_51, skip on GNOME <= 50 via runtime Shell version probe) |
 
