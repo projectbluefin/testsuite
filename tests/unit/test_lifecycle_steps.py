@@ -794,3 +794,29 @@ class TestDigestVerification:
         with pytest.raises(AssertionError, match="Active digest"):
             getattr(self.mod, check)(context)
         context.scenario.skip.assert_not_called()
+
+
+class TestOsReleaseBluefinIdentity:
+    """dakota is Bluefin on GNOME OS (ID=bluefin-dakota, ID_LIKE=org.gnome.os);
+    the step used to require a Fedora ID and failed it (run 43526626625)."""
+
+    DAKOTA = (
+        'NAME="Bluefin"\nID=bluefin-dakota\nID_LIKE=org.gnome.os\n'
+        'PRETTY_NAME="Bluefin (Dakotaraptor)"\nVARIANT_ID=bluefin\n'
+    )
+    UTAH = 'NAME="Bluefin"\nID=bluefin\nID_LIKE=fedora\nVARIANT_ID=bluefin\nPRETTY_NAME="Bluefin"\n'
+    UBUNTU = 'NAME="Ubuntu"\nID=ubuntu\nID_LIKE=debian\nPRETTY_NAME="Ubuntu 24.04"\n'
+
+    def setup_method(self):
+        self.mod = _import_lifecycle_steps()
+
+    def _check(self, text):
+        self.mod.os_release_reports_bluefin_identity(types.SimpleNamespace(command_stdout=text))
+
+    def test_dakota_and_utah_pass(self):
+        self._check(self.DAKOTA)
+        self._check(self.UTAH)
+
+    def test_non_bluefin_fails(self):
+        with pytest.raises(AssertionError, match="Bluefin os-release identity"):
+            self._check(self.UBUNTU)

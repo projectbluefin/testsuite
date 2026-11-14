@@ -438,13 +438,20 @@ def os_release_version_is_tracked_across_upgrade(context):
         )
 
 
-@step("os-release reports Fedora Bluefin identity")
-def os_release_reports_fedora_bluefin_identity(context):
+@step("os-release reports Bluefin identity")
+def os_release_reports_bluefin_identity(context):
+    """Bluefin images: Fedora-based (ID=fedora/bluefin, ID_LIKE=fedora) or the
+    GNOME OS-based dakota (ID=bluefin-dakota, ID_LIKE=org.gnome.os)."""
     data = _parse_os_release(getattr(context, "command_stdout", ""))
     id_val = data.get("ID", "")
     id_like = data.get("ID_LIKE", "")
-    assert id_val in ("fedora", "bluefin") or "fedora" in id_like, (
-        f"Expected ID=fedora or ID=bluefin (with ID_LIKE=fedora) in /etc/os-release, got: {data}"
+    assert (
+        id_val in ("fedora", "bluefin")
+        or id_val.startswith("bluefin-")
+        or "fedora" in id_like
+    ), (
+        "Expected a Bluefin os-release identity (ID=fedora, ID=bluefin or "
+        f"ID=bluefin-<flavour>, or ID_LIKE containing fedora), got: {data}"
     )
     variant_id = data.get("VARIANT_ID")
     pretty_name = data.get("PRETTY_NAME", "")
