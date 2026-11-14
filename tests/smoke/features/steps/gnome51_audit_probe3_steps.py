@@ -64,6 +64,21 @@ def _desc_count(node, limit=400) -> int:
     return seen
 
 
+@step("Record GNOME 51 audit probe 3 qecore version")
+@_guarded("qecore")
+def probe_qecore(context) -> None:
+    from importlib import metadata
+
+    versions = {}
+    for pkg in ("qecore", "dogtail", "behave"):
+        try:
+            versions[pkg] = metadata.version(pkg)
+        except Exception as exc:  # noqa: BLE001
+            versions[pkg] = repr(exc)
+    shell = _shell_eval("Config.PACKAGE_VERSION").strip()
+    _emit("qecore", versions=versions, shell=shell)
+
+
 @step("Record GNOME 51 audit probe 3 rows 4 and 6 application toplevels")
 @_guarded("4+6")
 def probe_rows_4_6(context) -> None:

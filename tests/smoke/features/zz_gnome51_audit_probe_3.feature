@@ -7,6 +7,7 @@ Feature: GNOME 51 audit probe 3 (#827, temporary)
   @gnome51_audit_probe
   Scenario: Record GNOME 51 audit probe 3 app readings
     * GNOME Shell is accessible via AT-SPI
+    * Record GNOME 51 audit probe 3 qecore version
     * Launch Files via command
     * Launch Calculator via command
     * Launch Text Editor via command
