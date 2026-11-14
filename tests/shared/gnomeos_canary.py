@@ -245,6 +245,32 @@ def _focused(ponytail):
     return current is not None and bool(current.get("has-focus"))
 
 
+SHELL_STATE_JS = (
+    "JSON.stringify({startingUp: Main.layoutManager._startingUp, "
+    "overview: Main.overview.visible, modal: Main.modalCount, actionMode: Main.actionMode, "
+    "focus: global.display.focus_window ? global.display.focus_window.title : null, "
+    "keyFocus: global.stage.key_focus ? String(global.stage.key_focus) : null, "
+    "locked: Main.sessionMode.isLocked, mode: Main.sessionMode.currentMode})"
+)
+
+
+_REAL_POPEN = subprocess.Popen  # unit tests replace it; skip diagnostics then
+
+
+def shell_state():
+    """Diagnostic snapshot of the shell's focus and modal state (best effort)."""
+    if subprocess.Popen is not _REAL_POPEN:
+        return "skipped"
+    try:
+        done = subprocess.run(
+            ["gdbus", "call", "--session", "--dest", "org.gnome.Shell",
+             "--object-path", "/org/gnome/Shell", "--method", "org.gnome.Shell.Eval",
+             SHELL_STATE_JS], capture_output=True, text=True, timeout=10)
+        return (done.stdout or done.stderr).strip()[:600]
+    except Exception as error:  # noqa: BLE001 - diagnostics must never fail the probe
+        return f"error: {error}"
+
+
 def focus_by_click(ponytail, window, timeout=10, delay=0.5):
     """Give the connected window keyboard focus with real virtual input.
 
@@ -256,10 +282,12 @@ def focus_by_click(ponytail, window, timeout=10, delay=0.5):
     """
     if window.get("has-focus"):
         return "already"
+    states = [f"before-escape {shell_state()}"]
     ponytail.generateKeysymEvent(XK_ESCAPE)
     time.sleep(delay * 2)
     if _focused(ponytail):
         return "escape"
+    states.append(f"after-escape {shell_state()}")
     x, y = int(window["width"]) // 2, max(1, int(window["height"]) - 30)
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -267,7 +295,9 @@ def focus_by_click(ponytail, window, timeout=10, delay=0.5):
         time.sleep(delay)
         if _focused(ponytail):
             return "click"
-    raise AssertionError("Canary window never took keyboard focus after a virtual click")
+    states.append(f"after-clicks {shell_state()}")
+    raise AssertionError("Canary window never took keyboard focus after a virtual click; "
+                         + " | ".join(states))
 
 
 def launch_entry():
