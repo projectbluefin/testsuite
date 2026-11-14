@@ -120,6 +120,10 @@ RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("scripts/assert_passed.py", ("kde-smoke", GUI, ACTION)),
     # Run only inside the gnome-e2e composite action, never by e2e.yml.
     ("scripts/extension_validation.py", (ACTION,)),
+    # Candidate staging (#909): only the action's extensions branch runs it,
+    # and only the dispatch-only extension workflow calls the action with it.
+    ("scripts/extension_candidates.py", (ACTION,)),
+    (".github/workflows/gnomeos-extensions.yml", (ACTION,)),
     ("scripts/*", (GUI, SSH)),
     ("flatpak-app-list.txt", (GUI, SSH)),
 )

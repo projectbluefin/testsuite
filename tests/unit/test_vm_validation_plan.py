@@ -90,7 +90,12 @@ def test_reusable_workflow_change_requires_full_representative_set():
 
 @pytest.mark.parametrize(
     "path",
-    [".github/actions/gnome-e2e/action.yml", "scripts/extension_validation.py"],
+    [
+        ".github/actions/gnome-e2e/action.yml",
+        "scripts/extension_validation.py",
+        "scripts/extension_candidates.py",
+        ".github/workflows/gnomeos-extensions.yml",
+    ],
 )
 def test_composite_action_code_maps_to_action_pseudo_lane(path):
     assert suites_for_path(path) == (ACTION,)

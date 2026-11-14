@@ -74,13 +74,51 @@ def is_extension_validation_pass(counts: dict[str, int]) -> bool:
     return counts.get("passed", 0) > 0 and not _non_success_counts(counts)
 
 
-def gate_report(results_json: Path) -> dict[str, Any]:
+def _tags(item: dict[str, Any]) -> set[str]:
+    return {str(tag).lstrip("@") for tag in item.get("tags") or []}
+
+
+def required_tag_problems(
+    report: list[dict[str, Any]], required_tags: tuple[str, ...]
+) -> list[str]:
+    """Mandatory-inventory check for the staged extensions (#909 step 5).
+
+    Every scenario carrying a required tag, on itself or on its feature, must
+    have passed, and each required tag must select at least one scenario. A
+    staged extension whose scenarios were skipped, filtered out or never
+    reached therefore fails the run instead of hiding behind another pass.
+    """
+    problems = []
+    for tag in required_tags:
+        selected = 0
+        for feature in report:
+            feature_tags = _tags(feature)
+            for element in feature.get("elements") or []:
+                if element.get("type") != "scenario":
+                    continue
+                if tag not in feature_tags | _tags(element):
+                    continue
+                selected += 1
+                if element.get("status") != "passed":
+                    problems.append(
+                        f"@{tag} scenario {element.get('name', '?')!r} is "
+                        f"{element.get('status') or 'missing a status'}"
+                    )
+        if not selected:
+            problems.append(f"no scenario carries the required tag @{tag}")
+    return problems
+
+
+def gate_report(
+    results_json: Path, required_tags: tuple[str, ...] = ()
+) -> dict[str, Any]:
     """Evaluate the gate for a ``results.json`` and return a readable report.
 
     Returns ``{"passed": bool, "counts": {...}, "reason": str}``. A missing,
     unreadable, or malformed results file fails the gate (``passed: False``) —
     a missing-result or failed-boot run cannot pass the mandatory service gate,
     and it must still report that verdict as JSON rather than traceback.
+    ``required_tags`` adds :func:`required_tag_problems` to the verdict.
     """
     if not results_json.is_file():
         return {
@@ -120,7 +158,11 @@ def gate_report(results_json: Path) -> dict[str, Any]:
         }
     passed = is_extension_validation_pass(counts)
     non_success = _non_success_counts(counts)
-    if passed:
+    tag_problems = required_tag_problems(report, required_tags)
+    if passed and tag_problems:
+        passed = False
+        reason = "required scenarios did not all pass: " + "; ".join(tag_problems)
+    elif passed:
         reason = ""
     elif non_success:
         # Checked before the passed == 0 branch so a hook-error / failed-boot run
@@ -147,8 +189,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "results_json", type=Path, help="path to behave results.json"
     )
+    parser.add_argument(
+        "--require-tag", action="append", default=[], metavar="TAG",
+        help="every scenario with this tag must pass (repeatable)",
+    )
     args = parser.parse_args(argv)
-    report = gate_report(args.results_json)
+    report = gate_report(args.results_json, tuple(args.require_tag))
     print(json.dumps(report))
     return 0 if report["passed"] else 1
 

@@ -1,0 +1,215 @@
+name: GNOME OS extension validation
+
+# Dispatch-only (#908, #909). Builds one hive extension from the source
+# revision pinned in tests/shared/gnome_extensions_artifacts.py with that
+# repository's own packaging recipe, then stages the ZIP into an isolated
+# GNOME OS guest before GNOME Shell starts and runs the profile's scenarios.
+# Network widgets are not offered yet: their HTTPS fixtures do not exist.
+on:
+  workflow_dispatch:
+    inputs:
+      extension:
+        description: "Collection profile in tests/extensions/collection.json."
+        type: choice
+        options:
+          - just-perfection
+        default: just-perfection
+      test_ref:
+        description: "Commit SHA or ref to test; empty means the dispatched commit."
+        type: string
+        required: false
+        default: ""
+  # TEMPORARY, draft only: GitHub dispatches a workflow only once it is on the
+  # default branch, so this proves it from its own branch. Remove before the
+  # pull request leaves draft.
+  push:
+    branches:
+      - feat/908-extension-staging
+    paths:
+      - .github/workflows/gnomeos-extensions.yml
+      - .github/actions/gnome-e2e/action.yml
+      - scripts/extension_candidates.py
+      - scripts/extension_validation.py
+
+permissions:
+  contents: read
+
+# Explicit bash adds pipefail, so a failed plan or validation is not hidden by tee.
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  package:
+    name: Package candidate
+    # Same runner as the validation job; see gnomeos-canary.yml for why 24.04.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.test_ref || github.sha }}
+          persist-credentials: false
+
+      - name: Resolve pinned source
+        id: plan
+        env:
+          PROFILE: ${{ inputs.extension || 'just-perfection' }}
+        run: python3 scripts/extension_candidates.py plan "${PROFILE}" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Checkout candidate source at the pinned revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ steps.plan.outputs.repository }}
+          ref: ${{ steps.plan.outputs.revision }}
+          path: candidate-src
+          persist-credentials: false
+
+      - name: Verify candidate revision
+        env:
+          REVISION: ${{ steps.plan.outputs.revision }}
+        run: |
+          HEAD_SHA=$(git -C candidate-src rev-parse HEAD)
+          if [[ "${HEAD_SHA}" != "${REVISION}" ]]; then
+            echo "::error::candidate checkout is ${HEAD_SHA}, contract pins ${REVISION}"
+            exit 1
+          fi
+
+      - name: Free disk space
+        uses: projectbluefin/actions/bootc-build/setup-runner@d1f65645c53d413462117fe1f05d00b9d9382f89 # v1
+        with:
+          update-podman: "false"
+          apt-packages: skopeo
+
+      - name: Resolve and pull the GNOME OS builder
+        id: builder
+        run: |
+          REGISTRY=quay.io/gnome_infrastructure/gnome-build-meta
+          DIGEST=$(skopeo inspect --override-arch amd64 "docker://${REGISTRY}:gnomeos-devel-nightly" \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["Digest"])')
+          [[ "${DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          echo "image=${REGISTRY}@${DIGEST}" >> "$GITHUB_OUTPUT"
+          sudo podman pull --arch amd64 "${REGISTRY}@${DIGEST}"
+
+      # The recipe is the candidate's own (collection.json package_command),
+      # run offline in the GNOME OS development image. Two builds from
+      # separate copies, seconds apart, show whether its ZIP is reproducible.
+      - name: Build the candidate twice, offline
+        env:
+          BUILDER: ${{ steps.builder.outputs.image }}
+          PACKAGE_COMMAND: ${{ steps.plan.outputs.package_command }}
+          UUID: ${{ steps.plan.outputs.uuid }}
+        run: |
+          for build in 1 2; do
+            cp -r candidate-src "build-${build}"
+            rm -rf "build-${build}/.git"
+            sudo podman run --rm --network=none -v "$(pwd)/build-${build}:/src" -w /src \
+              --entrypoint bash "${BUILDER}" -c "${PACKAGE_COMMAND}"
+            sudo chown -R "$(id -u):$(id -g)" "build-${build}"
+            test -f "build-${build}/${UUID}.shell-extension.zip"
+            sleep 3
+          done
+          mkdir -p extension-candidate
+          python3 scripts/extension_candidates.py compare \
+            "build-1/${UUID}.shell-extension.zip" "build-2/${UUID}.shell-extension.zip" \
+            | tee reproducibility.json
+          cp "build-1/${UUID}.shell-extension.zip" extension-candidate/
+
+      - name: Validate against the canonical contract
+        env:
+          BUILDER: ${{ steps.builder.outputs.image }}
+          PROFILE: ${{ steps.plan.outputs.profile }}
+          REPOSITORY: ${{ steps.plan.outputs.repository }}
+          REVISION: ${{ steps.plan.outputs.revision }}
+          PACKAGE_COMMAND: ${{ steps.plan.outputs.package_command }}
+        run: |
+          python3 scripts/extension_candidates.py validate extension-candidate/*.zip | tee validation.json
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          Path("extension-candidate/build-provenance.json").write_text(json.dumps({
+              "profile": os.environ["PROFILE"],
+              "source_repo": os.environ["REPOSITORY"],
+              "source_rev": os.environ["REVISION"],
+              "package_command": os.environ["PACKAGE_COMMAND"],
+              "builder_image": os.environ["BUILDER"],
+              "network": "none",
+              "reproducibility": json.loads(Path("reproducibility.json").read_text()),
+              "validation": json.loads(Path("validation.json").read_text()),
+          }, indent=2) + "\n")
+          PY
+          cat extension-candidate/build-provenance.json
+
+      - name: Hand the candidate to the validation job
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: extension-candidate
+          path: extension-candidate/
+          if-no-files-found: error
+
+  validate:
+    name: Validate on GNOME OS
+    needs: package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        id: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.test_ref || github.sha }}
+          persist-credentials: false
+
+      - name: Free disk space
+        uses: projectbluefin/actions/bootc-build/setup-runner@d1f65645c53d413462117fe1f05d00b9d9382f89 # v1
+        with:
+          update-podman: "false"
+          apt-packages: skopeo
+
+      - name: Build native harness over pinned official GNOME OS
+        run: |
+          sudo bash scripts/build-gnomeos-harness.sh results
+          sudo chown -R "$(id -u):$(id -g)" results
+
+      - name: Fetch the packaged candidate
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: extension-candidate
+          path: extension-candidate
+
+      - name: Boot GNOME OS with the candidate staged and run its scenarios
+        uses: ./.github/actions/gnome-e2e
+        with:
+          image: localhost/gnomeos-harness:canary
+          suite: extensions
+          testsuite-ref: ${{ steps.checkout.outputs.commit }}
+          free-disk-space: 'false'
+          extension-artifacts: extension-candidate
+
+      - name: Collect guest journal and stop VM
+        if: always()
+        run: |
+          mkdir -p results
+          if [[ -f /tmp/gnome_e2e_key ]]; then
+            ssh -i /tmp/gnome_e2e_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              -o BatchMode=yes -o ConnectTimeout=5 -p 2222 "${GNOME_E2E_SSH_USER}@127.0.0.1" \
+              'sudo journalctl -b --no-pager' > results/guest-journal.txt 2>&1 || true
+          fi
+          if [[ -f /tmp/gnome_e2e_qemu.pid ]]; then
+            sudo kill "$(sudo cat /tmp/gnome_e2e_qemu.pid)" || true
+          fi
+          sudo chown -R "$(id -u):$(id -g)" results
+
+      - name: Retain candidate, isolation and desktop evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: gnomeos-extension-validation
+          path: |
+            results/
+            session-isolation.json
+            extension-candidate/build-provenance.json
+            bootc-install.log
+            vm-serial.log
+          if-no-files-found: error

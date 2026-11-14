@@ -30,6 +30,14 @@
 # GNOME OS harness overlay (/opt/gnomeos-harness). Later caller steps reach the
 # guest as $GNOME_E2E_SSH_USER.
 #
+# Candidate extensions (#909; suite: extensions only): extension-artifacts names
+# a directory of packed ZIPs. Before the VM boots, scripts/extension_candidates.py
+# validates each against its canonical contract and stages it into the desktop
+# user's ~/.local/share/gnome-shell/extensions/<uuid>/, so GNOME Shell discovers
+# it at startup. The harness compiles its schemas in the guest as that user, the
+# run is limited to the staged profiles' collection tags, and the gate requires
+# every scenario with those tags to pass. Evidence: results/candidate-provenance.json.
+#
 # The action writes results to ./results/ and vm-serial.log in the workspace.
 # For most suites the caller decides pass/fail from the behave-rc output; for
 # suite: extensions the action itself fails the job via the mandatory
@@ -70,6 +78,16 @@ inputs:
       driven by a separate harness admin account (#908). Always on for
       suite: extensions. Requires the GNOME OS harness overlay image.
     default: 'false'
+  extension-artifacts:
+    description: >
+      Workspace-relative directory of packed GNOME Shell extension ZIPs to
+      stage for the desktop user before GNOME Shell first starts (#909). Each
+      archive must match its canonical contract in
+      tests/shared/gnome_extensions_artifacts.py and a profile in
+      tests/extensions/collection.json. Only for suite: extensions. The run is
+      then limited to the staged profiles' tags, and every scenario carrying
+      one of those tags must pass.
+    default: ''
 
 outputs:
   behave-rc:
@@ -179,7 +197,14 @@ runs:
       env:
         GNOME_E2E_IMAGE: ${{ inputs.image }}
         GNOME_E2E_SUITE: ${{ inputs.suite }}
+        GNOME_E2E_EXTENSION_ARTIFACTS: ${{ inputs.extension-artifacts }}
       run: |
+        # Candidate extension code runs only in the extensions suite, which is
+        # always the isolated session (#908 Option A).
+        if [[ -n "${GNOME_E2E_EXTENSION_ARTIFACTS}" && "${GNOME_E2E_SUITE}" != "extensions" ]]; then
+          echo "::error::extension-artifacts is only accepted with suite: extensions"
+          exit 1
+        fi
         fallocate -l 30G disk.raw
 
         BOOTC_INSTALL_LOG="$(pwd)/bootc-install.log"
@@ -308,6 +333,25 @@ runs:
           for unit in podman.socket podman.service; do
             sudo ln -sf /dev/null "${D}/etc/systemd/system/${unit}"
           done
+          if [[ -n "${GNOME_E2E_EXTENSION_ARTIFACTS}" ]]; then
+            # #909: stage the exact candidate packages into the desktop user's
+            # own extension directory before GNOME Shell first starts. Only
+            # that account's session loads them; the harness account never
+            # does, and nothing in the suite installs anything itself.
+            shopt -s nullglob
+            CANDIDATES=("${GNOME_E2E_EXTENSION_ARTIFACTS}"/*.zip)
+            shopt -u nullglob
+            if [[ ${#CANDIDATES[@]} -eq 0 ]]; then
+              echo "::error::extension-artifacts directory ${GNOME_E2E_EXTENSION_ARTIFACTS} holds no .zip"
+              exit 1
+            fi
+            mkdir -p results
+            sudo python3 _testsuite/scripts/extension_candidates.py stage \
+              --home "${VAR}/home/bluefin-test" \
+              --provenance results/candidate-provenance.json \
+              --github-env "${GITHUB_ENV}" "${CANDIDATES[@]}"
+            sudo chown -R "$(id -u):$(id -g)" results
+          fi
         else
           BFT_UID=1001
           if ! sudo grep -q '^bluefin-test:' "${D}/etc/passwd" 2>/dev/null; then
@@ -465,6 +509,16 @@ runs:
           # No first-login welcome dialog over the overview in the test session.
           $SSH "${DESKTOP_GSETTINGS} org.gnome.shell welcome-dialog-last-shown-version '999'" \
             || echo "::warning::could not mark the welcome dialog as shown for bluefin-test"
+          # Staged candidates (#909): compile each package's schemas with the
+          # guest's own GLib, as the desktop user, as gnome-extensions install
+          # does. The test login below is the first to use them.
+          for uuid in ${GNOME_E2E_STAGED_UUIDS:-}; do
+            schemas="/var/home/bluefin-test/.local/share/gnome-shell/extensions/${uuid}/schemas"
+            $SSH "sudo -u bluefin-test -H -- sh -c 'test ! -d ${schemas} || glib-compile-schemas --strict ${schemas}'" || {
+              echo "::error::could not compile the GSettings schemas staged for ${uuid}"
+              exit 1
+            }
+          done
           # Restart GDM, as qecore-headless does in shared mode, so tests run in
           # a second login: accessibility on from shell start, first-login
           # setup finished. In the first boot session the shell held a
@@ -512,6 +566,14 @@ runs:
           # restart plus this settle passed (diag run 43543641291).
           sleep 15
           echo "GNOME session restarted for the isolated desktop user"
+          # Evidence that the restarted Shell discovered each staged candidate
+          # from the desktop user's directory (it is not enabled yet).
+          mkdir -p results
+          for uuid in ${GNOME_E2E_STAGED_UUIDS:-}; do
+            $SSH "sudo -u bluefin-test env XDG_RUNTIME_DIR=/run/user/1001 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1001/bus gnome-extensions info ${uuid}" \
+              >> results/candidate-discovery.txt 2>&1 \
+              || echo "::warning::GNOME Shell does not report staged extension ${uuid}"
+          done
           exit 0
         fi
 
@@ -585,6 +647,9 @@ runs:
           $SSH "sudo chown -hR bluefin-test:bluefin-test /tmp/gnome_e2e"
           BEHAVE_USERDATA=""
           [[ "${GNOME_E2E_SUITE}" == "extensions" ]] && BEHAVE_USERDATA="-D disposable_guest=true"
+          # Staged candidates (#909) run only their own profiles' scenarios.
+          # The tags come from collection.json, checked as [a-z0-9_]+.
+          [[ -n "${GNOME_E2E_BEHAVE_TAGS:-}" ]] && BEHAVE_USERDATA="${BEHAVE_USERDATA} --tags '${GNOME_E2E_BEHAVE_TAGS}'"
           # Behave runs as the desktop user with a clean environment and no
           # qecore-headless (it needs sudo). The wrapper reads the live
           # session's display, session bus and accessibility bus itself.
@@ -874,7 +939,12 @@ runs:
           echo "::error::Extension-validation gate script missing: ${GATE} not in the testsuite checkout (needs PR #916). Failing closed."
           exit 1
         fi
-        python3 "${GATE}" results/results.json
+        # Staged candidates (#909): every scenario with their tags must pass.
+        REQUIRED=()
+        for tag in ${GNOME_E2E_REQUIRED_TAGS:-}; do
+          REQUIRED+=(--require-tag "${tag}")
+        done
+        python3 "${GATE}" results/results.json "${REQUIRED[@]}"
         # A wrapper/after_all failure can leave passing scenario records. Both
         # the complete result gate and the actual process must succeed.
         if [[ "${GNOME_E2E_BEHAVE_RC}" != "0" ]]; then

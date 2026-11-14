@@ -202,3 +202,71 @@ def test_cli_reports_from_consumer_with_regular_scripts_package(
         assert report["reason"] == ""
     else:
         assert "failed=1" in report["reason"]
+
+
+# ── required tags (#909: staged candidates' mandatory inventory) ──────────
+
+
+def _tagged_report(statuses: dict[str, str], feature_tags=("just_perfection",)) -> list:
+    return [
+        {
+            "name": "Just Perfection",
+            "tags": list(feature_tags),
+            "elements": [
+                {"type": "scenario", "name": name, "status": status, "tags": []}
+                for name, status in statuses.items()
+            ],
+        },
+        {
+            "name": "Lifecycle",
+            "tags": ["extensions_suite"],
+            "elements": [
+                {"type": "scenario", "name": "lifecycle jp", "status": "passed",
+                 "tags": ["just_perfection"]},
+                {"type": "scenario", "name": "lifecycle gold", "status": "skipped",
+                 "tags": ["sjc_gold"]},
+            ],
+        },
+    ]
+
+
+def _write(tmp_path: Path, report) -> Path:
+    path = tmp_path / "results.json"
+    path.write_text(json.dumps(report))
+    return path
+
+
+def test_required_tag_passes_when_every_tagged_scenario_passed(tmp_path: Path) -> None:
+    path = _write(tmp_path, _tagged_report({"panel": "passed", "dash": "passed"}))
+    report = gate_report(path, ("just_perfection",))
+    assert report["passed"] is True, report
+
+
+def test_required_tag_fails_on_a_skipped_tagged_scenario(tmp_path: Path) -> None:
+    path = _write(tmp_path, _tagged_report({"panel": "passed", "dash": "skipped"}))
+    report = gate_report(path, ("just_perfection",))
+    assert report["passed"] is False
+    assert "'dash' is skipped" in report["reason"]
+    # Without the requirement the same run passes: skips are allowed.
+    assert gate_report(path)["passed"] is True
+
+
+def test_required_tag_with_no_scenarios_fails(tmp_path: Path) -> None:
+    path = _write(tmp_path, _tagged_report({"panel": "passed"}))
+    report = gate_report(path, ("stock_market",))
+    assert report["passed"] is False
+    assert "no scenario carries the required tag @stock_market" in report["reason"]
+
+
+def test_required_tag_reads_scenario_tags_with_or_without_at(tmp_path: Path) -> None:
+    data = _tagged_report({"panel": "passed"}, feature_tags=())
+    data[1]["elements"][0]["tags"] = ["@just_perfection"]
+    report = gate_report(_write(tmp_path, data), ("just_perfection",))
+    # The feature lost its tag, so only the lifecycle scenario is selected.
+    assert report["passed"] is True
+
+
+def test_require_tag_cli_flag(tmp_path: Path) -> None:
+    path = _write(tmp_path, _tagged_report({"panel": "failed"}))
+    from scripts.extension_validation import main
+    assert main([str(path), "--require-tag", "just_perfection"]) == 1
