@@ -103,8 +103,7 @@ notification is gone, not that no banner shows: Shell holds earlier banners on
 screen while the session is idle, as a headless VM always is. Calculator and
 Text Editor divergences on plain GNOME OS 51:
 [`references/gnome-51-app-divergences.md`](references/gnome-51-app-divergences.md).
-
-The Files steps for rows 4, 5 and 6 print a `gnome-51-audit row N: <reading>` line naming the branch that matched, so each smoke run's behave log re-checks those verdicts. Keep the line when you edit the step.
+The Files steps for rows 4-6 print `gnome-51-audit row N: <reading>` (the branch that matched) in each smoke log; keep it when editing them.
 
 ## Remote session commands from the runner container
 
