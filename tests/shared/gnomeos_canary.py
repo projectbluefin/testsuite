@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import secrets
 import shlex
+import signal
 import subprocess
 import sys
 import time
@@ -33,10 +34,34 @@ def command(*args):
     return subprocess.run(args, check=True, capture_output=True, text=True, timeout=15).stdout.strip()
 
 
+ENTRY_TRACE = "entry-trace.txt"
+
+
+def _entry_trace(message, _start=time.monotonic()):
+    """Append one timed line to the entry child's trace (best effort)."""
+    try:
+        with open(RESULTS / ENTRY_TRACE, "a", encoding="utf-8") as trace:
+            trace.write(f"{time.monotonic() - _start:7.2f}s {message}\n")
+    except OSError:
+        pass
+
+
 def entry_window():
+    # When the window never maps, the probe sends SIGUSR1 and this dumps
+    # where the child is stuck (window_wait_diagnostics).
+    import faulthandler
+    import signal
+    try:
+        stack_file = open(RESULTS / ENTRY_TRACE, "a", encoding="utf-8")
+        faulthandler.register(signal.SIGUSR1, file=stack_file, all_threads=True)
+    except (OSError, ValueError, AttributeError):
+        pass
+    _entry_trace(f"start pid={os.getpid()} WAYLAND_DISPLAY={os.environ.get('WAYLAND_DISPLAY')!r} "
+                 f"GDK_BACKEND={os.environ.get('GDK_BACKEND')!r}")
     import gi
     gi.require_version("Gtk", "3.0")
     from gi.repository import Gtk
+    _entry_trace("Gtk imported")
     window = Gtk.Window(title=TITLE)
     entry = Gtk.Entry()
     entry.get_accessible().set_name(ENTRY_NAME)
@@ -46,6 +71,7 @@ def entry_window():
     window.show_all()
     entry.grab_focus()
     window.present()
+    _entry_trace("window shown")
     Gtk.main()
 
 
@@ -57,8 +83,27 @@ def window_wait_diagnostics(child, run=subprocess.run):
         except (OSError, subprocess.SubprocessError) as error:
             return f"error: {error}"
         return (done.stdout or done.stderr).strip()[:2000]
+    returncode = child.poll() if child is not None else None
+    entry_wchan = ""
+    pid = getattr(child, "pid", None)
+    if pid and returncode is None:
+        try:
+            entry_wchan = Path(f"/proc/{pid}/wchan").read_text(encoding="utf-8")
+        except OSError:
+            pass
+        try:
+            os.kill(pid, signal.SIGUSR1)  # faulthandler stack dump
+            time.sleep(1)
+        except OSError:
+            pass
+    try:
+        entry_trace = (RESULTS / ENTRY_TRACE).read_text(encoding="utf-8")[-4000:]
+    except OSError:
+        entry_trace = ""
     return {
-        "entry_child_returncode": child.poll() if child is not None else None,
+        "entry_child_returncode": returncode,
+        "entry_wchan": entry_wchan,
+        "entry_trace": entry_trace,
         "introspect_windows": call(
             "gdbus", "call", "--session", "--dest", "org.gnome.Shell.Introspect",
             "--object-path", "/org/gnome/Shell/Introspect",
