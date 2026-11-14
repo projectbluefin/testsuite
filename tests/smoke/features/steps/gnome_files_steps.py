@@ -45,15 +45,29 @@ FILES_SIDEBAR_URIS = {
 }
 
 
+_AUDIT_READINGS: set = set()
+
+
+def _audit_reading(row: int, reading: str) -> None:
+    """Print a GNOME 51 audit reading once per run; it records which branch matched."""
+    line = f"gnome-51-audit row {row}: {reading}"
+    if line not in _AUDIT_READINGS:
+        _AUDIT_READINGS.add(line)
+        print(line, flush=True)
+
+
+def _app_name(app) -> str:
+    name = getattr(app, "name", None) or (app.get_name() if hasattr(app, "get_name") else None)
+    return name.strip("'\" ") if isinstance(name, str) else ""
+
+
 def _files_apps() -> list:
     """Take one ``applications()`` snapshot; dogtail's per-name lookup retries internally."""
     matches = []
     for app in tree.root.applications():
-        name = getattr(app, "name", None) or (app.get_name() if hasattr(app, "get_name") else None)
-        if isinstance(name, str):
-            clean = name.strip("'\" ")
-            if clean in FILES_APP_NAMES or "nautilus" in clean.lower():
-                matches.append(app)
+        clean = _app_name(app)
+        if clean in FILES_APP_NAMES or "nautilus" in clean.lower():
+            matches.append(app)
     return matches
 
 
@@ -64,6 +78,7 @@ def _nautilus_app(timeout: int = 15):
     while True:
         try:
             for app in _files_apps():
+                _audit_reading(6, f"Files AT-SPI app name={_app_name(app)!r}")
                 return app
             last_error = f"none of {FILES_APP_NAMES} registered"
         except Exception as exc:  # noqa: BLE001
@@ -96,6 +111,7 @@ def _nautilus_window(timeout: int = 10):
     for _ in range(timeout * 2):
         frames = app.findChildren(_is_frame)
         if frames:
+            _audit_reading(4, f"Files toplevel role={getattr(frames[0], 'roleName', '')!r}")
             return frames[0]
         last_children = [(getattr(child, "roleName", getattr(child, "get_role_name", lambda: "")()), getattr(child, "name", getattr(child, "get_name", lambda: "")())) for child in getattr(app, "children", [])[:10]]
         sleep(0.5)
@@ -174,6 +190,7 @@ def home_folder_is_in_the_sidebar(context) -> None:
         )
 
     assert home_items, "Home list item not found in Nautilus sidebar"
+    _audit_reading(5, f"Files sidebar Home item roles={sorted({n.roleName for n in home_items})}")
 
 
 @step('Navigate to "{name}" in Files sidebar')
