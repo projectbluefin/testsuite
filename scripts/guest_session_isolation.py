@@ -19,10 +19,18 @@ import os
 import subprocess
 import sys
 
-PRIVILEGED_GROUPS = frozenset({"wheel", "sudo", "admin", "root"})
+# Groups that grant admin, raw device, container/VM or log access.
+PRIVILEGED_GROUPS = frozenset({
+    "wheel", "sudo", "admin", "root", "disk", "docker", "libvirt", "kvm",
+    "systemd-journal", "adm",
+})
 # Filesystems that would share runner storage with the guest.
 HOST_SHARE_TYPES = frozenset({"9p", "virtiofs", "nfs", "nfs4", "cifs", "smb3", "fuse.sshfs"})
-HOST_SOCKETS = ("/run/docker.sock", "/var/run/docker.sock", "/run/podman/podman.sock")
+HOST_SOCKETS = (
+    "/run/docker.sock", "/var/run/docker.sock", "/run/podman/podman.sock",
+    "/run/libvirt/libvirt-sock", "/var/run/libvirt/libvirt-sock",
+)
+POLKIT_RULE_DIRS = ("/etc/polkit-1/rules.d", "/usr/share/polkit-1/rules.d")
 
 
 def _run(cmd):
@@ -87,11 +95,82 @@ def check_no_host_mounts(mounts_text):
 
 def check_no_host_sockets(lexists=os.path.lexists):
     found = [path for path in HOST_SOCKETS if lexists(path)]
-    return not found, "container sockets: " + (", ".join(found) or "none")
+    return not found, "management sockets: " + (", ".join(found) or "none")
+
+
+def _user_groups(user, run=_run):
+    rc, out = run(["id", "-nG", user])
+    return out.split() if rc == 0 else []
+
+
+def check_no_polkit_grant(user, groups, rule_files):
+    """No polkit JavaScript rule names the desktop user or one of its groups
+    and returns polkit.Result.YES. rule_files maps path -> text (or None when
+    unreadable, which fails closed)."""
+    found = []
+    for path, text in sorted(rule_files.items()):
+        if text is None:
+            found.append(f"{path} (unreadable)")
+            continue
+        if "Result.YES" not in text:
+            continue
+        names = [user] + list(groups)
+        if any(f'"{n}"' in text or f"'{n}'" in text for n in names):
+            found.append(path)
+    return not found, "polkit rules granting the desktop user: " + (", ".join(found) or "none")
+
+
+def read_polkit_rules(dirs=POLKIT_RULE_DIRS, listdir=os.listdir):
+    rules = {}
+    for directory in dirs:
+        try:
+            names = sorted(listdir(directory))
+        except FileNotFoundError:
+            continue
+        except OSError:
+            rules[directory] = None
+            continue
+        for name in names:
+            if not name.endswith(".rules"):
+                continue
+            path = os.path.join(directory, name)
+            try:
+                with open(path, encoding="utf-8", errors="replace") as handle:
+                    rules[path] = handle.read()
+            except OSError:
+                rules[path] = None
+    return rules
+
+
+def _expand_sshd_tokens(pattern, user, home):
+    expanded = pattern.replace("%%", "\0").replace("%u", user).replace("%h", home)
+    expanded = expanded.replace("%U", "").replace("\0", "%")
+    return expanded if os.path.isabs(expanded) else os.path.join(home, expanded)
+
+
+def check_sshd_admits_no_desktop_key(user, home, run=_run, lexists=os.path.lexists):
+    """sshd's effective config for the desktop user: no AuthorizedKeysCommand,
+    and no AuthorizedKeysFile that exists for it."""
+    rc, out = run(["sshd", "-T", "-C", f"user={user},host=localhost,addr=127.0.0.1"])
+    if rc != 0:
+        return False, f"sshd -T failed: {out.strip()[:200]}"
+    problems = []
+    for line in out.splitlines():
+        key, _, value = line.strip().partition(" ")
+        if key == "authorizedkeyscommand" and value.strip() not in ("", "none"):
+            problems.append(f"AuthorizedKeysCommand {value.strip()}")
+        elif key == "authorizedkeysfile":
+            for pattern in value.split():
+                if pattern == "none":
+                    continue
+                path = _expand_sshd_tokens(pattern, user, home)
+                if lexists(path):
+                    problems.append(f"AuthorizedKeysFile {path} exists")
+    return not problems, "sshd key paths for desktop user: " + ("; ".join(problems) or "none")
 
 
 def build_report(desktop_user, harness_user, run=_run, lexists=os.path.lexists,
-                 stat=os.stat, mounts_text=None):
+                 stat=os.stat, mounts_text=None, polkit_rules=None):
     checks = []
 
     def record(name, result):
@@ -107,6 +186,11 @@ def build_report(desktop_user, harness_user, run=_run, lexists=os.path.lexists,
         record("desktop user in no admin group", check_groups(desktop_user, run))
         record("desktop password locked", check_password_locked(desktop_user, run))
         record("desktop user has no SSH key", check_no_ssh_keys(desktop[5], lexists))
+        record("sshd admits no key for the desktop user",
+               check_sshd_admits_no_desktop_key(desktop_user, desktop[5], run, lexists))
+        rules = read_polkit_rules() if polkit_rules is None else polkit_rules
+        record("no polkit rule grants the desktop user",
+               check_no_polkit_grant(desktop_user, _user_groups(desktop_user, run), rules))
     if harness is not None and len(harness) > 5:
         record("harness home closed to others", check_home_closed(harness[5], stat))
     if mounts_text is None:
@@ -118,7 +202,7 @@ def build_report(desktop_user, harness_user, run=_run, lexists=os.path.lexists,
             mounts_text = None
     if mounts_text is not None:
         record("no host-shared mounts", check_no_host_mounts(mounts_text))
-    record("no container management sockets", check_no_host_sockets(lexists))
+    record("no container or VM management sockets", check_no_host_sockets(lexists))
     return {
         "desktop_user": desktop_user,
         "harness_user": harness_user,

@@ -476,8 +476,22 @@ runs:
           # settle passed (diag run 43543641291); a settle alone (43543638989)
           # or the full gnome-session environment (43543643241) did not.
           $SSH "sudo systemctl stop gdm"
+          # test exits 1 once the socket is gone; an SSH failure (255) is not
+          # proof the session stopped, so retry it a bounded number of times.
           DEADLINE=$((SECONDS + 60))
-          while $SSH "sudo test -S /run/user/1001/wayland-0" 2>/dev/null; do
+          SSH_FAILURES=0
+          while true; do
+            SOCKET_RC=0
+            $SSH "sudo test -S /run/user/1001/wayland-0" 2>/dev/null || SOCKET_RC=$?
+            if [[ ${SOCKET_RC} -eq 1 ]]; then
+              break
+            elif [[ ${SOCKET_RC} -ne 0 ]]; then
+              SSH_FAILURES=$((SSH_FAILURES + 1))
+              if [[ ${SSH_FAILURES} -ge 5 ]]; then
+                echo "::error::could not reach the guest over SSH to confirm the first GNOME session stopped (rc=${SOCKET_RC})"
+                exit 1
+              fi
+            fi
             if [ $SECONDS -ge $DEADLINE ]; then
               echo "::error::first GNOME session did not stop within 60s of stopping GDM"
               exit 1
@@ -622,7 +636,19 @@ runs:
           " || BEHAVE_RC=$?
         fi
 
-        $SCP "${GNOME_E2E_SSH_USER}@127.0.0.1:/tmp/gnome_e2e/results/." ./results/ 2>/dev/null || true
+        # The guest's results/ is writable by the desktop (and, for extensions,
+        # candidate) code, so treat it as untrusted: copy regular files only
+        # (no symlinks, FIFOs or devices that could hang or redirect the copy),
+        # bound the copy in time, unpack into an empty staging directory, and
+        # merge without overwriting anything the harness already wrote here
+        # (guest-provenance.json, the canary's harness-*.json).
+        GUEST_RESULTS=$(mktemp -d)
+        timeout 300 $SSH "cd /tmp/gnome_e2e/results 2>/dev/null && find . -type f -print0 | tar --create --null --no-recursion --files-from=- --file=-" \
+          | timeout 300 tar --extract --file=- --directory="${GUEST_RESULTS}" --no-same-owner --no-same-permissions \
+          || echo "::warning::copying guest results was incomplete"
+        mkdir -p results
+        cp -R --update=none --no-preserve=all "${GUEST_RESULTS}/." results/
+        rm -rf "${GUEST_RESULTS}"
         echo "behave_rc=${BEHAVE_RC}" >> "$GITHUB_OUTPUT"
 
     # ── Summarise results to CI log + job summary ─────────────────────────────

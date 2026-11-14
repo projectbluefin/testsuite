@@ -166,12 +166,12 @@ guest administration either.
   environment and without qecore-headless (which calls sudo). The harness never runs a file the
   desktop user can write with elevated rights: the checker lives in the harness home, and a
   pre-existing `/tmp/gnome_e2e` (even a symlink) fails the run.
-- **Proven on the booted guest** — before any test runs, `scripts/guest_session_isolation.py`
-  runs as root and checks that the desktop user has no sudo (`sudo -l -U`), no admin group, a
-  locked password and no `authorized_keys`; that the harness home is closed; and that there is
-  no 9p/virtiofs/network share mount and no container socket. Its report is
-  `session-isolation.json` (outside `results/`, which the session fills); any failure stops the
-  run.
+- **Proven on the booted guest** — before any test, `scripts/guest_session_isolation.py` (as
+  root) checks the desktop user has no sudo, privileged group, password, SSH key, sshd key path
+  or polkit grant, the harness home is closed, and no host-share mount or docker/podman/libvirt
+  socket exists (full list in the script). Report: `session-isolation.json`, outside `results/`;
+  guest `results/` return as regular files only, never overwriting harness files. Any failure
+  stops the run. Accepted exception: `/dev/uinput` is 0666 for the virtual input.
 
 Limits that remain: a candidate shares a uid with behave, so it could alter that run's
 `results/`; the image's own polkit defaults for the active local session are unchanged; and

@@ -118,9 +118,19 @@ PASSWD = {
 }
 
 
+SSHD_DEFAULT = (
+    "authorizedkeysfile .ssh/authorized_keys .ssh/authorized_keys2\n"
+    "authorizedkeyscommand none\n"
+)
+
+
 def _runner(sudo="User bluefin-test is not allowed to run sudo on gnomeos.",
-            groups="bluefin-test", shadow="bluefin-test:!:19000:0:99999:7:::"):
+            groups="bluefin-test", shadow="bluefin-test:!:19000:0:99999:7:::",
+            sshd=(0, SSHD_DEFAULT)):
     def run(cmd):
+        if cmd[0] == "sshd":
+            assert cmd[1:3] == ["-T", "-C"] and "user=bluefin-test" in cmd[3]
+            return sshd
         if cmd[:2] == ["getent", "passwd"]:
             entry = PASSWD.get(cmd[2])
             return (0, entry + "\n") if entry else (2, "")
@@ -134,7 +144,16 @@ def _runner(sudo="User bluefin-test is not allowed to run sudo on gnomeos.",
     return run
 
 
-def _report(run=None, keys=(), home_mode=0o700, mounts="/dev/vda3 / ext4 rw 0 0\n", sockets=()):
+STOCK_POLKIT = {
+    "/usr/share/polkit-1/rules.d/50-default.rules":
+        'polkit.addAdminRule(function(action, subject) { return ["unix-group:wheel"]; });',
+    "/usr/share/polkit-1/rules.d/49-wheel.rules":
+        'polkit.addRule(function(a, s) { if (s.isInGroup("wheel")) return polkit.Result.YES; });',
+}
+
+
+def _report(run=None, keys=(), home_mode=0o700, mounts="/dev/vda3 / ext4 rw 0 0\n", sockets=(),
+            polkit=None):
     present = set(keys) | set(sockets)
     return iso.build_report(
         "bluefin-test", "gnome-e2e-harness",
@@ -142,6 +161,7 @@ def _report(run=None, keys=(), home_mode=0o700, mounts="/dev/vda3 / ext4 rw 0 0\
         lexists=lambda path: path in present,
         stat=lambda path: SimpleNamespace(st_mode=0o040000 | home_mode),
         mounts_text=mounts,
+        polkit_rules=STOCK_POLKIT if polkit is None else polkit,
     )
 
 
@@ -161,8 +181,10 @@ def test_desktop_sudo_rights_fail():
 
 
 def test_admin_group_membership_fails():
+    # The stock polkit rule granting wheel then applies to the desktop user too.
     report = _report(run=_runner(groups="bluefin-test wheel"))
-    assert _failed(report) == {"desktop user in no admin group"}
+    assert _failed(report) == {"desktop user in no admin group",
+                               "no polkit rule grants the desktop user"}
 
 
 def test_usable_password_fails():
@@ -171,8 +193,10 @@ def test_usable_password_fails():
 
 
 def test_desktop_ssh_key_fails():
+    # sshd's default AuthorizedKeysFile would admit it too.
     report = _report(keys=["/var/home/bluefin-test/.ssh/authorized_keys"])
-    assert _failed(report) == {"desktop user has no SSH key"}
+    assert _failed(report) == {"desktop user has no SSH key",
+                               "sshd admits no key for the desktop user"}
 
 
 def test_readable_harness_home_fails():
@@ -186,9 +210,70 @@ def test_host_shared_mount_fails(fstype):
     assert _failed(report) == {"no host-shared mounts"}
 
 
-def test_container_socket_fails():
-    report = _report(sockets=["/run/podman/podman.sock"])
-    assert _failed(report) == {"no container management sockets"}
+@pytest.mark.parametrize("socket", ["/run/podman/podman.sock", "/run/libvirt/libvirt-sock",
+                                    "/var/run/libvirt/libvirt-sock"])
+def test_management_socket_fails(socket):
+    report = _report(sockets=[socket])
+    assert _failed(report) == {"no container or VM management sockets"}
+
+
+@pytest.mark.parametrize("group", ["disk", "docker", "libvirt", "kvm", "systemd-journal", "adm",
+                                   "sudo", "admin"])
+def test_each_privileged_group_fails(group):
+    report = _report(run=_runner(groups=f"bluefin-test {group}"))
+    assert "desktop user in no admin group" in _failed(report)
+
+
+def test_polkit_rule_naming_the_desktop_user_fails():
+    rules = dict(STOCK_POLKIT)
+    rules["/etc/polkit-1/rules.d/10-test.rules"] = (
+        'polkit.addRule(function(a, s) { if (s.user == "bluefin-test") return polkit.Result.YES; });')
+    assert _failed(_report(polkit=rules)) == {"no polkit rule grants the desktop user"}
+
+
+def test_polkit_rule_granting_a_desktop_group_fails():
+    rules = dict(STOCK_POLKIT)
+    rules["/etc/polkit-1/rules.d/10-test.rules"] = (
+        "polkit.addRule(function(a, s) { if (s.isInGroup('testers')) return polkit.Result.YES; });")
+    report = _report(run=_runner(groups="bluefin-test testers"), polkit=rules)
+    assert _failed(report) == {"no polkit rule grants the desktop user"}
+
+
+def test_polkit_rule_without_yes_is_ignored():
+    rules = {"/etc/polkit-1/rules.d/10-deny.rules":
+             'polkit.addRule(function(a, s) { if (s.user == "bluefin-test") return polkit.Result.NO; });'}
+    assert _failed(_report(polkit=rules)) == set()
+
+
+def test_unreadable_polkit_rule_fails_closed():
+    report = _report(polkit={"/etc/polkit-1/rules.d/10-test.rules": None})
+    assert _failed(report) == {"no polkit rule grants the desktop user"}
+
+
+def test_read_polkit_rules_reads_rules_files_only(tmp_path):
+    etc = tmp_path / "etc"
+    etc.mkdir()
+    (etc / "10-a.rules").write_text("A")
+    (etc / "README").write_text("ignored")
+    rules = iso.read_polkit_rules(dirs=(str(etc), str(tmp_path / "missing")))
+    assert rules == {str(etc / "10-a.rules"): "A"}
+
+
+def test_sshd_authorized_keys_command_fails():
+    run = _runner(sshd=(0, SSHD_DEFAULT.replace("authorizedkeyscommand none",
+                                                 "authorizedkeyscommand /usr/libexec/keys %u")))
+    assert _failed(_report(run=run)) == {"sshd admits no key for the desktop user"}
+
+
+def test_sshd_shared_keys_file_for_desktop_user_fails():
+    run = _runner(sshd=(0, "authorizedkeysfile /etc/ssh/keys/%u\nauthorizedkeyscommand none\n"))
+    report = _report(run=run, keys=["/etc/ssh/keys/bluefin-test"])
+    assert _failed(report) == {"sshd admits no key for the desktop user"}
+
+
+def test_sshd_config_check_fails_closed():
+    run = _runner(sshd=(255, "sshd: no hostkeys available -- exiting."))
+    assert _failed(_report(run=run)) == {"sshd admits no key for the desktop user"}
 
 
 def test_missing_accounts_fail_closed():

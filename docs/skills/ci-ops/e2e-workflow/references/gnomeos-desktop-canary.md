@@ -115,7 +115,8 @@ Download `gnomeos-desktop-canary` from the run:
   expected text and text read through AT-SPI.
 - `desktop-canary.png`, Behave results, and `guest-journal.txt`.
 - `session-isolation.json` (isolated runs only): the guest-side proof that
-  the desktop user has no sudo, admin group, password or SSH key.
+  the desktop user has no sudo, privileged group, password, SSH key, sshd key
+  path or polkit grant, and that no management socket or host mount exists.
 
 The base and development image must name the same GNOME build commit; a
 publication race fails the build rather than mixing libraries. The source
