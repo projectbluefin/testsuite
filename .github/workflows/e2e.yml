@@ -428,10 +428,21 @@ jobs:
           # kernel again (#1023). It boots through OVMF and the image's own
           # loader instead, so the install must not override the bootloader
           # and the bootloader step must succeed.
+          # Firmware boot needs the image to install its own loader, which
+          # bootc does through bootupd. An image without bootupd (dakota) keeps
+          # the direct-boot path below: its bootc refuses an ostree install
+          # without an override ("bootupd is required for ostree-based
+          # installs", run 43525356388), and its lifecycle reboots stay as
+          # limited as before #1189.
           FIRMWARE_BOOT=false
-          if [[ "${SUITE_DIR}" == "lifecycle" ]]; then
+          if [[ "${SUITE_DIR}" == "lifecycle" ]] \
+            && sudo podman run --rm --quiet --entrypoint /bin/sh "${IMAGE}" -c 'command -v bootupctl' >/dev/null 2>&1; then
             FIRMWARE_BOOT=true
-          elif sudo podman run --rm --quiet "${IMAGE}" bootc install to-disk --help 2>&1 | grep -q "\-\-bootloader"; then
+          elif [[ "${SUITE_DIR}" == "lifecycle" ]]; then
+            echo "::warning title=lifecycle without firmware boot::${IMAGE} has no bootupctl, so the lifecycle VM boots the first deployment's kernel directly and reboots cannot reach a staged deployment (#1023)"
+          fi
+          if [[ "${FIRMWARE_BOOT}" != "true" ]] \
+            && sudo podman run --rm --quiet "${IMAGE}" bootc install to-disk --help 2>&1 | grep -q "\-\-bootloader"; then
             BOOTLOADER_FLAG="--bootloader systemd"
           fi
           echo "FIRMWARE_BOOT=${FIRMWARE_BOOT}" >> "$GITHUB_ENV"
