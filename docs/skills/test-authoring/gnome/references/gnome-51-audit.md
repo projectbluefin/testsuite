@@ -38,27 +38,26 @@ Version-branch or fix a workaround only after a run proves behavior diverges.
 
 | # | Workaround | Status (GNOME 51) | Where |
 |---|---|---|---|
-| 1 | Re-prepend `global.context.unsafe_mode = true` before every `Shell.Eval` (GNOME 50 reset it) | **LIKELY-KEEP** — not exercised by the smoke-a/smoke-b run (Bluefin-only Shell.Eval reads); still required on 50, assume it holds on 51 until a run says otherwise | `tests/smoke/features/steps/steps.py`; documented in `SKILL.md` "Screen Lock/Unlock" / "Overview search entry" |
-| 2 | Double-quoted `Shell.Eval` results `(true, '"true"')` | **LIKELY-KEEP** — not exercised by the run; the `clutter_text.get_text()` tuple format is unchanged upstream | `tests/smoke/features/steps/steps.py` |
-| 3 | Extension `state=6` via `Shell.Eval` → use `GetExtensionInfo` D-Bus | **LIKELY-KEEP** — no extensions on plain gnomeos, so the state check is not exercised; the D-Bus method is the only public path and still required | `tests/smoke/features/steps/steps.py`; `SKILL.md` "Extension state via D-Bus" |
+| 1 | Re-prepend `global.context.unsafe_mode = true` before every `Shell.Eval` (GNOME 50 reset it) | **OBSOLETE ON 51** — §Targeted probes (round 2): `global.context.unsafe_mode`, read by a raw `Shell.Eval` that does not re-enable it, stayed `true` after a 3 s idle, an overview open and close over D-Bus, a notification, a GNOME Text Editor window opening and closing, and both screen-lock paths with their unlocks, on `dakota:testing` and `utah:testing`. GNOME 50's reset did not happen. Keep the prepend while any tested image runs GNOME 50; it is harmless. Modal dialogs other than the lock screen were not exercised | `tests/smoke/features/steps/steps.py`; documented in `SKILL.md` "Screen Lock/Unlock" / "Overview search entry" |
+| 2 | Double-quoted `Shell.Eval` results `(true, '"true"')` | **OBSOLETE ON 51 as a version quirk** — §Targeted probes (round 2): `Shell.Eval` returns the result JSON-encoded on both images: `true` → `(true, 'true')`, `'abc'` → `(true, '"abc"')`, objects and arrays as JSON, `undefined` → `''`. A quoted `'"true"'` only appears when the expression evaluates to the string `"true"`. Keep `_eval_bool`'s optional quotes for string results | `tests/smoke/features/steps/steps.py` |
+| 3 | Extension `state=6` via `Shell.Eval` → use `GetExtensionInfo` D-Bus | **OBSOLETE ON 51** — §Targeted probes (round 2): for the 12 extensions sampled on each image (all `ACTIVE`), `Main.extensionManager.lookup(uuid).state` via `Shell.Eval` returned `1`, matching `GetExtensionInfo` (`1`) and `gnome-extensions show` (`ACTIVE`); GNOME 50's constant `6` did not occur. Keep `GetExtensionInfo`: it is the public API and needs no unsafe mode | `tests/smoke/features/steps/steps.py`; `SKILL.md` "Extension state via D-Bus" |
 | 4 | `filler`/`frame` toplevel-role fallback + require populated subtree | **WORKS ON 51** — Files, Calculator, Text Editor, and fractional/integer scale windows resolved their toplevels; the run does not prove which fallback was needed | `tests/shared/gnome_shell_steps.py`; `SKILL.md` "Window-role checks must prove the subtree is populated" |
 | 5 | Nautilus sidebar role (`home_folder_is_in_the_sidebar`) | **WORKS ON 51** — `home_folder_is_in_the_sidebar` passed; necessity remains unproven | `tests/smoke/features/steps/gnome_files_steps.py` |
 | 6 | Nautilus AT-SPI app-name handling (`FILES_APP_NAMES`, `_nautilus_app`) | **WORKS ON 51** — Files launched, navigated, and closed; necessity remains unproven | `tests/smoke/features/steps/gnome_files_steps.py` |
-| 7 | Ptyxis window title (`user@host:~`) | **UNEXERCISED on `dakota:testing`** — [smoke-a run 43170644165](https://github.com/projectbluefin/testsuite/actions/runs/43170644165) skipped “Ptyxis terminal launches successfully” because Ptyxis is not installed. A skip does not establish whether the workaround works or is obsolete on 51; retain it for images running GNOME 50. | `tests/smoke/features/steps/gnome_apps_steps.py:34-38` |
-| 8 | ScreenSaver D-Bus `Lock` (not `screenShield.lock(true)`) | **LIKELY-KEEP** — `screen_lock_engages` not in the smoke-a/smoke-b run; still required on 50 | `tests/smoke/features/steps/steps.py`; `SKILL.md` "Screen Lock/Unlock D-Bus calls" |
+| 7 | Ptyxis window title (`user@host:~`) | **STILL REQUIRED on `utah:testing`; not testable on `dakota:testing`** — §Targeted probes (round 2): on utah (`/usr/bin/ptyxis`) a new window was titled `Terminal` (WM class `org.gnome.Ptyxis`) and its AT-SPI frame was named `Terminal`, so a check for a `Ptyxis` title would fail. `dakota:testing` ships no Ptyxis (its terminal is Ghostty), which is why smoke-a skipped the scenario | `tests/smoke/features/steps/gnome_apps_steps.py:34-38` |
+| 8 | ScreenSaver D-Bus `Lock` (not `screenShield.lock(true)`) | **OBSOLETE ON 51** — §Targeted probes (round 2): `Main.screenShield.lock(true)` via `Shell.Eval` locked the session on both images (`org.gnome.ScreenSaver.GetActive` → `true`), and `SetActive false` unlocked it; `org.gnome.ScreenSaver.Lock` behaved the same. GNOME 50's "deprecated and fails" no longer holds. Keep the D-Bus `Lock`: it is the public API and needs no unsafe mode | `tests/smoke/features/steps/steps.py`; `SKILL.md` "Screen Lock/Unlock D-Bus calls" |
 | 9 | `Main.overview.visible` reads `false` in QEMU; do not assert it | **OBSOLETE ON 51** — the targeted probe (§Targeted probes) read `Main.overview.visible` as `false`, `true`, `false` across an overview open and close in QEMU on GNOME Shell 51.1, matching `OverviewActive` each time, on `dakota:testing` and `utah:testing`. Keep checking `OverviewActive`: it needs no `Shell.Eval` or unsafe mode | `tests/smoke/features/steps/steps.py`; `SKILL.md` "Activities overview (GNOME 50 QEMU)" |
 | 10 | Notification banner dismissal check | **WORKS ON 51** — `toast_notification_banner_can_be_dismissed` passed; necessity remains unproven | `tests/smoke/features/steps/gnome_notifications_steps.py` |
-| 11 | Panel buttons `showing=False` before overview toggle | **OBSOLETE ON 51 for Activities; clock and System unverified** — the probe read the Activities toggle as `showing=True` before, during and after the overview toggle on both images, so GNOME 50's "every panel button reports `showing=False`" no longer holds. The clock and System toggles have no accessible name in that tree, so the probe could not single them out; keep role-only matching for them | `tests/shared/gnome_shell_steps.py` |
-| 12 | keyring skip on GDM restart | **LIKELY-KEEP** — GDM restart not exercised by the smoke run; still required on 50 | `tests/smoke/features/environment.py` |
+| 11 | Panel buttons `showing=False` before overview toggle | **OBSOLETE ON 51** — the first probe read the Activities toggle as `showing=True`; §Targeted probes (round 2) found the clock (a `menu` with no accessible name, holding the date and time label) and the `System` menu in the same top-bar panel, and both read `showing=True` before, during and after an overview toggle on both images. GNOME 50's "every panel button reports `showing=False`" holds for none of the three | `tests/shared/gnome_shell_steps.py` |
+| 12 | keyring skip on GDM restart | **WORKS ON 51** — §Targeted probes (round 2): with qecore's keyring setup skipped, every smoke-b scenario passed on both images. The login keyring is unusable without it: on dakota the `login` collection exists but is locked; on utah `gnome-keyring-daemon` runs with no `login` collection (default alias `/`); a `secret-tool store` blocked until a 15 s timeout on both. No smoke scenario stores a secret. Whether qecore's setup, which restarts GDM, would still break the run is not measured: it would restart the session under test | `tests/smoke/features/environment.py` |
 
 Rows 4, 5, 6, and 10 worked in the run in §Run evidence; a passing scenario
-does not prove that the workaround is required. Rows 9 and 11 passed scenarios
-that did not measure the affected properties; targeted probes (§Targeted
-probes) have since measured them. Rows 1, 2, 3, 8, and 12 were not exercised by
-the plain GNOME OS smoke run and carry `LIKELY-KEEP`. Row 7 was also skipped on
-`dakota:testing` because Ptyxis was absent. **This audit is incomplete**: issue
-#827 still requires evidence for the rows not yet exercised (1, 2, 3, 7, 8 and
-12) and for the clock and System toggles in row 11.
+does not prove that the workaround is required. Rows 1, 2, 3, 7, 8, 9, 11 and
+12 were measured by targeted probes (§Targeted probes and §Targeted probes
+(round 2)). Row 7 is still required where Ptyxis ships (`utah:testing`);
+`dakota:testing` has no Ptyxis. **This audit is incomplete**: issue #827 still
+needs targeted comparisons for rows 4, 5, 6 and 10, which passed but have not
+been run without their workarounds.
 
 ## Run target
 
@@ -107,6 +106,38 @@ after each change. Both runs are `manual.yml`, `smoke-a`, GNOME Shell 51.1:
 
 `OverviewActive` matched `Main.overview.visible` at every read. The utah run
 failed only at the SELinux denial gate (utah#1198), after the probe passed.
+
+### Targeted probes (round 2)
+
+A second temporary smoke scenario (commits `59159501` and `337a7bb4`, removed
+before merge) recorded, without asserting, rows 1, 2, 3, 7, 8, 12 and the clock
+and System toggles of row 11. It ran last in `smoke-b` so its screen-lock test
+could not disturb other scenarios. All four runs are `manual.yml`, `smoke-b`,
+GNOME Shell 51.1:
+
+| Image            | Rows                            | Run                                                                                 |
+| ---------------- | ------------------------------- | ----------------------------------------------------------------------------------- |
+| `dakota:testing` | 1, 2, 7, 8, 11 (Activities), 12 | [43534607984](https://github.com/projectbluefin/testsuite/actions/runs/43534607984) |
+| `utah:testing`   | 1, 2, 7, 8, 11 (Activities), 12 | [43534623481](https://github.com/projectbluefin/testsuite/actions/runs/43534623481) |
+| `dakota:testing` | 3, 11 (clock, System)           | [43536818854](https://github.com/projectbluefin/testsuite/actions/runs/43536818854) |
+| `utah:testing`   | 3, 11 (clock, System)           | [43536832734](https://github.com/projectbluefin/testsuite/actions/runs/43536832734) |
+
+What each reading did:
+
+- **Rows 1, 2:** raw `Shell.Eval` reads of `global.context.unsafe_mode` after
+  each event, and of a boolean, string, number, `null`, object, array and
+  `undefined`.
+- **Row 3:** `gnome-extensions list --enabled`, then per extension
+  `GetExtensionInfo`, `Shell.Eval` of `lookup(uuid).state` and `gnome-extensions show`.
+- **Rows 7, 8:** launched `ptyxis --new-window` and read window titles and AT-SPI
+  frames; locked through both paths and read `GetActive` after each step.
+- **Row 11:** every AT-SPI `panel` node; the top bar is the one holding
+  `Activities`, the unnamed clock `menu` and the `System` `menu`.
+- **Row 12:** the keyring daemon, `login` collection and default alias, then a
+  `secret-tool store` with a 15 s timeout.
+
+Every probe scenario passed. Both utah runs failed only at the SELinux denial
+gate, on utah#1198's `chcon` `mac_admin` denials.
 
 ## Run findings — Calculator and Text Editor divergences
 
