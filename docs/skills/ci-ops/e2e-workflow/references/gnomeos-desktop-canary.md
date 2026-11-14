@@ -42,7 +42,10 @@ gh workflow run gnomeos-canary.yml -R projectbluefin/testsuite --ref main \
 ```
 
 That run skips qecore-headless, records `session-isolation.json` next to
-`results/`, and fails before any scenario if the guest is not isolated. See
+`results/`, and fails before any scenario if the guest is not isolated. Like
+qecore-headless, the harness account then restarts GDM, so behave runs in a
+second login: in the first boot session Escape and virtual clicks never left
+the overview (run 43539744972). See
 the security posture in
 [gnome-extensions-validation.md](gnome-extensions-validation.md). The default
 (`false`) keeps the canary's original single-account path.
