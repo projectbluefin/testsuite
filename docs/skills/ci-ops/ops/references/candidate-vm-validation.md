@@ -32,7 +32,7 @@ git diff --name-only upstream/main...HEAD | python3 scripts/vm_validation_plan.p
 | `tests/shared/extension_*`, `gnome_extensions_*` | `extensions` |
 | `tests/shared/ssh_*` | `common`, `lifecycle` |
 | other `tests/shared/*`, `container/` runner, `scripts/*` that `e2e.yml` runs | `smoke`, `common` |
-| `.github/actions/gnome-e2e/**`, `scripts/extension_validation.py` | `gnome-e2e-action` (reported under `composite_action`, not `suites`) |
+| `.github/actions/gnome-e2e/**`, `scripts/extension_validation.py`, `scripts/extension_candidates.py`, `gnomeos-extensions.yml` | `gnome-e2e-action` (reported under `composite_action`, not `suites`) |
 | `.github/workflows/e2e.yml`, `manual.yml` | `smoke`, `common`, `lifecycle` |
 | `iso-*.yml` | `lifecycle` / `installer` |
 | anything else | `smoke`, `common`, `lifecycle` (fail-closed) |

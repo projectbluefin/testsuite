@@ -16,8 +16,8 @@ must be staged into the guest filesystem before GNOME Shell starts so extensions
 at session initialization. The four `gnome-extensions-hive` extensions are installed, enabled,
 and exercised with a qecore/Behave input+AT-SPI scenario.
 
-> **No run has completed yet.** Do **not** claim GNOME OS extension validation as done until a
-> green run exists and its evidence is attached.
+> **One profile so far:** Just Perfection, via `gnomeos-extensions.yml` (RUN_EVIDENCE). The
+> other three wait on #909 (recipes, HTTPS fixtures); do not claim the four-profile gate.
 
 ## Provenance, image inventory and pre-boot preflight
 
@@ -55,31 +55,32 @@ Bluefin/Dakota image:
 
 Behave collection (`tests/extensions/*`, #914): per-extension features + `extension_lifecycle.feature`.
 
+Candidates are built and staged before boot by `gnomeos-extensions.yml` and the action's
+`extension-artifacts` input: [gnome-extensions-staging.md](gnome-extensions-staging.md).
+
 ## Repeatable commands
-> **UNVERIFIED — intended shape only; nothing below has run end-to-end.** Blocker 1: stock
-> `gnomeos-nightly` has no `gnome-ponytail-daemon` and the guest has no dnf/rpm, so it must be
-> baked into the OCI image ([native overlay](gnomeos-desktop-canary.md)). Neither a successful
-> boot nor candidate credential isolation is established yet.
 
 ### 1. Provision, boot, and run in one action invocation
 
 `gnome-e2e` is not a boot-only action: the same invocation provisions the guest **and** runs
 `tests/<suite>/features/` inside it (step `Run behave via qecore-headless`). `suite` must
 therefore be set — it defaults to `smoke` (the `suite` input), which would boot GNOME OS and run
-the **Bluefin** smoke suite, testing the wrong thing. Pass a **digest resolved at dispatch time**, not a tag: the
-action hands `inputs.image` verbatim to `podman pull` / `bootc install`.
+the **Bluefin** smoke suite, testing the wrong thing. The image must carry
+`gnome-ponytail-daemon` and `/opt/gnomeos-harness`, which is the overlay that
+`scripts/build-gnomeos-harness.sh` builds from digest-pinned GNOME OS images on each run:
 
 ```yaml
 - uses: ./.github/actions/gnome-e2e
   with:
-    # requires an image that carries gnome-ponytail-daemon (blocker 1 above);
-    # digest from a not-yet-written `resolve` job (sketch: gnomeos-guest-provenance.md); expires in 2 weeks
-    image: quay.io/gnome_infrastructure/gnome-build-meta@${{ needs.resolve.outputs.digest }}
-    suite: extensions   # uses tests/extensions/ (landed with #914)
+    image: localhost/gnomeos-harness:canary   # built by scripts/build-gnomeos-harness.sh
+    suite: extensions                         # uses tests/extensions/ (landed with #914)
+    extension-artifacts: extension-candidate  # directory of packed ZIPs (#909)
 ```
 
-The action installs, preflights (fails today on stock GNOME OS), boots QEMU/KVM, waits for a live
-GNOME session, runs `tests/extensions` in the guest and writes `results/` + `vm-serial.log`.
+The action installs, preflights (fails on stock GNOME OS, which has no ponytail), boots
+QEMU/KVM, waits for a live GNOME session, runs `tests/extensions` in the guest and writes
+`results/` + `vm-serial.log`. Without `extension-artifacts` nothing is installed and every
+scenario fails at "is installed"; dispatch the workflow instead (staging reference).
 
 ### 2. Confirm a real session (canary)
 
@@ -120,11 +121,11 @@ Swap in another feature path as needed; re-run the step 2 canary to inspect enab
 ### 4. Gate the run, against the results copied back to the host workspace
 
 `gnome-e2e` runs the [service gate](#mandatory-service-gate) as a mandatory step
-(`if: always() && inputs.suite == 'extensions'`). No repo workflow or recipe calls the action
-with `suite: extensions` yet. Manual form, after a lab boot:
+(`if: always() && inputs.suite == 'extensions'`), with `--require-tag` for each staged profile.
+Manual form, after a lab boot:
 
 ```bash
-python3 scripts/extension_validation.py results/results.json; echo $?
+python3 scripts/extension_validation.py results/results.json --require-tag just_perfection; echo $?
 # 0 = genuine pass; 1 = empty/all-skipped/undefined/hook-error/failed-boot/missing-result
 ```
 
@@ -190,11 +191,10 @@ A host socket, key, or mount exposed to the guest desktop is a regression: stop 
 - [x] Mandatory service gate implemented and unit-tested (`scripts/extension_validation.py`)
 - [x] Security posture recorded: no host reach
 - [x] Isolated session (Option A): separate harness account, desktop user with no key/sudo,
-      checked on the booted guest by `scripts/guest_session_isolation.py`. **Not yet run on
-      GNOME OS**: dispatch the canary with `isolated_session=true` and attach its
-      `session-isolation.json` and desktop evidence
+      checked on the booted guest by `scripts/guest_session_isolation.py` (RUN_EVIDENCE)
 - [x] Gate wired into the lane as a mandatory `gnome-e2e` step for `suite: extensions` (#991)
-- [ ] Repeatable boot + load + run commands validated in the lab (**unverified**; blocked on a
-      `gnome-ponytail-daemon` overlay, which the preflight reports by name)
-- [ ] At least one green extension-validation run captured and attached
+- [x] Just Perfection built from its pinned revision, staged before the first Shell start and
+      green on GNOME OS (RUN_EVIDENCE)
+- [ ] Other three profiles (lane recipes; HTTPS fixtures for the widgets) and one fresh guest
+      per extension
 - [ ] Lane closed

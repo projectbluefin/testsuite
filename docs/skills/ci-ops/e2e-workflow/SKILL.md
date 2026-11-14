@@ -460,6 +460,7 @@ Load these when you hit the specific topic:
 - [Hardware-oriented suite groups, the all-blocked backstop, and why it fails loud.](references/hardware-suite-blocked.md)
 - [Installer suite assertions, and why an env-var gate made one unreachable.](references/installer-suite.md)
 - [GNOME OS guest lane for the developer extension-validation service and its mandatory gate.](references/gnome-extensions-validation.md)
+- [Building a hive extension from its pinned revision and staging it into the GNOME OS guest before Shell starts.](references/gnome-extensions-staging.md)
 - [SELinux enforcing in the e2e guest (default on): labeling, mode checks, AVC gate, canary.](references/selinux-enforcing.md)
 - [GNOME OS image provenance (2-week tag expiry), verified guest inventory, and the extensions pre-boot preflight](references/gnomeos-guest-provenance.md)
 - [Which units the fast e2e lane masks, why, and which still need a startup-qualification lane.](references/startup-service-inventory.md)

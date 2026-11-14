@@ -17,6 +17,8 @@ Common tagged examples exercise enable/disable/reenable and accessible preferenc
 
 Run **only in a disposable guest** with the exact candidate package installed and discoverable before GNOME Shell starts. The suite does not download extensions, start VMs, force metadata compatibility, or install dependencies on the developer's host.
 
+On GNOME OS the harness does the staging: `.github/workflows/gnomeos-extensions.yml` builds the candidate from its pinned revision, and the `gnome-e2e` action's `extension-artifacts` input validates the ZIP and extracts it into the desktop user's `~/.local/share/gnome-shell/extensions/` before boot, then runs only that profile's tag (see `docs/skills/ci-ops/e2e-workflow/references/gnome-extensions-validation.md`). Just Perfection is the only profile with a lane recipe so far.
+
 Prerequisites: real Wayland GNOME session; working session bus and user journal; trusted Shell.Eval test probe; `gnome-extensions` and `gsettings`; compiled package schemas; dogtail/AT-SPI for preferences; Text Editor and Calculator for shading. Use qecore-headless to establish the guest session environment, as the existing GNOME suites do. Gold quote retrieval additionally requires Python and curl_cffi; Stock Market requires Python and `/usr/bin/curl`.
 
 Guest command (example for Just Perfection):
@@ -80,7 +82,7 @@ A dry run proves step resolution, **not extension compatibility**. The GNOME OS 
 ## Deferred GNOME OS runtime work
 
 - [#908](https://github.com/projectbluefin/testsuite/issues/908): prove genuine GNOME OS provisioning and desktop/AT-SPI/input prerequisites.
-- [#909](https://github.com/projectbluefin/testsuite/issues/909): stage exact artifacts before session startup, supply deterministic HTTPS fixtures and execute this collection on GNOME OS.
+- [#909](https://github.com/projectbluefin/testsuite/issues/909): staging before session startup works for Just Perfection; the other three profiles, deterministic HTTPS fixtures and a fresh guest per extension remain.
 
 GNOME OS validation remains mandatory but is **not established by this test-content change**. Bluefin image smoke cannot substitute. Successful price formatting, partial-data/cache/outage recovery and delayed-fetch cancellation need the real provider fixture lane from #909. These tests do not replace helper subprocess output with fabricated quote JSON and do not use live provider quotes as a CI oracle. The Stock Market empty-watchlist language/position cases use the extension's existing no-fetch path; the selected-symbol case still runs its real bounded helper/fallback.
 

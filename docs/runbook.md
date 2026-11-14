@@ -116,3 +116,20 @@ the run to inspect pinned base/builder provenance, boot logs, input/AT-SPI
 readback, screenshot and journal. See
 [the canary reference](skills/ci-ops/e2e-workflow/references/gnomeos-desktop-canary.md)
 for commands and limits.
+
+## GNOME OS extension validation
+
+The dispatch-only `.github/workflows/gnomeos-extensions.yml` builds one hive
+extension from its pinned revision with its own recipe (offline, in the GNOME
+OS development image), stages it for the isolated desktop user before boot and
+runs that profile's scenarios on the same harness overlay. Only
+`just-perfection` is offered so far:
+
+```bash
+gh workflow run gnomeos-extensions.yml -R projectbluefin/testsuite --ref main \
+  -f extension=just-perfection -f test_ref=<sha>
+```
+
+Download `gnomeos-extension-validation` for `results/candidate-provenance.json`,
+`session-isolation.json`, `build-provenance.json` and the Behave results. See
+[the extension lane reference](skills/ci-ops/e2e-workflow/references/gnome-extensions-validation.md).

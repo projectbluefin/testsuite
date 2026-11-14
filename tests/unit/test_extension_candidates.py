@@ -289,3 +289,12 @@ def test_workflow_builds_offline_and_stages_through_the_action():
         for step in job["steps"]:
             if step.get("uses", "").startswith("actions/checkout@"):
                 assert step["with"]["persist-credentials"] is False
+
+
+def test_user_extensions_are_reallowed_after_the_harness_restarts_the_shell():
+    run = _step("Install Python test stack")["run"]
+    restart = run.index('$SSH "sudo systemctl start gdm"')
+    reallow = run.index("org.gnome.shell disable-user-extensions false")
+    # After the restart (the killed Shell's OnFailure unit sets it), before any test.
+    assert restart < reallow < run.index("gnome-extensions info ${uuid}")
+    assert 'if [[ -n "${GNOME_E2E_STAGED_UUIDS:-}" ]]; then' in run[restart:reallow]
