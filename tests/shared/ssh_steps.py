@@ -130,6 +130,12 @@ def ssh_output_stripped_is(context, expected):
     assert actual == expected, f"Expected '{expected}', got '{actual}'"
 
 
+@step('SSH command output stripped is "{a}" or "{b}"')
+def ssh_output_stripped_is_either(context, a, b):
+    actual = getattr(context, "command_stdout", "").strip()
+    assert actual in (a, b), f"Expected '{a}' or '{b}', got '{actual}'"
+
+
 @step('SSH command output is not "{a}" and not "{b}"')
 def ssh_output_not_values(context, a, b):
     actual = getattr(context, "command_stdout", "").strip()

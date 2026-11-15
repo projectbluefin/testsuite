@@ -269,6 +269,38 @@ class TestCommonEnvironmentSkipUtah:
         assert scenario.skip_message is None
 
 
+class TestCommonEnvironmentRequiresRpmOstree:
+    def test_skips_when_rpm_ostree_is_absent(self):
+        m = _import_common_environment(run_ssh_returncode=1)
+        context = _ctx(is_bluefin_image=True, has_brew=True, has_rpm_ostree=None)
+        scenario = _Scenario(["requires_rpm_ostree"])
+
+        m.before_scenario(context, scenario)
+
+        assert scenario.skip_message == "rpm-ostree not present on this image (not RPM-based)"
+        assert context.has_rpm_ostree is False
+
+    def test_runs_when_rpm_ostree_is_present(self):
+        m = _import_common_environment(run_ssh_returncode=0)
+        context = _ctx(is_bluefin_image=True, has_brew=True, has_rpm_ostree=None)
+        scenario = _Scenario(["requires_rpm_ostree"])
+
+        m.before_scenario(context, scenario)
+
+        assert scenario.skip_message is None
+        assert context.has_rpm_ostree is True
+
+    def test_untagged_scenarios_do_not_probe(self):
+        m = _import_common_environment(run_ssh_returncode=1)
+        calls = []
+        m.run_ssh = lambda context, cmd, **kw: (calls.append(cmd), ("", 1))[1]
+        context = _ctx(is_bluefin_image=True, has_brew=True, has_rpm_ostree=None)
+
+        m.before_scenario(context, _Scenario(["bluefin"]))
+
+        assert calls == []
+
+
 class TestCommonEnvironmentRequiresToggleAction:
     def test_skips_when_recipe_lacks_action_value(self):
         m = _import_common_environment(run_ssh_returncode=1)
