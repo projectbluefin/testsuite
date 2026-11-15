@@ -3,7 +3,13 @@ name: CI alert
 on:
   # The job handles main push metadata only and never checks out code.
   workflow_run: # zizmor: ignore[dangerous-triggers]
-    workflows: ["Build test runner image", "Build KDE runner image"]
+    # The publish workflow cancels itself when a newer run starts, so its
+    # cancelled runs are only real alerts when no newer run superseded them;
+    # the "superseded" step below filters those out.
+    workflows:
+      - "Build test runner image"
+      - "Build KDE runner image"
+      - "Publish QA Dashboard & Screenshots to Pages"
     types: [completed]
 
 permissions:
@@ -27,6 +33,32 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:
+      - name: Check whether a newer run superseded the cancellation
+        id: superseded
+        if: github.event.workflow_run.conclusion == 'cancelled'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WORKFLOW_ID: ${{ github.event.workflow_run.workflow_id }}
+          RUN_NUMBER: ${{ github.event.workflow_run.run_number }}
+        run: |
+          set -euo pipefail
+          # A cancelled run is usually the older of two: the newer push or
+          # schedule run that cancelled it will rebuild. Only alert when no
+          # newer main run of this workflow has finished, so a routine
+          # cancellation does not open a spurious alert. The runner-build
+          # workflows do not cancel, so this step is skipped for them.
+          newer=$(gh api --method GET --paginate --slurp \
+            "repos/${{ github.repository }}/actions/workflows/${WORKFLOW_ID}/runs" \
+            -f branch=main -f status=completed -f per_page=100 |
+            jq -r --argjson number "$RUN_NUMBER" \
+              '[.[].workflow_runs[] | select((.event == "push" or .event == "schedule") and .run_number > $number)] | max_by(.run_number) | .id // empty')
+          if [[ -n "$newer" ]]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+            echo "A newer main run (${newer}) superseded the cancelled run; no alert."
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Get failed jobs from the run
         if: github.event.workflow_run.conclusion != 'success'
         id: jobs
@@ -65,7 +97,7 @@ jobs:
           echo "issue_number=${ISSUE_NUM:-}" >> "$GITHUB_OUTPUT"
 
       - name: Create or reopen alert issue
-        if: github.event.workflow_run.conclusion != 'success' && (github.event.workflow_run.conclusion != 'cancelled' || steps.jobs.outputs.count != '0')
+        if: github.event.workflow_run.conclusion != 'success' && (github.event.workflow_run.conclusion != 'cancelled' || steps.jobs.outputs.count != '0') && steps.superseded.outputs.found != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RUN_URL: ${{ github.event.workflow_run.html_url }}

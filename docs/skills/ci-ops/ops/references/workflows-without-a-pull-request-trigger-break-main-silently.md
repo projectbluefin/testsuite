@@ -120,8 +120,9 @@ on PR, push on everything else.
 A PR trigger only covers changes made through a PR. The weekly cron rebuild of
 `build-runner.yml` and `build-kde-runner.yml` can still break on a new base image
 or pip release with no PR in sight. `.github/workflows/ci-alert.yml` listens for
-both workflows (`workflow_run`, `completed`) and, for `push` and `schedule` runs on
-`main`:
+three workflows (`workflow_run`, `completed`) — the two runner builds plus
+"Publish QA Dashboard & Screenshots to Pages" — and, for `push` and `schedule`
+runs on `main`:
 
 - on failure, cancellation or timeout, creates or reopens one issue per workflow,
   titled `[CI] <workflow name> failed on main`, listing the failed jobs;
@@ -130,10 +131,18 @@ both workflows (`workflow_run`, `completed`) and, for `push` and `schedule` runs
   run cannot close a newer alert. It compares runs, not `main` HEAD, because the
   builds are path-filtered: HEAD usually moves past the commit a build ran on.
 
+The publish workflow cancels itself when a newer run starts (`cancel-in-progress`),
+so a cancelled publish run is usually the older of two and a routine cancellation
+should not open an alert. The "Check whether a newer run superseded the cancellation"
+step runs only for a cancelled run and opens an alert only when no newer `push` or
+`schedule` run of that workflow has finished on `main`; the runner-build workflows
+do not cancel, so that step is skipped for them and their behaviour is unchanged.
+
 The title is built from `github.event.workflow_run.name` (passed through `env:`) in
-both the lookup and the create step, so the two runner builds never share or
-close each other's alert. If you rename either workflow's `name:`, update the
-`workflows:` list in `ci-alert.yml` in the same PR, or the alert stops firing.
+both the lookup and the create step, so the runner builds and the publish workflow
+never share or close each other's alert. If you rename any of these workflows'
+`name:`, update the `workflows:` list in `ci-alert.yml` in the same PR, or the alert
+stops firing.
 
 ## Status
 
