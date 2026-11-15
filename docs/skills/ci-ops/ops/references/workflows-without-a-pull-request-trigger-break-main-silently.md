@@ -135,7 +135,7 @@ The publish workflow cancels itself when a newer run starts (`cancel-in-progress
 so a cancelled publish run is usually the older of two and a routine cancellation
 should not open an alert. The "Check whether a newer run superseded the cancellation"
 step runs only for a cancelled run and opens an alert only when no newer `push` or
-`schedule` run of that workflow has finished on `main`; the runner-build workflows
+`schedule` run of that workflow has started on `main`; the runner-build workflows
 do not cancel, so that step is skipped for them and their behaviour is unchanged.
 
 The title is built from `github.event.workflow_run.name` (passed through `env:`) in

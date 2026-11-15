@@ -44,12 +44,12 @@ jobs:
           set -euo pipefail
           # A cancelled run is usually the older of two: the newer push or
           # schedule run that cancelled it will rebuild. Only alert when no
-          # newer main run of this workflow has finished, so a routine
+          # newer main run of this workflow has started, so a routine
           # cancellation does not open a spurious alert. The runner-build
           # workflows do not cancel, so this step is skipped for them.
           newer=$(gh api --method GET --paginate --slurp \
             "repos/${{ github.repository }}/actions/workflows/${WORKFLOW_ID}/runs" \
-            -f branch=main -f status=completed -f per_page=100 |
+            -f branch=main -f per_page=100 |
             jq -r --argjson number "$RUN_NUMBER" \
               '[.[].workflow_runs[] | select((.event == "push" or .event == "schedule") and .run_number > $number)] | max_by(.run_number) | .id // empty')
           if [[ -n "$newer" ]]; then
