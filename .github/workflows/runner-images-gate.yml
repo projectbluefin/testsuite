@@ -1,0 +1,52 @@
+name: Runner images
+
+on:
+  pull_request:
+    branches: [main]
+  merge_group:
+
+permissions:
+  contents: read
+
+jobs:
+  runner-images:
+    name: Runner images
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Detect changed images
+        id: changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+        run: bash scripts/runner-image-changes.sh "$BASE_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: No runner changes
+        if: steps.changes.outputs.runner != 'true' && steps.changes.outputs.kde != 'true'
+        run: echo 'No runner image inputs changed.'
+
+      - name: Set up Docker Buildx
+        if: steps.changes.outputs.runner == 'true' || steps.changes.outputs.kde == 'true'
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+
+      - name: Build runner
+        if: steps.changes.outputs.runner == 'true'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          file: container/Containerfile.runner
+          push: false
+          platforms: linux/amd64
+
+      - name: Build KDE runner
+        if: steps.changes.outputs.kde == 'true'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          file: container/Containerfile.kde-runner
+          push: false
+          platforms: linux/amd64
