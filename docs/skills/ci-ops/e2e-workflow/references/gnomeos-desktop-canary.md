@@ -182,8 +182,9 @@ missing value is reported by the canary's own first step.
 Green at `081499a1` (merged as #1198) on GNOME OS `nightly.20261113.1`, harness
 built over `gnome-build-meta@sha256:aca58bdd…`: isolated run 43549129246 (all 11
 `session-isolation.json` checks `ok`, `wayland-0`, AT-SPI bus, gate `passed`) and
-shared run 43549131789. On `main` the push canary passed on `nightly.20261114.0`
-(run 43591388869). Nightly digests expire, so later runs resolve newer builds.
+shared run 43549131789. On `main` the v1 gate's canary job (`GNOME OS canary
+(gnome-e2e action)` in `Update v1 tag` run 43591388869) passed on
+`nightly.20261114.0`. Nightly digests expire, so later runs resolve newer builds.
 
 ## Upstream contracts
 
