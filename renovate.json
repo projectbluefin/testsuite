@@ -3,6 +3,9 @@
   "extends": [
     "local>projectbluefin/renovate-config"
   ],
+  "pip_requirements": {
+    "managerFilePatterns": ["/(^|/)container/requirements\\.kde-runner\\.txt$/"]
+  },
   "packageRules": [
     {
       "description": "Immutable-ref housekeeping (pin, pinDigest) automerges. Digest, patch and minor updates also automerge, through the org's inherited rules, once checks pass; nothing here holds them for a person.",
