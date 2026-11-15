@@ -45,9 +45,10 @@
       "enabled": false
     },
     {
-      "description": "A major update always waits for a person. Last matching rule wins, so keep this rule last.",
+      "description": "A major update always waits for a person. automerge false only stops Renovate; the hive merges trusted-bot pull requests itself and skips only labels such as hold, so add hold too (the hive merged #1229 and #1230 without it, and #1230 broke the dashboard publish). Last matching rule wins, so keep this rule last.",
       "matchUpdateTypes": ["major"],
-      "automerge": false
+      "automerge": false,
+      "addLabels": ["hold"]
     }
   ]
 }
