@@ -59,7 +59,11 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: '26'
-          cache: 'npm'
+          # cache: none forces npm ci to validate package.json against the lock
+          # every run. A warm cache (cache: 'npm') skips that check on a hit,
+          # which is exactly how #1230's drift merged green and broke the
+          # publish run on main. See issue #1232.
+          cache: 'none'
           cache-dependency-path: 'dashboard/package-lock.json'
 
       - name: Install Dashboard Dependencies
