@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from scripts import build_extension_artifact as builder
 from scripts import stage_extension as stage
 from tests.shared import gnome_extensions_artifacts as art
 
@@ -218,6 +219,22 @@ def test_workflow_builds_offline_and_passes_the_recorded_hash():
     assert lane["extension-zip"] == "${{ steps.build.outputs.zip }}"
     assert lane["extension-sha256"] == "${{ steps.build.outputs.sha256 }}"
     assert "secrets." not in WORKFLOW.read_text()
+
+
+def test_workflow_offers_just_perfection_and_shade():
+    workflow = yaml.safe_load(WORKFLOW.read_text())
+    profile = workflow[True]["workflow_dispatch"]["inputs"]["profile"]
+    assert profile["options"] == ["just-perfection", "shade-inactive-windows"]
+    assert profile["default"] == "just-perfection"
+
+
+def test_shade_build_plan_uses_default_pack_at_its_pinned_rev():
+    plan = builder.build_plan("shade-inactive-windows")
+    contract = art.find_contract("shade-inactive-windows-reborn@binhnguyensoft.com")
+    assert plan["source_rev"] == contract.source_rev
+    assert plan["source_repo"] == "gnome-extensions-hive/Shade-Inactive-Windows-Reborn"
+    assert plan["recipe"] == ["gnome-extensions", "pack", ".", "--force"]
+    assert plan["zip"] == "shade-inactive-windows-reborn@binhnguyensoft.com.shell-extension.zip"
 
 
 def test_user_extensions_are_reallowed_after_the_harness_restarts_the_shell():
