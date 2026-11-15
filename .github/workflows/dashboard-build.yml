@@ -1,0 +1,73 @@
+name: Dashboard build
+
+# Builds the QA dashboard on pull requests and in the merge queue, so a
+# dependency bump that breaks `npm ci` is caught before it merges instead of
+# failing silently on the scheduled publish run. See issue #1232.
+on:
+  pull_request:
+    branches: [main]
+  merge_group:
+
+permissions:
+  contents: read
+
+jobs:
+  dashboard-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Check for dashboard changes
+        id: changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+        run: |
+          set -euo pipefail
+          # Compare against the base so an editing-only PR that touches the
+          # dashboard (or this workflow itself) is caught, not just PRs that
+          # add files under dashboard/.
+          if git diff --name-only "${BASE_SHA}..." | grep -qE '^dashboard/|^\.github/workflows/dashboard-build\.yml$'; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Skip dashboard build when nothing changed
+        if: steps.changes.outputs.changed != 'true'
+        run: echo "No change under dashboard/ or this workflow — skipping the dashboard build."
+
+      - name: Create empty data directory
+        # The publish job downloads GHCR screenshots and run logs before it
+        # compiles. Without them compile_data.py still runs on an empty data
+        # directory, but make sure that directory exists before it runs.
+        run: mkdir -p dashboard/src/data/runs/
+
+      - name: Set up Python Environment
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.15'
+
+      - name: Compile Rollup Data Index
+        run: |
+          python3 dashboard/scripts/compile_data.py
+
+      - name: Set up Node.js Environment
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '26'
+          cache: 'npm'
+          cache-dependency-path: 'dashboard/package-lock.json'
+
+      - name: Install Dashboard Dependencies
+        run: |
+          cd dashboard
+          npm ci
+
+      - name: Build Dashboard & Index Search
+        run: |
+          cd dashboard
+          npm run build
