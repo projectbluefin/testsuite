@@ -1,8 +1,8 @@
 # Host-side Python dependencies for the KDE/Plasma e2e runner image.
 # Pinned 2026-07-28; Renovate bumps these via the pip_requirements manager.
 behave==1.3.3
-selenium==4.46.0
-websocket-client==1.9.0
+selenium==4.52.0
+websocket-client==1.9.2
 lxml==6.1.3
 PyYAML==6.0.3
 

@@ -157,3 +157,33 @@ def test_other_settings_scenarios_do_not_probe_power_hardware():
     with patch("tests.shared.quarantine.skip_quarantine", return_value=False):
         env.before_scenario(context, scenario)
     guest_probe.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "is_dakota_family,tag,expected_skip",
+    [
+        (True, "bluefin_classic", True),
+        (False, "bluefin_classic", False),
+        (False, "dakota_family", True),
+        (True, "dakota_family", False),
+    ],
+)
+def test_family_tags_scope_scenarios_to_their_image_family(
+    is_dakota_family, tag, expected_skip,
+):
+    """Utah is Bluefin-family and Dakota-family at once: @bluefin still runs
+    there, but @bluefin_classic (Bluefin-classic defaults) does not."""
+    _setup_stubs()
+    env = importlib.import_module("tests.smoke.features.environment")
+    sys.modules["steps.steps"]._run_host = MagicMock()
+    scenario = MagicMock(tags=["bluefin", tag], effective_tags=["bluefin", tag])
+    context = MagicMock(
+        is_bluefin_image=True,
+        is_dakota_image=False,
+        is_dakota_family_image=is_dakota_family,
+        failed_setup=None,
+    )
+    with patch("tests.shared.quarantine.skip_quarantine", return_value=False):
+        env.before_scenario(context, scenario)
+    reasons = [str(call.args[0]) for call in scenario.skip.call_args_list if call.args]
+    assert any(f"@{tag} scenario" in r for r in reasons) == expected_skip, reasons
