@@ -99,6 +99,8 @@ Dependency updates for this repo and `projectbluefin/bluefin` are managed by Ren
 
 Action bumps in the three release workflows (`e2e.yml`, `build-runner.yml`, `build-kde-runner.yml`) arrive in their own PR, "release workflow action pins". The hive merges a pure pin bump to those files without a person (its pin-only exception) only when the PR touches nothing else. The VM jobs' `runs-on: ubuntu-24.04` pin is excluded from major runner updates (#1131).
 
+**Python requirements files:** Renovate's `pip_requirements` manager only reads files matching its default pattern `(^|/)[\w-]*requirements([-._]\w+)?\.(txt|pip)$`. A hyphen after the first suffix character breaks the match, so `container/requirements.kde-runner.txt` is listed explicitly under `pip_requirements.managerFilePatterns` in `renovate.json` (#1240). Add any new requirements file whose name falls outside the default pattern there too; `tests/unit/test_renovate_config.py` fails if a `container/requirements*.txt` file is not matched.
+
 **Triggering Renovate manually** (e.g. after config changes):
 
 1. Open the [Dependency Dashboard](https://github.com/projectbluefin/testsuite/issues) issue (titled "Dependency Dashboard")

@@ -3,11 +3,9 @@ Feature: System health smoke checks
   Validates the booted image is healthy, identifiable as Bluefin, and has
   enough free root filesystem space for normal operation.
 
-  # Quarantined: Dakota testing boots with nfs-idmapd.service and rpc-statd.service
-  # failed (nfs-utils shipped without NFS config); real image issue, not VM noise.
-  # geoclue.service is VM-only and ignored in the step.
-  # Tracking: projectbluefin/testsuite#1143 (Dakota issue could not be filed by hive).
-  @health @systemd @sla_10s @quarantine
+  # geoclue.service is VM-only and ignored in the step. Dakota's NFS units
+  # (nfs-idmapd, rpc-statd) failed here until projectbluefin/dakota#1876.
+  @health @systemd @sla_10s
   Scenario: No failed systemd units at boot
     * No failed systemd units at boot
 

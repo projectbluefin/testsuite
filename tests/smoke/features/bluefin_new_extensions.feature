@@ -1,10 +1,13 @@
-@smoke_suite
+@smoke_suite @bluefin_classic
 Feature: Newly enabled Bluefin GNOME extension stability
-  Validates curated extensions enabled by default in Bluefin/Dakota
+  Validates curated extensions enabled by default in Bluefin
   (projectbluefin/common#1087) are present, interactive, and do not
   destabilize GNOME Shell. Complements the presence-only checks in
   bluefin_extensions.feature with AT-SPI interaction and crash-regression
-  coverage for the highest-risk additions.
+  coverage for the highest-risk additions. Dakota-family images (dakota,
+  utah) do not enable these extensions by default, so @bluefin_classic
+  skips this feature there; dakota_extensions.feature covers their
+  default-enabled set.
 
   @extensions @atspi @priority-high @pending
   # @pending: the AT-SPI popover and clipboard-row steps degrade to a printed

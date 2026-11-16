@@ -74,8 +74,40 @@ def is_extension_validation_pass(counts: dict[str, int]) -> bool:
     return counts.get("passed", 0) > 0 and not _non_success_counts(counts)
 
 
-def gate_report(results_json: Path) -> dict[str, Any]:
+def _tags(element: dict[str, Any]) -> set[str]:
+    return {str(tag).removeprefix("@") for tag in element.get("tags") or []}
+
+
+def mandatory_not_passed(report: list[dict[str, Any]], tag: str) -> tuple[int, list[str]]:
+    """Scenarios carrying ``tag`` (on the feature or the scenario) that did not pass.
+
+    The candidate's tag names its mandatory inventory (#909): behave reports
+    scenarios outside the ``--tags`` selection as skipped, so every scenario
+    the tag covers is in ``results.json`` and each one must have passed. A
+    skipped (quarantined, deselected) or missing mandatory scenario fails.
+    Returns ``(mandatory count, ["name: status", ...])``.
+    """
+    tag = tag.removeprefix("@")
+    total = 0
+    missing: list[str] = []
+    for feature in report:
+        feature_tags = _tags(feature)
+        for element in feature.get("elements") or []:
+            if element.get("type") != "scenario":
+                continue
+            if tag not in feature_tags | _tags(element):
+                continue
+            total += 1
+            if element.get("status") != "passed":
+                missing.append(f"{element.get('name', '?')}: {element.get('status')}")
+    return total, missing
+
+
+def gate_report(results_json: Path, require_tag: str | None = None) -> dict[str, Any]:
     """Evaluate the gate for a ``results.json`` and return a readable report.
+
+    With ``require_tag``, every scenario carrying that tag must also have
+    passed, and there must be at least one (see :func:`mandatory_not_passed`).
 
     Returns ``{"passed": bool, "counts": {...}, "reason": str}``. A missing,
     unreadable, or malformed results file fails the gate (``passed: False``) —
@@ -131,7 +163,15 @@ def gate_report(results_json: Path) -> dict[str, Any]:
         )
     else:
         reason = "no scenario passed (empty / all-skipped run)"
-    return {"passed": passed, "counts": counts, "reason": reason}
+    result: dict[str, Any] = {"passed": passed, "counts": counts, "reason": reason}
+    if require_tag:
+        total, missing = mandatory_not_passed(report, require_tag)
+        result["mandatory"] = {"tag": require_tag, "scenarios": total, "not_passed": missing}
+        if passed and not total:
+            result.update(passed=False, reason=f"no scenario carries the mandatory tag @{require_tag}")
+        elif passed and missing:
+            result.update(passed=False, reason=f"mandatory @{require_tag} scenarios did not pass: " + "; ".join(missing))
+    return result
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -139,7 +179,7 @@ def main(argv: list[str] | None = None) -> int:
 
     Invoked by the extension-validation service as::
 
-        python3 scripts/extension_validation.py results/results.json
+        python3 scripts/extension_validation.py results/results.json [--require-tag TAG]
 
     The exit code is the gate verdict; the JSON report on stdout is for logs.
     """
@@ -147,8 +187,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "results_json", type=Path, help="path to behave results.json"
     )
+    parser.add_argument(
+        "--require-tag",
+        help="every scenario carrying this Behave tag must pass (the candidate's inventory)",
+    )
     args = parser.parse_args(argv)
-    report = gate_report(args.results_json)
+    report = gate_report(args.results_json, args.require_tag)
     print(json.dumps(report))
     return 0 if report["passed"] else 1
 

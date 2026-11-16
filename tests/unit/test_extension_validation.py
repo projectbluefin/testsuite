@@ -202,3 +202,55 @@ def test_cli_reports_from_consumer_with_regular_scripts_package(
         assert report["reason"] == ""
     else:
         assert "failed=1" in report["reason"]
+
+
+# ── Mandatory candidate inventory (#909) ─────────────────────────────────
+
+
+def _tagged_report(tmp_path: Path, features: list[dict]) -> Path:
+    path = tmp_path / "results.json"
+    path.write_text(json.dumps(features))
+    return path
+
+
+def _scenario(name: str, status: str, tags: list[str] | None = None) -> dict:
+    return {"type": "scenario", "name": name, "status": status, "tags": tags or []}
+
+
+def test_require_tag_passes_when_every_tagged_scenario_passed(tmp_path: Path) -> None:
+    results = _tagged_report(tmp_path, [
+        {"tags": ["just_perfection"], "elements": [_scenario("panel", "passed")]},
+        {"tags": [], "elements": [_scenario("lifecycle jp", "passed", ["just_perfection"]),
+                                  _scenario("lifecycle sjc", "skipped", ["sjc_gold"])]},
+    ])
+    report = gate_report(results, "just_perfection")
+    assert report["passed"] is True
+    assert report["mandatory"] == {"tag": "just_perfection", "scenarios": 2, "not_passed": []}
+
+
+def test_require_tag_fails_when_a_tagged_scenario_was_skipped(tmp_path: Path) -> None:
+    results = _tagged_report(tmp_path, [
+        {"tags": ["just_perfection"], "elements": [_scenario("panel", "passed"),
+                                                   _scenario("dash", "skipped")]},
+    ])
+    report = gate_report(results, "just_perfection")
+    assert report["passed"] is False
+    assert "dash: skipped" in report["reason"]
+
+
+def test_require_tag_fails_when_no_scenario_carries_the_tag(tmp_path: Path) -> None:
+    results = _tagged_report(tmp_path, [
+        {"tags": [], "elements": [_scenario("other", "passed", ["sjc_gold"])]},
+    ])
+    report = gate_report(results, "just_perfection")
+    assert report["passed"] is False
+    assert "no scenario carries the mandatory tag" in report["reason"]
+
+
+def test_require_tag_cli_flag(tmp_path: Path) -> None:
+    results = _tagged_report(tmp_path, [
+        {"tags": ["@just_perfection"], "elements": [_scenario("panel", "skipped"),
+                                                    _scenario("other", "passed", ["sjc_gold"])]},
+    ])
+    assert main([str(results)]) == 0
+    assert main([str(results), "--require-tag", "just_perfection"]) == 1

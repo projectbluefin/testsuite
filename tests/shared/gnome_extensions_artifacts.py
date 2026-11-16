@@ -68,8 +68,9 @@ CATEGORY_ARTIFACT = "artifact"
 #: of the pinned identity (#909 step 1): the same revision packed a different way
 #: yields a different member set, so the recipe is asserted and reported.
 RECIPE_BUILD_SH = (
-    "scripts/build.sh (gnome-extensions pack src "
-    "--extra-source=data/resources.gresource --extra-source=lib)"
+    "scripts/build.sh (glib-compile-resources, then gnome-extensions pack src "
+    "--podir=../po --extra-source=data/resources.gresource --extra-source=lib "
+    "--extra-source=../LICENSE --extra-source=../CHANGELOG.md)"
 )
 RECIPE_PACK_FROM_ROOT = "gnome-extensions pack (repository root)"
 RECIPE_UNSPECIFIED = "unspecified"
@@ -376,6 +377,10 @@ CANONICAL_CONTRACTS: tuple[ExtensionContract, ...] = (
     # Packed by scripts/build.sh: `gnome-extensions pack src` plus
     # --extra-source=data/resources.gresource and --extra-source=lib, so the
     # compiled resource bundle and the lib/ modules are part of the artifact.
+    # pack stores each extra source under its basename, so the bundle sits at
+    # the archive root, where lib/Prefs/Prefs.js loads it
+    # (`${path}/resources.gresource`). A real build of this revision in the
+    # GNOME OS development image confirmed it (testsuite run 43606155009).
     ExtensionContract(
         uuid="just-perfection-desktop@just-perfection",
         source_repo="gnome-extensions-hive/just-perfection",
@@ -386,7 +391,7 @@ CANONICAL_CONTRACTS: tuple[ExtensionContract, ...] = (
             "extension.js",
             "prefs.js",
             "stylesheet.css",
-            "data/resources.gresource",
+            "resources.gresource",
             "lib/API.js",
             "lib/Manager.js",
             "lib/Prefs/Prefs.js",

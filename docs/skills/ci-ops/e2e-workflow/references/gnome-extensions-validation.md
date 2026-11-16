@@ -16,8 +16,8 @@ must be staged into the guest filesystem before GNOME Shell starts so extensions
 at session initialization. The four `gnome-extensions-hive` extensions are installed, enabled,
 and exercised with a qecore/Behave input+AT-SPI scenario.
 
-> **No run has completed yet.** Do **not** claim GNOME OS extension validation as done until a
-> green run exists and its evidence is attached.
+> **Guest lane proven; one extension validated:** Just Perfection (run 43612114661). Do **not**
+> claim another extension validated until a green run with it staged exists (#909).
 
 ## Provenance, image inventory and pre-boot preflight
 
@@ -56,10 +56,10 @@ Bluefin/Dakota image:
 Behave collection (`tests/extensions/*`, #914): per-extension features + `extension_lifecycle.feature`.
 
 ## Repeatable commands
-> **UNVERIFIED — intended shape only; nothing below has run end-to-end.** Blocker 1: stock
-> `gnomeos-nightly` has no `gnome-ponytail-daemon` and the guest has no dnf/rpm, so it must be
-> baked into the OCI image ([native overlay](gnomeos-desktop-canary.md)). Neither a successful
-> boot nor candidate credential isolation is established yet.
+> **Boot and isolated session have run green** on the [native overlay](gnomeos-desktop-canary.md)
+> (canary runs 43549129246 isolated, 43549131789 shared), which bakes in `gnome-ponytail-daemon`
+> (blocker 1; stock `gnomeos-nightly` lacks it and has no dnf/rpm). A `suite: extensions` run
+> with a staged candidate is green too (run 43612114661, [staging](gnome-extensions-staging.md)).
 
 ### 1. Provision, boot, and run in one action invocation
 
@@ -72,8 +72,7 @@ action hands `inputs.image` verbatim to `podman pull` / `bootc install`.
 ```yaml
 - uses: ./.github/actions/gnome-e2e
   with:
-    # requires an image that carries gnome-ponytail-daemon (blocker 1 above);
-    # digest from a not-yet-written `resolve` job (sketch: gnomeos-guest-provenance.md); expires in 2 weeks
+    # needs gnome-ponytail-daemon (blocker 1); digest from a resolve job (gnomeos-guest-provenance.md)
     image: quay.io/gnome_infrastructure/gnome-build-meta@${{ needs.resolve.outputs.digest }}
     suite: extensions   # uses tests/extensions/ (landed with #914)
 ```
@@ -120,8 +119,8 @@ Swap in another feature path as needed; re-run the step 2 canary to inspect enab
 ### 4. Gate the run, against the results copied back to the host workspace
 
 `gnome-e2e` runs the [service gate](#mandatory-service-gate) as a mandatory step
-(`if: always() && inputs.suite == 'extensions'`). No repo workflow or recipe calls the action
-with `suite: extensions` yet. Manual form, after a lab boot:
+(`if: always() && inputs.suite == 'extensions'`). `extension-validation.yml` calls it with one
+staged candidate ([staging](gnome-extensions-staging.md)). Manual form, after a lab boot:
 
 ```bash
 python3 scripts/extension_validation.py results/results.json; echo $?
@@ -184,17 +183,18 @@ A host socket, key, or mount exposed to the guest desktop is a regression: stop 
 ## Status
 
 - [x] Provenance: tested build recorded per run in `results/guest-provenance.json`
-- [ ] Provenance: resolve job pinning the digest per run (sketch only, no workflow yet)
+- [x] Provenance: `scripts/build-gnomeos-harness.sh` resolves digests per run (`harness-provenance.json`)
 - [x] Guest inventory verified against the image layers; four hive extensions documented
 - [x] Pre-boot preflight (`scripts/guest_preflight.py`) fails closed on missing prerequisites
 - [x] Mandatory service gate implemented and unit-tested (`scripts/extension_validation.py`)
 - [x] Security posture recorded: no host reach
 - [x] Isolated session (Option A): separate harness account, desktop user with no key/sudo,
-      checked on the booted guest by `scripts/guest_session_isolation.py`. **Not yet run on
-      GNOME OS**: dispatch the canary with `isolated_session=true` and attach its
-      `session-isolation.json` and desktop evidence
+      checked on the booted guest by `scripts/guest_session_isolation.py`. Run green on GNOME
+      OS: canary run 43549129246 (`isolated-session: true`; any failed check stops the run),
+      `session-isolation.json` in its `gnomeos-desktop-canary` artifact
 - [x] Gate wired into the lane as a mandatory `gnome-e2e` step for `suite: extensions` (#991)
-- [ ] Repeatable boot + load + run commands validated in the lab (**unverified**; blocked on a
-      `gnome-ponytail-daemon` overlay, which the preflight reports by name)
-- [ ] At least one green extension-validation run captured and attached
+- [x] Repeatable boot + load + run validated on GitHub runners: `extension-validation.yml`
+      (run 43612114661); the ponytail overlay is `scripts/build-gnomeos-harness.sh`
+- [x] Exact candidate ZIP built offline, hash-checked, staged before boot ([staging](gnome-extensions-staging.md))
+- [x] At least one green extension-validation run captured: run 43612114661 (Just Perfection)
 - [ ] Lane closed

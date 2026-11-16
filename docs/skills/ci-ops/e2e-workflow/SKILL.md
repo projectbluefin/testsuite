@@ -71,6 +71,15 @@ so its desktop version cannot be inferred from a fixed workflow label. KDE suite
 retain the `KDE Plasma` label. Job names are also check names; check downstream
 required status checks before changing them.
 
+## Runner image merge gate
+
+`runner-images-gate.yml` runs on every pull request and merge group so its
+check can be required. It compares the event base with the checked-out commit
+and builds only runner images whose Containerfile, requirements, or publishing
+workflow changed. Keep `scripts/runner-image-changes.sh` aligned with the
+publishing workflows; the gate never pushes images or uses registry credentials.
+A maintainer must add `Runner images` to the repository's required checks.
+
 ## PR validation sidecars
 
 
