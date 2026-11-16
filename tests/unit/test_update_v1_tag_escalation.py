@@ -220,6 +220,21 @@ def test_failed_extension_validation_holds_v1(tmp_path):
     assert any(c.startswith("gh issue create") for c in calls)
 
 
+def test_failed_extension_validation_alone_holds_v1(tmp_path):
+    # Extension paths changed on their own: no canary run, and the extension
+    # run failed (#1218).
+    calls = _run(
+        tmp_path,
+        ACTION="canary",
+        CANARY="false",
+        CANARY_RESULT="skipped",
+        EXTENSIONS="true",
+        EXTENSIONS_RESULT="failure",
+    )
+    assert not _moved(calls)
+    assert any(c.startswith("gh issue create") for c in calls)
+
+
 def test_extensions_job_calls_the_validation_workflow_with_the_merge_commit():
     workflow = yaml.safe_load(WORKFLOW.read_text())
     job = workflow["jobs"]["extensions"]

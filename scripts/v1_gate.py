@@ -13,11 +13,15 @@ This script turns the plan into one of four actions:
   (``.github/actions/gnome-e2e/``) outside steps that skip the canary suite,
   ``scripts/extension_validation.py``, or the canary's own suite. Run the
   canary and move ``v1`` only if it passes. With suites to boot as well, the
-  action is ``gate`` and ``canary=true``: both must pass.
+  action is ``gate`` and ``canary=true``: both must pass. With
+  extension-staging paths, or changed action steps only ``suite: extensions``
+  runs, ``extensions=true`` also runs ``extension-validation.yml``, and it must
+  pass too (#1218).
 - ``hold``: the plan needs a lane neither can cover: an action-lane script or
-  step the canary skips (``scripts/assert_passed.py``, or a changed step whose
-  ``if:`` excludes the canary suite, from ``scripts/v1_gate_canary_scope.py``),
-  or a suite with no hosted lane. Keep ``v1`` where it is and alert; a
+  step no GNOME OS run executes (``scripts/assert_passed.py``, or a changed step
+  whose ``if:`` excludes both the canary and extensions suites, from
+  ``scripts/v1_gate_canary_scope.py --with-extensions``), or a suite with no
+  hosted lane. Keep ``v1`` where it is and alert; a
   maintainer validates by hand and moves it with the workflow's manual
   ``force`` run.
 
@@ -31,7 +35,7 @@ Usage:
     python3 scripts/vm_validation_plan.py < paths | python3 scripts/v1_gate.py
 
 Prints ``key=value`` lines for ``$GITHUB_OUTPUT``: action, suites, ungated,
-reason, canary.
+reason, canary, extensions.
 """
 
 from __future__ import annotations
@@ -139,6 +143,10 @@ def decide(
     skipped = [s for s in requested if s in ungated]
     composite = set(plan.get("composite_action", []))
     covered, canary, extensions = lanes_needed(plan, canary_gaps, extension_gaps)
+    # Steps no GNOME OS run executes. Chosen before a hold resets
+    # ``extensions``, so a hold for another reason doesn't also list steps an
+    # extension run would have covered.
+    gaps = extension_gaps if extension_gaps is not None else canary_gaps
     covered = covered and bool(composite)
     if covered:
         composite = set()
@@ -153,7 +161,6 @@ def decide(
     # A PR plan (vm_validation_plan.py --pr) flags the canary itself.
     canary = canary or bool(plan.get("canary"))
     blockers = sorted(composite | unhosted)
-    gaps = extension_gaps if extensions and extension_gaps is not None else canary_gaps
 
     decision = {
         "action": "",

@@ -204,6 +204,19 @@ def test_steps_neither_run_executes_still_hold():
     assert "Mandatory-coverage gate" in d["reason"]
 
 
+def test_hold_for_another_reason_lists_only_steps_no_run_executes():
+    # assert_passed.py holds anyway; the reason must not also send the
+    # maintainer to hand-check a step an extension run would execute.
+    d = decide(
+        plan([".github/actions/gnome-e2e/action.yml", "scripts/assert_passed.py"]),
+        canary_gaps=("Stage the extension candidate", "Mandatory-coverage gate"),
+        extension_gaps=("Mandatory-coverage gate",),
+    )
+    assert d["action"] == "hold"
+    assert "Mandatory-coverage gate" in d["reason"]
+    assert "Stage the extension candidate" not in d["reason"]
+
+
 def test_without_extension_gaps_the_extension_run_covers_no_action_step():
     # An older caller that never computed --with-extensions keeps the hold.
     d = decide(

@@ -141,8 +141,9 @@ and `.../check-runs`.
    - `hold`: the plan needs a lane neither can cover. That is an action-lane
      script the canary does not run (`scripts/assert_passed.py`: its action
      step skips the canary suite), a changed action step whose `if:` excludes
-     the canary suite (`scripts/v1_gate_canary_scope.py` lists them; the run
-     summary names them), or a `no_hosted_lane` suite. The hold is flagged for
+     both the canary and extensions suites (`scripts/v1_gate_canary_scope.py
+     --with-extensions` lists them; the run summary names them), or a
+     `no_hosted_lane` suite. The hold is flagged for
      a maintainer at once. The step check does not split suite branches inside
      a shell step the canary does run.
 3. On a hold or a failed gate, fails the run and opens (or comments on) the
