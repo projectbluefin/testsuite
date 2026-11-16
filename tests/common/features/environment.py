@@ -62,6 +62,22 @@ def _is_container_target(context) -> bool:
     return context.is_container_target
 
 
+def _has_rpm_ostree(context) -> bool:
+    """Return True when the image ships the ``rpm-ostree`` binary.
+
+    Dakota is not RPM-based and has no rpm-ostree, so a "no layered RPM
+    packages" check cannot run there (projectbluefin/common#1688). Scenarios
+    tagged ``@requires_rpm_ostree`` skip on Dakota images that lack it. Every
+    other image runs the check unchanged, so a missing rpm-ostree there fails.
+    """
+    cached = getattr(context, "has_rpm_ostree", None)
+    if cached is not None:
+        return cached
+    _, returncode = run_ssh(context, "command -v rpm-ostree >/dev/null 2>&1")
+    context.has_rpm_ostree = returncode == 0
+    return context.has_rpm_ostree
+
+
 def _has_toggle_action(context) -> bool:
     """Return True when the image's toggle-updates recipe honors ACTION.
 
@@ -219,6 +235,15 @@ def before_scenario(context, scenario):
         return
     if "requires_brew" in scenario_tags and not _has_brew(context):
         scenario.skip("Homebrew not present on this image")
+        return
+    # Only Dakota may skip: on the RPM-based images a failed probe is a defect
+    # the "no layered packages" check must report, not a gap to skip.
+    if (
+        "requires_rpm_ostree" in scenario_tags
+        and getattr(context, "is_dakota_image", False)
+        and not _has_rpm_ostree(context)
+    ):
+        scenario.skip("rpm-ostree not present on this image (not RPM-based)")
         return
     if "requires_toggle_action" in scenario_tags and not _has_toggle_action(context):
         scenario.skip("ujust toggle-updates ACTION support not present on this image")

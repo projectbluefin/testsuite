@@ -85,3 +85,25 @@ def test_cli_on_this_repository_head_against_itself_prints_nothing():
         check=True,
     )
     assert result.stdout == ""
+
+
+def test_with_extensions_drops_steps_the_extension_suite_runs():
+    from scripts.v1_gate_canary_scope import CANARY_SUITE, EXTENSIONS_SUITE
+
+    base = _action([SHARED, GATE, EXT_ONLY])
+    head = _action([SHARED, {**GATE, "run": "assert2"}, {**EXT_ONLY, "run": "x2"}])
+    assert gaps(base, head) == ["Extensions only", "Mandatory-coverage gate"]
+    # GATE excludes both suites; EXT_ONLY runs for extensions.
+    assert gaps(base, head, (CANARY_SUITE, EXTENSIONS_SUITE)) == ["Mandatory-coverage gate"]
+
+
+def test_cli_with_extensions_flag(tmp_path):
+    result = subprocess.run(
+        [sys.executable, str(REPO_ROOT / "scripts/v1_gate_canary_scope.py"), "--with-extensions", "HEAD", "HEAD"],
+        capture_output=True,
+        text=True,
+        cwd=REPO_ROOT,
+        check=False,
+    )
+    assert result.returncode == 0
+    assert result.stdout == ""

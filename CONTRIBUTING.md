@@ -14,7 +14,7 @@ This repo is the test framework and suite for GNOME- and KDE-based bootc images.
 | `smoke` | GUI (qecore/dogtail) | Core GNOME, MIME handlers, accessibility |
 | `common` | SSH | Portable system health: Flatpak, portals, polkit, shell |
 | `vanilla-gnome` | GUI | Upstream GNOME OS baseline |
-| `extensions` | Guest-local GUI/Shell probes | Four Hive extension lifecycle/behavior profiles; GNOME OS provisioning deferred (#908/#909) |
+| `extensions` | Guest-local GUI/Shell probes | Four Hive extension lifecycle/behavior profiles; GNOME OS guest proven (#908), candidate staging pending (#909) |
 | `developer` | GUI | Homebrew/Ptyxis on developer variant |
 | `dx` | SSH+GUI | VS Code, distrobox, JupyterLab, mise |
 | `software` | SSH+GUI | Bazaar app store and Flatpak CLI health |

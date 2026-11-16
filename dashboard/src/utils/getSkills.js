@@ -1,17 +1,19 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import yaml from 'js-yaml';
+import { load } from 'js-yaml';
 
 // Split a markdown document into its leading `---` YAML front-matter block and
 // the body. Skill docs are repository-controlled, so js-yaml's default (safe)
-// schema is enough; a document without a front-matter block yields `{}`.
+// schema is enough (DEFAULT_SCHEMA in js-yaml 4, CORE_SCHEMA in 5; neither
+// instantiates arbitrary JS types). A document without a front-matter block
+// yields `{}`.
 export function parseFrontMatter(raw) {
   const text = raw.replace(/^\uFEFF/, '');
   const lines = text.split(/\r?\n/);
   if (lines[0].trim() !== '---') return { data: {}, content: text };
   const end = lines.findIndex((line, i) => i > 0 && line.trim() === '---');
   if (end === -1) return { data: {}, content: text };
-  const parsed = yaml.load(lines.slice(1, end).join('\n'));
+  const parsed = load(lines.slice(1, end).join('\n'));
   const data = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
   return { data, content: lines.slice(end + 1).join('\n') };
 }
