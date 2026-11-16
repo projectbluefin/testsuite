@@ -14,6 +14,7 @@ on:
         type: choice
         options:
           - just-perfection
+          - shade-inactive-windows
         default: just-perfection
       test_ref:
         description: "Commit SHA or ref to test, for example a pull request head; empty means the dispatched commit."
