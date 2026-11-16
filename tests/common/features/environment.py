@@ -67,8 +67,8 @@ def _has_rpm_ostree(context) -> bool:
 
     Dakota is not RPM-based and has no rpm-ostree, so a "no layered RPM
     packages" check cannot run there (projectbluefin/common#1688). Scenarios
-    tagged ``@requires_rpm_ostree`` skip on such images. Images that do ship
-    rpm-ostree run the check unchanged.
+    tagged ``@requires_rpm_ostree`` skip on Dakota images that lack it. Every
+    other image runs the check unchanged, so a missing rpm-ostree there fails.
     """
     cached = getattr(context, "has_rpm_ostree", None)
     if cached is not None:
@@ -236,7 +236,13 @@ def before_scenario(context, scenario):
     if "requires_brew" in scenario_tags and not _has_brew(context):
         scenario.skip("Homebrew not present on this image")
         return
-    if "requires_rpm_ostree" in scenario_tags and not _has_rpm_ostree(context):
+    # Only Dakota may skip: on the RPM-based images a failed probe is a defect
+    # the "no layered packages" check must report, not a gap to skip.
+    if (
+        "requires_rpm_ostree" in scenario_tags
+        and getattr(context, "is_dakota_image", False)
+        and not _has_rpm_ostree(context)
+    ):
         scenario.skip("rpm-ostree not present on this image (not RPM-based)")
         return
     if "requires_toggle_action" in scenario_tags and not _has_toggle_action(context):

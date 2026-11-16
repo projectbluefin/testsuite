@@ -272,7 +272,7 @@ class TestCommonEnvironmentSkipUtah:
 class TestCommonEnvironmentRequiresRpmOstree:
     def test_skips_when_rpm_ostree_is_absent(self):
         m = _import_common_environment(run_ssh_returncode=1)
-        context = _ctx(is_bluefin_image=True, has_brew=True, has_rpm_ostree=None)
+        context = _ctx(is_bluefin_image=True, is_dakota_image=True, has_brew=True, has_rpm_ostree=None)
         scenario = _Scenario(["requires_rpm_ostree"])
 
         m.before_scenario(context, scenario)
@@ -282,13 +282,27 @@ class TestCommonEnvironmentRequiresRpmOstree:
 
     def test_runs_when_rpm_ostree_is_present(self):
         m = _import_common_environment(run_ssh_returncode=0)
-        context = _ctx(is_bluefin_image=True, has_brew=True, has_rpm_ostree=None)
+        context = _ctx(is_bluefin_image=True, is_dakota_image=True, has_brew=True, has_rpm_ostree=None)
         scenario = _Scenario(["requires_rpm_ostree"])
 
         m.before_scenario(context, scenario)
 
         assert scenario.skip_message is None
         assert context.has_rpm_ostree is True
+
+    def test_non_dakota_image_never_skips_even_when_probe_fails(self):
+        # A Fedora-based image with no rpm-ostree is broken; the integrity
+        # check must run and fail rather than be skipped.
+        m = _import_common_environment(run_ssh_returncode=1)
+        calls = []
+        m.run_ssh = lambda context, cmd, **kw: (calls.append(cmd), ("", 1))[1]
+        context = _ctx(is_bluefin_image=True, is_dakota_image=False, has_brew=True, has_rpm_ostree=None)
+        scenario = _Scenario(["requires_rpm_ostree"])
+
+        m.before_scenario(context, scenario)
+
+        assert scenario.skip_message is None
+        assert not any("rpm-ostree" in c for c in calls)
 
     def test_untagged_scenarios_do_not_probe(self):
         m = _import_common_environment(run_ssh_returncode=1)
