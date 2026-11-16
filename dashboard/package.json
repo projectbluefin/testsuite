@@ -14,7 +14,7 @@
     "@tailwindcss/vite": "^4",
     "ansi-to-html": "^0.7.2",
     "astro": "^7.4.7",
-    "js-yaml": "^4.1.0",
+    "js-yaml": "^5.0.0",
     "marked": "^18.0.0",
     "tailwindcss": "^4"
   },
