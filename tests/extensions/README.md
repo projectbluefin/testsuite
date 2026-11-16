@@ -77,9 +77,9 @@ python3 -m pytest tests/unit/test_extension_session.py -q
 
 A dry run proves step resolution, **not extension compatibility**. The GNOME OS gate must reject empty/all-skipped/undefined/untested mandatory scenarios, irrespective of the more permissive summary behavior of existing suites.
 
-## Deferred GNOME OS runtime work
+## GNOME OS runtime work
 
-- [#908](https://github.com/projectbluefin/testsuite/issues/908): prove genuine GNOME OS provisioning and desktop/AT-SPI/input prerequisites.
+- [#908](https://github.com/projectbluefin/testsuite/issues/908) is done: the GNOME OS guest boots a real Wayland session, takes virtual input, answers AT-SPI and keeps test code away from admin rights. The runs are recorded in [the desktop canary reference](../../docs/skills/ci-ops/e2e-workflow/references/gnomeos-desktop-canary.md#recorded-runs).
 - [#909](https://github.com/projectbluefin/testsuite/issues/909): supply deterministic HTTPS fixtures and execute this collection on GNOME OS. Building one exact package offline and staging it before session startup is wired up (`.github/workflows/extension-validation.yml`, Just Perfection first; see [the staging reference](../../docs/skills/ci-ops/e2e-workflow/references/gnome-extensions-staging.md)); no green run exists yet.
 
 GNOME OS validation remains mandatory but is **not established by this test-content change**. Bluefin image smoke cannot substitute. Successful price formatting, partial-data/cache/outage recovery and delayed-fetch cancellation need the real provider fixture lane from #909. These tests do not replace helper subprocess output with fabricated quote JSON and do not use live provider quotes as a CI oracle. The Stock Market empty-watchlist language/position cases use the extension's existing no-fetch path; the selected-symbol case still runs its real bounded helper/fallback.
