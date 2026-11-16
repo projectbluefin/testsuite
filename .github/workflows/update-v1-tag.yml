@@ -72,6 +72,7 @@ jobs:
       suites: ${{ steps.plan.outputs.suites }}
       ungated: ${{ steps.plan.outputs.ungated }}
       canary: ${{ steps.plan.outputs.canary }}
+      extensions: ${{ steps.plan.outputs.extensions }}
       reason: ${{ steps.plan.outputs.reason }}
       image: ${{ steps.image.outputs.image }}
       baseline_image: ${{ steps.image.outputs.baseline_image }}
@@ -122,12 +123,15 @@ jobs:
             # Changed action steps the GNOME OS canary skips: a canary pass
             # does not cover them, so they keep the hold.
             python3 scripts/v1_gate_canary_scope.py "${PREVIOUS}" "${SHA}" > canary-gaps.txt
+            # The same, minus steps an extension-validation run executes (#1218).
+            python3 scripts/v1_gate_canary_scope.py --with-extensions "${PREVIOUS}" "${SHA}" > extension-gaps.txt
           else
             # No v1 yet, or v1 is not behind main: plan the full set (fail-closed).
             echo "unknown-base" > changed.txt
           fi
           python3 scripts/vm_validation_plan.py < changed.txt > plan.json
           V1_GATE_CANARY_GAPS="$(cat canary-gaps.txt 2>/dev/null || true)" \
+          V1_GATE_EXTENSION_GAPS="$(cat extension-gaps.txt 2>/dev/null || true)" \
             python3 scripts/v1_gate.py < plan.json | tee -a "$GITHUB_OUTPUT"
 
           {
@@ -209,9 +213,28 @@ jobs:
     with:
       test_ref: ${{ needs.plan.outputs.sha }}
 
+  # Extension-staging changes (#909) run only in extension-validation.yml's
+  # disposable guest; a green run per profile stands in for the hand check
+  # (scripts/v1_gate.py, extensions=true, #1218).
+  extensions:
+    name: Extension validation (${{ matrix.profile }})
+    needs: plan
+    if: needs.plan.outputs.extensions == 'true'
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        # One entry per profile extension-validation.yml supports.
+        profile: [just-perfection]
+    uses: ./.github/workflows/extension-validation.yml
+    with:
+      profile: ${{ matrix.profile }}
+      test_ref: ${{ needs.plan.outputs.sha }}
+
   publish:
     name: Move or hold v1
-    needs: [plan, gate, baseline, canary]
+    needs: [plan, gate, baseline, canary, extensions]
     if: >-
       always() && !cancelled() &&
       needs.plan.result == 'success' && needs.plan.outputs.action != 'none'
@@ -232,6 +255,8 @@ jobs:
       BASELINE_RESULT: ${{ needs.baseline.result }}
       CANARY: ${{ needs.plan.outputs.canary }}
       CANARY_RESULT: ${{ needs.canary.result }}
+      EXTENSIONS: ${{ needs.plan.outputs.extensions }}
+      EXTENSIONS_RESULT: ${{ needs.extensions.result }}
       SUITES: ${{ needs.plan.outputs.suites }}
       UNGATED: ${{ needs.plan.outputs.ungated }}
       REASON: ${{ needs.plan.outputs.reason }}
@@ -285,6 +310,11 @@ jobs:
           if [ "${CANARY}" = "true" ] && [ "${CANARY_RESULT}" != "success" ]; then
             CANARY_FAILED=yes
           fi
+          EXTENSIONS="${EXTENSIONS:-false}"
+          EXTENSIONS_RESULT="${EXTENSIONS_RESULT:-skipped}"
+          if [ "${EXTENSIONS}" = "true" ] && [ "${EXTENSIONS_RESULT}" != "success" ]; then
+            CANARY_FAILED=yes
+          fi
           if [ "${CANARY_FAILED}" = "yes" ]; then
             MOVE=no
           elif [ "${ACTION}" = "move" ] || [ "${ACTION}" = "canary" ] || { [ "${ACTION}" = "gate" ] && [ "${GATE_RESULT}" = "success" ]; }; then
@@ -308,6 +338,7 @@ jobs:
               if [ -n "${IMAGE}" ]; then echo; echo "Booted \`${SUITES}\` on \`${IMAGE}\`."; fi
               if [ -n "${UNGATED}" ]; then echo; echo "Not booted (no second image yet, #706): \`${UNGATED}\`."; fi
               if [ "${CANARY}" = "true" ]; then echo; echo "GNOME OS desktop canary passed (gnome-e2e action change)."; fi
+              if [ "${EXTENSIONS}" = "true" ]; then echo; echo "Extension validation passed (extension-staging change)."; fi
               if [ -n "${FORCE_REASON}" ]; then echo; echo "Forced by @${ACTOR}: ${FORCE_REASON}"; fi
             } >> "$GITHUB_STEP_SUMMARY"
             if [ -n "${HELD}" ]; then
@@ -317,7 +348,7 @@ jobs:
           fi
 
           if [ "${CANARY_FAILED}" = "yes" ]; then
-            WHY="the GNOME OS desktop canary for the gnome-e2e action change did not pass (canary: ${CANARY_RESULT}; e2e.yml: ${GATE_RESULT:-not run})"
+            WHY="a GNOME OS run for the gnome-e2e action lane did not pass (canary: ${CANARY_RESULT}; extension validation: ${EXTENSIONS_RESULT}; e2e.yml: ${GATE_RESULT:-not run})"
           elif [ "${ACTION}" = "gate" ] && [ -s compare.md ]; then
             WHY="the VM gate found failures v1 does not explain (suites: ${SUITES}; image: ${IMAGE}). $(sed -n '/^\*\*Not explained by v1:\*\*/,/^$/p' compare.md | { grep -E '^- ' || true; } | head -20 | tr '\n' ' ')"
           elif [ "${ACTION}" = "gate" ]; then

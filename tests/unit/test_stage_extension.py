@@ -205,7 +205,9 @@ def test_action_selects_and_gates_only_the_staged_extension():
 def test_workflow_builds_offline_and_passes_the_recorded_hash():
     workflow = yaml.safe_load(WORKFLOW.read_text())
     assert workflow["permissions"] == {"contents": "read"}
-    assert set(workflow[True]) == {"workflow_dispatch"}
+    # The v1 gate calls this workflow (#1219); both entry points take the same inputs.
+    assert set(workflow[True]) == {"workflow_dispatch", "workflow_call"}
+    assert set(workflow[True]["workflow_call"]["inputs"]) == set(workflow[True]["workflow_dispatch"]["inputs"])
     steps = workflow["jobs"]["validate"]["steps"]
     names = [s["name"] for s in steps]
     harness = names.index("Build native harness over pinned official GNOME OS")

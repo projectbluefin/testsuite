@@ -14,9 +14,12 @@ the step, just not every branch of it.
 
 Usage:
     python3 scripts/v1_gate_canary_scope.py BASE HEAD
+    python3 scripts/v1_gate_canary_scope.py --with-extensions BASE HEAD
 
 Prints one line per changed step the canary skips (nothing when the canary runs
-every changed step). Fails closed: if either side of the action cannot be read
+every changed step). With ``--with-extensions`` it prints only the steps that
+neither the canary nor an extension-validation run (``suite: extensions``,
+which the v1 gate runs for extension-staging changes, #1218) would execute. Fails closed: if either side of the action cannot be read
 or parsed, it prints a marker line so the gate holds.
 """
 
@@ -32,17 +35,23 @@ except ImportError:  # fail closed: the gate holds with the reason printed
 
 ACTION = ".github/actions/gnome-e2e/action.yml"
 CANARY_SUITE = "gnomeos-canary"
+EXTENSIONS_SUITE = "extensions"
+
+
+def skips(step: dict, suite: str) -> bool:
+    """True when the step's ``if:`` keeps it from running for ``suite``."""
+    cond = str(step.get("if", "")).replace('"', "'")
+    if not cond:
+        return False
+    if f"inputs.suite != '{suite}'" in cond:
+        return True
+    # A condition that names only other suites (`inputs.suite == 'extensions'`).
+    return "inputs.suite ==" in cond and f"'{suite}'" not in cond
 
 
 def canary_skips(step: dict) -> bool:
     """True when the step's ``if:`` keeps it from running for the canary suite."""
-    cond = str(step.get("if", "")).replace('"', "'")
-    if not cond:
-        return False
-    if f"inputs.suite != '{CANARY_SUITE}'" in cond:
-        return True
-    # A condition that names only other suites (`inputs.suite == 'extensions'`).
-    return "inputs.suite ==" in cond and f"'{CANARY_SUITE}'" not in cond
+    return skips(step, CANARY_SUITE)
 
 
 def _steps(text: str | None) -> dict[str, dict]:
@@ -57,8 +66,16 @@ def _steps(text: str | None) -> dict[str, dict]:
     return keyed
 
 
-def gaps(base_text: str | None, head_text: str | None) -> list[str]:
-    """Changed, added or removed steps that the canary does not run."""
+def gaps(
+    base_text: str | None,
+    head_text: str | None,
+    suites: tuple[str, ...] = (CANARY_SUITE,),
+) -> list[str]:
+    """Changed, added or removed steps that no run of ``suites`` executes."""
+
+    def untested(step: dict) -> bool:
+        return all(skips(step, suite) for suite in suites)
+
     base, head = _steps(base_text), _steps(head_text)
     found = []
     for key in sorted(set(base) | set(head)):
@@ -67,9 +84,9 @@ def gaps(base_text: str | None, head_text: str | None) -> list[str]:
             continue
         # The canary tests the new version of a step only if it runs it; a
         # removed step is untested only if the canary never ran the old one.
-        if new is not None and canary_skips(new):
+        if new is not None and untested(new):
             found.append(key)
-        elif new is None and old is not None and canary_skips(old):
+        elif new is None and old is not None and untested(old):
             found.append(f"{key} (removed)")
     return found
 
@@ -82,15 +99,20 @@ def _show(rev: str, path: str) -> str | None:
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) != 3:
+    args = argv[1:]
+    suites: tuple[str, ...] = (CANARY_SUITE,)
+    if args[:1] == ["--with-extensions"]:
+        suites = (CANARY_SUITE, EXTENSIONS_SUITE)
+        args = args[1:]
+    if len(args) != 2:
         print(__doc__, file=sys.stderr)
         return 2
-    base_rev, head_rev = argv[1], argv[2]
+    base_rev, head_rev = args
     if yaml is None:
         print("PyYAML unavailable, so the canary's step coverage could not be checked")
         return 0
     try:
-        found = gaps(_show(base_rev, ACTION), _show(head_rev, ACTION))
+        found = gaps(_show(base_rev, ACTION), _show(head_rev, ACTION), suites)
     except yaml.YAMLError as exc:
         print(f"{ACTION} could not be parsed ({exc.__class__.__name__})")
         return 0

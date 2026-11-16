@@ -131,11 +131,19 @@ and `.../check-runs`.
      action is `gate` with `canary=true` and both must pass. Before this, each
      such change held `v1` until a maintainer ran the canary by hand and
      forced the move (#1140, #1188).
+     Extension-staging changes (#909: `scripts/stage_extension.py`,
+     `scripts/build_extension_artifact.py`, `extension-validation.yml`,
+     `tests/extensions/**`, the shared extension helpers) set `extensions=true`:
+     the gate calls `extension-validation.yml` per profile at the merged SHA and
+     needs every run to pass (#1218). The same run covers changed action steps
+     that only `suite: extensions` executes
+     (`v1_gate_canary_scope.py --with-extensions`).
    - `hold`: the plan needs a lane neither can cover. That is an action-lane
      script the canary does not run (`scripts/assert_passed.py`: its action
      step skips the canary suite), a changed action step whose `if:` excludes
-     the canary suite (`scripts/v1_gate_canary_scope.py` lists them; the run
-     summary names them), or a `no_hosted_lane` suite. The hold is flagged for
+     both the canary and extensions suites (`scripts/v1_gate_canary_scope.py
+     --with-extensions` lists them; the run summary names them), or a
+     `no_hosted_lane` suite. The hold is flagged for
      a maintainer at once. The step check does not split suite branches inside
      a shell step the canary does run.
 3. On a hold or a failed gate, fails the run and opens (or comments on) the
