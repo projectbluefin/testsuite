@@ -82,7 +82,9 @@ Feature: Bluefin common dconf and GSettings defaults
     * SSH command output stripped "is" "'<Control><Alt>t'"
     * Run SSH command: "dconf read /org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom0/command"
     * SSH command return code is "0"
-    * SSH command output stripped "is" "'xdg-terminal-exec'"
+    # Fedora-based images store the bare command name; Dakota stores the
+    # absolute /usr/bin path. Both launch the same binary.
+    * SSH command output stripped is "'xdg-terminal-exec'" or "'/usr/bin/xdg-terminal-exec'"
 
   # Bluefin's pinned common still ships Searchlight; Utah's newer pin does not (#1076).
   @skip_utah
