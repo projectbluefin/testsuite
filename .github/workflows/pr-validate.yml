@@ -88,6 +88,13 @@ jobs:
       - name: Check quarantine age
         run: python3 scripts/check_quarantine_age.py --grace-days 30
 
+      # Every @quarantine must cite its cause as
+      # `# quarantine: projectbluefin/<repo>#<N> <reason>` so the scheduled
+      # quarantine-followup.yml can tell when the cause closes.
+      - name: Check quarantine citations
+        if: ${{ !cancelled() }}
+        run: python3 scripts/quarantine_citations.py
+
   coverage-snapshot:
     name: Coverage snapshot fresh
     runs-on: ubuntu-latest

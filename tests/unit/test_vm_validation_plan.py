@@ -38,10 +38,32 @@ SCRIPT_PATH = REPO_ROOT / "scripts" / "vm_validation_plan.py"
         "scripts/v1_gate.py",
         "scripts/v1_gate_compare.py",
         "scripts/vm_validation_plan.py",
+        "scripts/quarantine_citations.py",
+        "scripts/quarantine_followup.py",
+        ".github/workflows/quarantine-followup.yml",
     ],
 )
 def test_paths_that_never_reach_a_vm_need_no_boot(path):
     assert suites_for_path(path) == ()
+
+
+def test_quarantine_tooling_change_does_not_boot():
+    result = plan(
+        [
+            "scripts/quarantine_citations.py",
+            "scripts/quarantine_followup.py",
+            ".github/workflows/quarantine-followup.yml",
+            ".github/workflows/pr-validate.yml",
+            "tests/unit/test_quarantine_followup.py",
+        ]
+    )
+    assert result["vm_required"] is False
+
+
+def test_check_quarantine_age_still_boots_because_e2e_runs_it():
+    # e2e.yml sparse-checks-out scripts/check_quarantine_age.py; the new
+    # quarantine scripts importing it does not change that.
+    assert suites_for_path("scripts/check_quarantine_age.py") != ()
 
 
 def test_docs_only_change_does_not_boot():

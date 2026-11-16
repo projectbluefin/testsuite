@@ -1,7 +1,7 @@
 ---
 name: behave
 version: "1.0"
-last_updated: "2026-07-29"
+last_updated: "2026-11-14"
 id: behave
 one_line_purpose: Write behave scenarios and step definitions for testsuite suites.
 entry_point: docs/skills/test-authoring/behave/SKILL.md
@@ -389,12 +389,12 @@ This keeps common-suite assertions aligned with how Bluefin actually ships those
 
 ## Quarantine Protocol
 
-When a scenario fails in QEMU CI due to a known environment limitation (not a code bug), tag it `@quarantine` and file a tracking issue:
+When a scenario fails in QEMU CI due to a known environment limitation (not a code bug), tag it `@quarantine` and cite the issue that tracks the cause directly above the tags. PR validation requires the citation, and a daily job files a lift issue when the cause closes ([format](../suite-map/SKILL.md#quarantine-citations)):
 
 ```gherkin
+# quarantine: projectbluefin/dakota#1875 Flathub remote missing on dakota:testing
 @quarantine
 Scenario: Flathub remote is configured
-  ...
 ```
 
 The CI runs behave with `--tags ~quarantine`, so quarantined scenarios are skipped and do not block the gate.
