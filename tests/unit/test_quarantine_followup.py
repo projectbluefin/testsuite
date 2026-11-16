@@ -191,6 +191,9 @@ def test_closed_citation_proposes_one_lift_issue(tmp_path):
     assert "ghcr.io/projectbluefin/dakota:testing" in body
     assert "No manual run is needed" in body
     assert "## Acceptance criteria" in body and "## Test plan" in body
+    # The cited issue's title is editable outside this repo, so it never
+    # reaches an agent task (#1220 review).
+    assert "power-status-color missing" not in body
     assert github.writes == []
 
 
@@ -219,6 +222,7 @@ def test_open_citation_near_limit_warns(tmp_path):
     assert action.labels == qf.EXPIRING_LABELS
     assert "2026-11-20" in action.title  # first failing day: age 31
     assert "will start failing" in action.body
+    assert "still broken" not in action.body
 
     one_day_earlier, _ = qf.run(_args(root, date(2026, 11, 11)), github)
     assert one_day_earlier.actions == []

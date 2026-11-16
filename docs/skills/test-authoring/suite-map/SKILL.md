@@ -146,7 +146,7 @@ Set `image` (e.g. `ghcr.io/projectbluefin/dakota:latest`), `suites: lifecycle`, 
 | `@flatcar_suite` | Flatcar OS only |
 | `@hardware_emulation` | Requires full-hw VM spec (TPM, audio, watchdog) |
 | `@vm_only` | Scenario drives the device under test over SSH (or asserts VM-only boot state); the smoke `environment.py` skips it in container lanes, detected via `/run/.containerenv` (`tests/shared/runtime_env.py`) |
-| `@quarantine` | Known-broken regression coverage, skipped while its cause is fixed. Needs a `# quarantine: projectbluefin/<repo>#<N> <reason>` citation directly above its tags (see [Quarantine citations](#quarantine-citations)); expires after 30 days |
+| `@quarantine` | Known-broken regression coverage, skipped while its cause is fixed. Needs a `# quarantine: projectbluefin/<repo>#<N> <reason>` citation directly above its tags (see [Quarantine citations](#quarantine-citations)); expires after 30 days (PR validation fails at 60 during the grace rollout) |
 | `@pending` | Placeholder coverage gap; intentionally skipped until a valid harness exists |
 | `@future` | Not yet implemented or blocked on infra |
 | `@homed_migration` | systemd-homed migration scenarios; dakota lifecycle; SSH-mode; skip-safe when homed absent |

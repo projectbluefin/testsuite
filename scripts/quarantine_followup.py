@@ -377,7 +377,7 @@ def lift_followup(
         "",
         "## The cause is closed",
         "",
-        f"- Citation: [{citation.ref}]({status.url}) — {status.title}",
+        f"- Citation: [{citation.ref}]({status.url})",
         f"- {closed_line}",
         f"- Reason given in the feature files: {citation.reason}",
         "",
@@ -486,7 +486,7 @@ def expiring_followup(
         "",
         "## Still open",
         "",
-        f"- Citation: [{citation.ref}]({status.url}) — {status.title}",
+        f"- Citation: [{citation.ref}]({status.url})",
         f"- Reason given in the feature files: {citation.reason}",
         f"- Limit: {threshold_days} days, enforced by the `Quarantine age` job in "
         "`.github/workflows/pr-validate.yml`.",
