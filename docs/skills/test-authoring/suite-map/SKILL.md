@@ -141,6 +141,8 @@ Set `image` (e.g. `ghcr.io/projectbluefin/dakota:latest`), `suites: lifecycle`, 
 | `@bluefin` | Scenario runs on Bluefin-family image names (`bluefin`, `bazzite`, `utah`, `common`); smoke and common read `BASE_IMAGE` before `IMAGE`, so composed runs keep their family |
 | `@dakota_only` | Scenario runs only when the image name contains `dakota`; smoke and common read `BASE_IMAGE` before `IMAGE`. Only the image **name** is matched, so the `projectbluefin` org name cannot false-positive |
 | `@skip_utah` | Common scenario skips when the image name contains `utah`: it asserts content Bluefin's common pin still ships but Utah's newer pin does not. Remove it when the scenario is replaced (#1076) |
+| `@dakota_family` | Smoke scenario runs only on Dakota-family image names (`dakota`, `utah`): images that follow Dakota's desktop defaults, such as its default-enabled extension set. Keep Dakota-specific UUIDs or content under `@dakota_only` |
+| `@bluefin_classic` | Smoke scenario asserts Bluefin-classic desktop defaults (for example copyous or the Quick Settings extensions enabled by default) and skips on Dakota-family images. Utah is in both families, so a plain `@bluefin` scenario still runs there |
 | `@dx_only` / `@developer_suite` | DX variant only |
 | `@nvidia_only` | NVIDIA variant only |
 | `@flatcar_suite` | Flatcar OS only |

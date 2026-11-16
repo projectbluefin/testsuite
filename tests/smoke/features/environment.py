@@ -17,7 +17,12 @@ import re as _re
 import subprocess as _subprocess
 
 from tests.shared.failed_setup import record_failed_setup, write_failed_setup_marker
-from tests.shared.image_family import image_under_test, is_bluefin_image, is_dakota_image
+from tests.shared.image_family import (
+    image_under_test,
+    is_bluefin_image,
+    is_dakota_family_image,
+    is_dakota_image,
+)
 from tests.shared.results_dir import resolve_results_dir
 
 try:
@@ -315,7 +320,7 @@ OPTIONAL_SCENARIO_TARGETS = {
 
 
 def _detect_image_family(context) -> None:
-    """Set is_bluefin_image / is_dakota_image for variant-tagged scenarios.
+    """Set the image-family flags used by variant-tagged scenarios.
 
     Composed runs replace IMAGE with ghcr.io/<owner>/testsuite-e2e:run-<id>,
     which carries no family, so image_under_test() checks BASE_IMAGE first,
@@ -328,9 +333,11 @@ def _detect_image_family(context) -> None:
     if image_ref:
         context.is_bluefin_image = is_bluefin_image(image_ref)
         context.is_dakota_image = is_dakota_image(image_ref)
+        context.is_dakota_family_image = is_dakota_family_image(image_ref)
     else:
         context.is_bluefin_image = True  # default to Bluefin when no image is known
         context.is_dakota_image = False
+        context.is_dakota_family_image = False
 
 
 def before_all(context) -> None:
@@ -647,6 +654,27 @@ def before_scenario(context, scenario) -> None:
                 scenario.skip()
             print(f"Skipping {scenario.name}: @dakota_only on non-Dakota image", flush=True)
             return
+
+    # Bluefin-classic and Dakota-family desktop defaults differ (for example
+    # the default-enabled GNOME Shell extension set), so each side's
+    # assertions are scoped to its family. Utah is in both the Bluefin and the
+    # Dakota family: it keeps Bluefin's common layer but Dakota's defaults.
+    is_dakota_family = getattr(context, "is_dakota_family_image", False)
+    family_skip = None
+    if is_dakota_family and "bluefin_classic" in scenario_tags:
+        family_skip = "@bluefin_classic scenario on a Dakota-family image"
+    elif not is_dakota_family and "dakota_family" in scenario_tags:
+        family_skip = "@dakota_family scenario on a non-Dakota-family image"
+    if family_skip:
+        try:
+            scenario.skip(
+                f"Skipping {family_skip} "
+                f"(IMAGE={os.environ.get('IMAGE', 'unknown')})"
+            )
+        except TypeError:
+            scenario.skip()
+        print(f"Skipping {scenario.name}: {family_skip}", flush=True)
+        return
 
     if getattr(context, 'failed_setup', None):
         try:

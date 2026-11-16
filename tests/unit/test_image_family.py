@@ -8,6 +8,7 @@ from tests.shared.image_family import (
     image_name,
     image_under_test,
     is_bluefin_image,
+    is_dakota_family_image,
     is_dakota_image,
     is_utah_image,
 )
@@ -96,6 +97,7 @@ def test_smoke_reads_image_from_behave_userdata(monkeypatch):
 
     assert context.is_bluefin_image is True
     assert context.is_dakota_image is False
+    assert context.is_dakota_family_image is True
 
 
 def test_smoke_defaults_to_bluefin_when_no_image_is_known():
@@ -103,6 +105,7 @@ def test_smoke_defaults_to_bluefin_when_no_image_is_known():
 
     assert context.is_bluefin_image is True
     assert context.is_dakota_image is False
+    assert context.is_dakota_family_image is False
 
 
 @pytest.mark.parametrize(
@@ -117,3 +120,20 @@ def test_smoke_defaults_to_bluefin_when_no_image_is_known():
 )
 def test_is_utah_image_matches_image_name_only(image, expected):
     assert is_utah_image(image) is expected
+
+
+@pytest.mark.parametrize(
+    ("image", "expected"),
+    [
+        ("ghcr.io/projectbluefin/dakota:testing", True),
+        ("ghcr.io/projectbluefin/utah@sha256:abc", True),
+        ("ghcr.io/projectbluefin/utah-nvidia-gaming:testing", True),
+        ("ghcr.io/projectbluefin/bluefin:testing", False),
+        ("ghcr.io/ublue-os/bazzite:stable", False),
+        ("ghcr.io/projectbluefin/common:e2e-pr-12-abc", False),
+        ("ghcr.io/dakota/bluefin:testing", False),
+        ("", False),
+    ],
+)
+def test_dakota_family_follows_dakota_defaults_by_image_name(image, expected):
+    assert is_dakota_family_image(image) is expected

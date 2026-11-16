@@ -27,7 +27,19 @@ remains separate and selects `@dakota_only` scenarios. In the common suite,
 Bluefin's common pin still ships but Utah's newer pin does not (the Searchlight
 dconf scenario, until #1076 replaces it).
 
+Desktop defaults split differently from the common layer. The Dakota family
+(`dakota`, `utah`; `is_dakota_family_image()`) follows Dakota's desktop
+defaults, including its eleven default-enabled GNOME Shell extensions
+(projectbluefin/utah#1252). In the smoke suite, `@dakota_family` selects those
+scenarios (the default-enabled half of `dakota_extensions.feature`), and
+`@bluefin_classic` skips scenarios that assert Bluefin-classic defaults, such as
+`bluefin_new_extensions.feature` and `copyous_stress.feature`. Utah keeps
+running every other `@bluefin` scenario. When a Bluefin scenario asserts an
+extension is *enabled* by default, check Dakota's
+`disable-ext-validator.bst`; if the extension is not in it, tag the scenario
+`@bluefin_classic`.
+
 The smoke suite runs inside the GUI runner container, so it only sees
 `BASE_IMAGE` if `e2e.yml` passes it into that container (`-e BASE_IMAGE` and
 `-D image=`). Without them, composed smoke runs still report the run-scoped ref
-and skip every `@bluefin` and `@dakota_only` scenario.
+and skip every `@bluefin`, `@dakota_only` and `@dakota_family` scenario.
