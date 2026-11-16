@@ -2,6 +2,9 @@
 import os
 
 _BLUEFIN_FAMILY_NAMES = ("bluefin", "bazzite", "utah", "common")
+# Images that follow Dakota's desktop defaults, such as its default-enabled
+# GNOME Shell extension set (Utah since projectbluefin/utah#1252).
+_DAKOTA_FAMILY_NAMES = ("dakota", "utah")
 
 
 def image_name(image: str) -> str:
@@ -31,6 +34,12 @@ def is_bluefin_image(image: str) -> bool:
 
 def is_dakota_image(image: str) -> bool:
     return "dakota" in image_name(image)
+
+
+def is_dakota_family_image(image: str) -> bool:
+    """Return True for images that follow Dakota's desktop defaults."""
+    name = image_name(image)
+    return any(family in name for family in _DAKOTA_FAMILY_NAMES)
 
 
 def is_utah_image(image: str) -> bool:
