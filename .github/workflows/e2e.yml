@@ -38,7 +38,7 @@ on:
         description: >
           Compose the suites' test software as a derived container layer
           (FROM the target image) pushed to
-          ghcr.io/<owner>/testsuite-e2e:run-<run-id>, and boot that composed
+          ghcr.io/<owner>/testsuite-e2e:run-<run-id>-<slug>, and boot that composed
           image instead of the raw one. Avoids runtime rpm-ostree layering,
           which fails on images shipping rpm-ostreed.conf LockLayering=true
           (projectbluefin/bluefin-lts#492). Set to false — or set the

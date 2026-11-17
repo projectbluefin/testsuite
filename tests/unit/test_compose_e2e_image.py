@@ -334,3 +334,16 @@ def test_push_fails_when_digest_is_missing(sandbox) -> None:
     result = sandbox(BASE_REF, COMPOSED_REF, emit_digest=False)
     assert result.returncode != 0
     assert "invalid or missing digest" in result.stderr
+
+
+def test_push_emits_digest_and_pinned_image_outputs(sandbox, tmp_path: Path) -> None:
+    """When GITHUB_OUTPUT is set, the script must write digest and name@digest."""
+    out_file = tmp_path / "github_output"
+    result = sandbox(BASE_REF, COMPOSED_REF, extra_env={"GITHUB_OUTPUT": str(out_file)})
+    assert result.returncode == 0
+    assert out_file.exists()
+    content = out_file.read_text(encoding="utf-8")
+    assert "digest=sha256:1111111111111111111111111111111111111111111111111111111111111111\n" in content
+    expected_pinned = f"pinned_image={COMPOSED_REF.split(':')[0]}@sha256:1111111111111111111111111111111111111111111111111111111111111111\n"
+    assert expected_pinned in content
+    assert ":run-" not in content.split("pinned_image=")[1]

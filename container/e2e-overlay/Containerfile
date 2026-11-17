@@ -8,7 +8,7 @@
 # runtime layering policy.
 #
 # Built by scripts/compose-e2e-image.sh, which pushes the result to
-# ghcr.io/<owner>/testsuite-e2e:run-<GITHUB_RUN_ID> for the suite jobs to boot.
+# ghcr.io/<owner>/testsuite-e2e:run-<GITHUB_RUN_ID>-<slug> for the suite jobs to boot.
 ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
 
