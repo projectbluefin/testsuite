@@ -213,10 +213,11 @@ def before_scenario(context, scenario):
     if skip_quarantine(scenario):
         return
     scenario_tags = _scenario_tags(scenario)
-    # Skip @bluefin scenarios when running against a non-Bluefin image (e.g. Dakota).
-    # Feature-level @bluefin tags are inherited by all scenarios in those features.
+    # Skip @bluefin scenarios when running against an image outside the Common contract.
+    # Both Bluefin-family images and Dakota run Common's @bluefin scenarios.
     is_bluefin = getattr(context, "is_bluefin_image", True)
-    if not is_bluefin and "bluefin" in scenario_tags:
+    is_dakota = getattr(context, "is_dakota_image", False)
+    if not is_bluefin and not is_dakota and "bluefin" in scenario_tags:
         scenario.skip(
             f"Skipping @bluefin scenario on non-Bluefin image "
             f"(IMAGE={os.environ.get('IMAGE', 'unknown')})"

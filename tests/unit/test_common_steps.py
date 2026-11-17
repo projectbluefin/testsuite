@@ -249,6 +249,25 @@ class TestCommonEnvironmentDakotaOnly:
         assert scenario.skip_message is None
 
 
+class TestCommonEnvironmentBluefinScenarios:
+    def test_allows_bluefin_scenario_on_dakota_image(self):
+        m = _import_common_environment()
+        context = _ctx(is_bluefin_image=False, is_dakota_image=True, has_brew=True)
+        scenario = _Scenario(["bluefin"])
+
+        m.before_scenario(context, scenario)
+
+        assert scenario.skip_message is None
+
+    def test_skips_bluefin_scenario_on_non_bluefin_non_dakota_image(self):
+        m = _import_common_environment()
+        context = _ctx(is_bluefin_image=False, is_dakota_image=False)
+        scenario = _Scenario(["bluefin"])
+
+        m.before_scenario(context, scenario)
+
+        assert "Skipping @bluefin scenario" in scenario.skip_message
+
 class TestCommonEnvironmentSkipUtah:
     def test_skips_skip_utah_on_utah_image(self):
         m = _import_common_environment()
