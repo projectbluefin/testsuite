@@ -4,7 +4,7 @@
     "local>projectbluefin/renovate-config"
   ],
   "constraints": {
-    "npm": "^11.20.0"
+    "npm": "^12.0.0"
   },
   "pip_requirements": {
     "managerFilePatterns": ["/(^|/)container/requirements\\.kde-runner\\.txt$/"]
