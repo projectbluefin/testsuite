@@ -53,7 +53,19 @@ ${PODMAN} build \
   "${OVERLAY_DIR}"
 
 log "pushing ${COMPOSED_REF}"
-${PODMAN} push "${COMPOSED_REF}"
+DIGEST_FILE="$(mktemp)"
+${PODMAN} push --digestfile="${DIGEST_FILE}" "${COMPOSED_REF}"
+DIGEST="$(cat "${DIGEST_FILE}")"
+rm -f "${DIGEST_FILE}"
 
-log "compose complete"
+if [[ "${DIGEST}" != sha256:* ]]; then
+  log "push produced invalid or missing digest: '${DIGEST}'" >&2
+  exit 1
+fi
+PINNED_REF="${COMPOSED_REF%:*}@${DIGEST}"
+log "compose complete (digest: ${DIGEST})"
 echo "${COMPOSED_REF}"
+if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+  echo "digest=${DIGEST}" >> "${GITHUB_OUTPUT}"
+  echo "pinned_image=${PINNED_REF}" >> "${GITHUB_OUTPUT}"
+fi

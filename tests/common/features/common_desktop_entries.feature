@@ -10,7 +10,7 @@ Feature: Bluefin common desktop entry validation
     * SSH command output "is" "0"
 
   Scenario: Bluefin-specific desktop entries are present
-    * Run SSH command: "test -f /usr/share/applications/ujust.desktop || test -f /usr/share/applications/org.gnome.Ptyxis.desktop || test -f /usr/share/applications/com.raggesilver.BlackBox.desktop || test -f /usr/share/applications/org.gnome.Shell.desktop"
+    * Run SSH command: "test -f /usr/share/applications/bluefin-help.desktop && xdg-terminal-exec --print-id"
     * SSH command return code is "0"
 
   Scenario: GNOME Files application desktop entry is present
