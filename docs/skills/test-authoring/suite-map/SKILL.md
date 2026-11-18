@@ -155,6 +155,7 @@ Set `image` (e.g. `ghcr.io/projectbluefin/dakota:latest`), `suites: lifecycle`, 
 | `@regression` | Anchors a known incident regression guard; must remain active indefinitely |
 | `@kde_smoke` | KDE Plasma smoke-suite identifier; used by `e2e.yml` suite registration (#645) |
 | `@informational` | Bake-period tier; scenario runs and reports results but does not gate promotion until promoted to `@critical` |
+| `@requires_rpm_ostree` | Common scenario needs `rpm-ostree` on the device under test. It skips only on Dakota (not RPM-based) and Utah (bootc-only by design, utah#1329) when the binary is absent; on every other image a missing `rpm-ostree` is a defect and the scenario runs and fails |
 | `@requires_cached_image` | Scenario needs the OCI image named in its own steps to be pre-pulled on the DUT; `tests/shared/image_cache.py` probes `podman image exists` from `before_scenario` and skips while it is absent. A **runtime capability gate** like `@requires_brew`, not a non-runnable tag — never pair it with `@pending`/`@future`, which mask it (#501) |
 
 ## Quarantine citations

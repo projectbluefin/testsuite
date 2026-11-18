@@ -66,9 +66,11 @@ def _has_rpm_ostree(context) -> bool:
     """Return True when the image ships the ``rpm-ostree`` binary.
 
     Dakota is not RPM-based and has no rpm-ostree, so a "no layered RPM
-    packages" check cannot run there (projectbluefin/common#1688). Scenarios
-    tagged ``@requires_rpm_ostree`` skip on Dakota images that lack it. Every
-    other image runs the check unchanged, so a missing rpm-ostree there fails.
+    packages" check cannot run there (projectbluefin/common#1688). Utah is
+    RPM-based but updates with bootc and ships no rpm-ostree on purpose
+    (projectbluefin/utah#1329). Scenarios tagged ``@requires_rpm_ostree`` skip
+    on Dakota and Utah images that lack it. Every other image runs the check
+    unchanged, so a missing rpm-ostree there fails.
     """
     cached = getattr(context, "has_rpm_ostree", None)
     if cached is not None:
@@ -236,14 +238,18 @@ def before_scenario(context, scenario):
     if "requires_brew" in scenario_tags and not _has_brew(context):
         scenario.skip("Homebrew not present on this image")
         return
-    # Only Dakota may skip: on the RPM-based images a failed probe is a defect
-    # the "no layered packages" check must report, not a gap to skip.
+    # Only Dakota and Utah may skip: they ship no rpm-ostree by design. On
+    # the other images a failed probe is a defect the "no layered packages"
+    # check must report, not a gap to skip.
     if (
         "requires_rpm_ostree" in scenario_tags
-        and getattr(context, "is_dakota_image", False)
+        and (
+            getattr(context, "is_dakota_image", False)
+            or getattr(context, "is_utah_image", False)
+        )
         and not _has_rpm_ostree(context)
     ):
-        scenario.skip("rpm-ostree not present on this image (not RPM-based)")
+        scenario.skip("rpm-ostree not present on this image (no rpm-ostree by design)")
         return
     if "requires_toggle_action" in scenario_tags and not _has_toggle_action(context):
         scenario.skip("ujust toggle-updates ACTION support not present on this image")

@@ -10,7 +10,8 @@ Feature: Immutable OS integrity
 
   # The SSH user (bluefin-test) is not root, so status queries use sudo like the
   # lifecycle suite does, and stderr is kept so a failure shows its cause.
-  # Skips on images without rpm-ostree (Dakota is not RPM-based).
+  # Skips on Dakota and Utah when rpm-ostree is absent: Dakota is not
+  # RPM-based, and Utah updates with bootc only.
   @requires_rpm_ostree
   Scenario: No RPM packages are layered on the base image
     * Run SSH command: "sudo rpm-ostree status --json | python3 -c $'import sys,json; d=json.load(sys.stdin); layers=[p for dep in d.get(\"deployments\",[]) for p in dep.get(\"requested-packages\",[])]; print(len(layers)); sys.exit(0 if not layers else 1)'"
