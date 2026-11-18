@@ -37,7 +37,6 @@ metadata:
 
 ## Core Process
 
-
 1. Identify whether the scenario needs AT-SPI interaction, Shell.Eval, or only subprocess/CLI checks.
 2. Reuse existing smoke helpers first (`launch_background()`, `_run_host()`, `_eval_bool()`, `_wait_eval_bool()`).
 3. Prefer desktop-file launch targets before direct commands for GUI apps so D-Bus activation and AT-SPI registration work in CI.
@@ -48,7 +47,6 @@ metadata:
 
 ## Stack
 
-
 | Layer                | Component              | Install                                            |
 | -------------------- | ---------------------- | -------------------------------------------------- |
 | BDD runner           | behave                 | pip                                                |
@@ -58,7 +56,6 @@ metadata:
 | Shell bridge         | `org.gnome.Shell.Eval` | built-in (requires `unsafe_mode=true`)             |
 
 ## Screen Lock/Unlock D-Bus calls (GNOME 50)
-
 
 In GNOME 50, `Main.screenShield.lock(true)` via `Shell.Eval` is deprecated and fails. Use the stable D-Bus interface `org.gnome.ScreenSaver.Lock` to lock the session, and `org.gnome.ScreenSaver.SetActive false` to unlock it:
 
@@ -178,7 +175,6 @@ To resolve the genuine browser window reliably:
 
 ## Screenshot on failure
 
-
 Hook in `after_scenario`, before sandbox cleanup:
 
 ```python
@@ -197,7 +193,6 @@ From the runner container the capture goes over SSH and falls back `grim` -> `gn
 
 ## GNOME Extensions CLI (subprocess)
 
-
 Smoke-suite extension steps run inside the VM via `subprocess`, not AT-SPI:
 
 ```python
@@ -215,7 +210,6 @@ enabled = [e.strip() for e in result.stdout.splitlines() if e.strip()]
 Note: `gnome-extensions` requires the GNOME session to be running. These steps run inside the qecore VM (local subprocess), not over SSH.
 
 ## Extension state via D-Bus (bazzite / GNOME 50)
-
 
 For suites that need to poll an extension's activation state (e.g. the bazzite suite which runs over SSH), **do not** use `Shell.Eval + Main.extensionManager.lookup(uuid)?.state`. On GNOME 50 this API consistently returns state=6 (INITIALIZED) regardless of actual activation.
 
@@ -248,7 +242,6 @@ Poll through 6 and 8 with a deadline (Bazzite: use 90s — 11 extensions need ti
 
 ## Extension state in smoke suite (local subprocess / SSH bridge)
 
-
 The smoke suite's UUID-specific extension checks use the same
 `GetExtensionInfo` D-Bus call as bazzite, but route through the suite-local
 `_run_host(...)` helper so they work both inside the VM and from the Fedora
@@ -264,7 +257,6 @@ bazzite's `Extension "{uuid}" is enabled`) to avoid cross-suite step collisions.
 
 ## Bazaar on Bluefin: wait out the Refreshing spinner
 
-
 Bluefin ships **Bazaar** (`io.github.kolunmi.Bazaar`), not GNOME Software. Its
 AT-SPI application is named **`bazaar`** (GTK4 uses the prgname), never
 `gnome-software`/`Bazaar`. Poll `tree.root.applications()` against one
@@ -277,7 +269,6 @@ with `<Ctrl><Q>`. Only `@bazaar_ui` scenarios get qecore hooks and a
 `flatpak kill`. Details: [Bazaar lookup](references/atspi.md#bazaar-gtk4-flatpak).
 
 ## Desktop notifications via gdbus (smoke suite)
-
 
 Send a test notification from inside the VM:
 
@@ -339,7 +330,6 @@ Notes for the three a11y/input/XWayland modules:
 
 ## Per-app accessibility launch environment
 
-
 Session-wide `gsettings set org.gnome.desktop.interface toolkit-accessibility true`
 (set by `e2e.yml`) only enables the **GTK** atk-bridge. Applications that render
 their own chrome build their AT-SPI tree from their own environment and must be
@@ -384,7 +374,6 @@ Steps then fail late with confusing messages such as "address bar not found".
 
 ## Window-role checks must prove the subtree is populated
 
-
 Since GNOME 50 some apps expose their toplevel as `filler` rather than `frame`,
 so smoke helpers accept `{"frame", "filler"}`. Accepting a bare `filler` node on
 its own is a **false pass**: it is exactly what an app exposes when its
@@ -402,7 +391,6 @@ otherwise fail with a message that names the likely cause
 "the app is no longer running".
 
 ## Sleep discipline in step definitions
-
 
 Unconditional `sleep(N)` calls inflate suite time — avoid them. Rules:
 
@@ -498,3 +486,7 @@ Load these when you hit the specific topic:
 ## Overview, clone paint, and helper fault injection (issue #919)
 
 Drive the overview via `Shell.Eval` plus a teardown entry; the clone paint proof requires the original to keep the effect while the clone owns none. Helper-driven extensions exercise the JS error branch via `installed_path(info)` plus a `<helper>.py.test-backup` swap. The owned-process assertion lives in `tests.shared.guest_owned_processes`; `assert_no_guest_owned_processes(context, ("needle",))` walks `/proc` from inside the guest because a host `pgrep` cannot distinguish a leaked subprocess from unrelated host processes. The script body is exposed as `WALKER_SCRIPT` so `tests/unit/test_guest_owned_processes_walker.py` can compile it and pin the argv shape (`ExtensionSession.command` runs `subprocess.run` without a shell — passing the script as a single argv element to `python3 -c` is mandatory).
+
+## Shared-setup readiness failures name the application and condition (issue #1261)
+
+Scenarios that share one setup step (opening fresh Text Editor and Calculator windows for the shade profile) must not fail with a generic "Shell condition not reached" that names neither the application nor the failed condition. Probe the structured state with a public-observation helper (`_window_readiness`, count/mapped/opacity) and turn a failed wait into a message that names the application and the exact condition — absent window, wrong window count, unmapped, or not fully opaque (`_window_readiness_failure`). Wrap the readiness `wait_for` in `try/except AssertionError` and re-raise the diagnostic; keep the assertion and its timeout unchanged so the fail-closed gate is not weakened. Cover it in `tests/unit/test_shade_inactive_windows_steps.py`, where a fake `gi` module and a fake extension make the pure message helper and the failing setup step both deterministic.
