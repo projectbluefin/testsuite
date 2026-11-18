@@ -102,6 +102,43 @@ def configure_shading(context, percent, duration):
     context.extension.set_setting("excluded-apps", "[]")
 
 
+def _window_readiness(context, application):
+    """Structured window-readiness state for one launched application.
+
+    A structured probe (not a single boolean) so a failed readiness wait can
+    report which application and which window-readiness condition failed. Uses
+    only public Meta.Window / Clutter.Actor observations, like the helpers above.
+    """
+    actors = _application_actors(application)
+    return context.extension.shell_json(f"""(() => {{
+        const actors = {actors};
+        if (actors.length === 0) return {{count: 0, mapped: null, opacity: null}};
+        return {{count: actors.length,
+                mapped: actors[0].is_mapped(),
+                opacity: actors[0].get_opacity()}};
+    }})()""")
+
+
+def _window_readiness_failure(application, state):
+    """Plain explanation of which window-readiness condition failed for one app."""
+    count = state.get("count")
+    if count == 0:
+        reason = "no window opened for it"
+    elif count != 1:
+        reason = f"{count} windows are open instead of exactly one"
+    elif not state.get("mapped"):
+        reason = "the window opened but never mapped"
+    elif state.get("opacity") != 255:
+        reason = f"the window is mapped but not fully opaque (opacity {state.get('opacity')})"
+    else:
+        reason = "the window never became ready"
+    return (
+        f"Could not confirm {application} is ready for shading: {reason}. "
+        "Check the guest journal for launch or graphics errors before assuming "
+        "the extension is at fault."
+    )
+
+
 @given("fresh Text Editor and Calculator application windows are open for shading")
 def launch_application_windows(context):
     # Import only at runtime: the desktop/GI stack is not a dry-run dependency.
@@ -129,11 +166,20 @@ def launch_application_windows(context):
         launched.append(application)
         assert desktop_app.launch([], None), f"Could not launch required {application} application"
         actors = _application_actors(application)
-        context.extension.wait_for(f"""(() => {{
-            const actors = {actors};
-            return actors.length === 1 && actors[0].is_mapped() &&
-                actors[0].get_opacity() === 255;
-        }})()""", timeout=20)
+        try:
+            context.extension.wait_for(f"""(() => {{
+                const actors = {actors};
+                return actors.length === 1 && actors[0].is_mapped() &&
+                    actors[0].get_opacity() === 255;
+            }})()""", timeout=20)
+        except AssertionError:
+            # The generic "Shell condition not reached" does not say which
+            # application or which window-readiness condition failed. Probe the
+            # structured state and name it, without weakening the assertion above
+            # or extending its timeout.
+            raise AssertionError(
+                _window_readiness_failure(application, _window_readiness(context, application))
+            ) from None
         context.shade_windows[application] = context.extension.shell_json(f"""(() => {{
             const actor = ({actors})[0];
             const window = actor.get_meta_window();
