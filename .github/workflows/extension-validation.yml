@@ -14,7 +14,9 @@ on:
         type: choice
         options:
           - just-perfection
+          - sjc-gold
           - shade-inactive-windows
+          - stock-market
         default: just-perfection
       test_ref:
         description: "Commit SHA or ref to test, for example a pull request head; empty means the dispatched commit."
