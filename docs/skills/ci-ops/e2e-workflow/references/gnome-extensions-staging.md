@@ -13,10 +13,10 @@ the guest, the isolated session and the service gate. This page covers how one e
 extension package gets into that guest and how its run is judged.
 
 > **One green run so far:** Just Perfection on GNOME OS `nightly.20261114.0` (Shell 51.1),
-> run 43612114661: all 7 `@just_perfection` scenarios passed, 11/11 isolation checks. Just
-> Perfection and Shade are offered in the workflow `profile` choice; no green run exists for
-> Shade yet. The network widgets (SJC Gold, Stock Market) wait for the HTTPS fixtures #909
-> describes.
+> run 43612114661: all 7 `@just_perfection` scenarios passed, 11/11 isolation checks. All four
+> profiles (Just Perfection, SJC Gold, Shade, Stock Market) are now offered in the workflow
+> `profile` choice. Only Just Perfection has a green run so far; SJC Gold and Stock Market wait
+> for the deterministic HTTPS fixture lane #909 describes, and Shade has no green run yet.
 
 ## Flow (`.github/workflows/extension-validation.yml`, manual only)
 
