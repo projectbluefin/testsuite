@@ -17,7 +17,7 @@
 #
 # Triggered by: .github/workflows/build-kde-runner.yml
 
-FROM registry.fedoraproject.org/fedora-minimal:latest@sha256:605f79bdaea8b1f2ec58f3992d76ab783fb770bc7afc1d43719a633c6a81ecd5
+FROM registry.fedoraproject.org/fedora-minimal:latest@sha256:011f346f0c2cbb7ff5239b6d35d9b2ba858612b92ab506671d93e8ecae1151a5
 
 LABEL org.opencontainers.image.source="https://github.com/projectbluefin/testsuite"
 LABEL org.opencontainers.image.description="Host-side behave/selenium test runner for KDE/Plasma e2e tests"
