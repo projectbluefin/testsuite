@@ -434,18 +434,60 @@ jobs:
           # without an override ("bootupd is required for ostree-based
           # installs", run 43525356388), and its lifecycle reboots stay as
           # limited as before #1189.
-          FIRMWARE_BOOT=false
+          # Two independent things drive how the installed disk boots:
+          #  - COMPOSEFS: the image's install config (usr/lib/bootc/install/*.toml)
+          #    sets composefs-backend, so bootc must install with --composefs-backend
+          #    or the ostree backend aborts ("bootupd is required for ostree-based
+          #    installs", #1215). Composefs deployments live under
+          #    /sysroot/state/deploy/<id>, not /ostree/deploy/default/deploy.
+          #  - FIRMWARE_BOOT: the lifecycle suite reboots into staged deployments,
+          #    which a direct -kernel boot can't do (#1023). It boots through OVMF
+          #    and the image's own loader. Firmware boot needs the image to install
+          #    its own loader — bootc does that through bootupd (ostree images), but
+          #    composefs images install systemd-boot via --bootloader systemd and
+          #    still need firmware boot, so detect composefs too.
+          COMPOSEFS=false
           if [[ "${SUITE_DIR}" == "lifecycle" ]] \
+            && sudo podman run --rm --quiet --entrypoint /bin/sh "${IMAGE}" -c \
+                 'grep -lq composefs-backend /usr/lib/bootc/install/*.toml 2>/dev/null' >/dev/null 2>&1; then
+            COMPOSEFS=true
+          fi
+          FIRMWARE_BOOT=false
+          if [[ "${COMPOSEFS}" == "true" ]]; then
+            FIRMWARE_BOOT=true
+          elif [[ "${SUITE_DIR}" == "lifecycle" ]] \
             && sudo podman run --rm --quiet --entrypoint /bin/sh "${IMAGE}" -c 'command -v bootupctl' >/dev/null 2>&1; then
             FIRMWARE_BOOT=true
           elif [[ "${SUITE_DIR}" == "lifecycle" ]]; then
-            echo "::warning title=lifecycle without firmware boot::${IMAGE} has no bootupctl, so the lifecycle VM boots the first deployment's kernel directly and reboots cannot reach a staged deployment (#1023)"
+            echo "::warning title=lifecycle without firmware boot::${IMAGE} has no bootupctl and is not composefs-native, so the lifecycle VM boots the first deployment's kernel directly and reboots cannot reach a staged deployment (#1023)"
           fi
-          if [[ "${FIRMWARE_BOOT}" != "true" ]] \
-            && sudo podman run --rm --quiet "${IMAGE}" bootc install to-disk --help 2>&1 | grep -q "\-\-bootloader"; then
-            BOOTLOADER_FLAG="--bootloader systemd"
+          # Composefs images install with --composefs-backend (the ostree backend
+          # fails on them, #1215) plus --bootloader systemd to install systemd-boot,
+          # since they ship no bootupd. Probe both flags: older bootc lacks one.
+          INSTALL_EXTRA=""
+          INSTALL_HELP="$(sudo podman run --rm --quiet "${IMAGE}" bootc install to-disk --help 2>&1)"
+          if [[ "${COMPOSEFS}" == "true" ]] \
+            && printf '%s\n' "${INSTALL_HELP}" | grep -q -- "--composefs-backend" \
+            && printf '%s\n' "${INSTALL_HELP}" | grep -q "\-\-bootloader"; then
+            INSTALL_EXTRA="--composefs-backend --bootloader systemd"
+          elif [[ "${FIRMWARE_BOOT}" != "true" ]] \
+            && printf '%s\n' "${INSTALL_HELP}" | grep -q "\-\-bootloader"; then
+            INSTALL_EXTRA="--bootloader systemd"
           fi
+          BOOTLOADER_FLAG="${INSTALL_EXTRA}"
+          echo "COMPOSEFS=${COMPOSEFS}" >> "$GITHUB_ENV"
           echo "FIRMWARE_BOOT=${FIRMWARE_BOOT}" >> "$GITHUB_ENV"
+
+          # Backend-aware deployment prefix. Ostree images store deployments
+          # under /ostree/deploy/default/deploy/<hash>.<serial>. Composefs images
+          # store them under /sysroot/state/deploy/<id> (#1215).
+          if [[ "${COMPOSEFS}" == "true" ]]; then
+            DEPLOY_DIR="sysroot/state/deploy"
+            STATE_DIR="sysroot/state"
+          else
+            DEPLOY_DIR="ostree/deploy/default/deploy"
+            STATE_DIR="ostree/deploy/default"
+          fi
 
           BOOTC_INSTALL_LOG="$(pwd)/bootc-install.log"
           BOOTC_INSTALL_ATTEMPTS=3
@@ -480,7 +522,7 @@ jobs:
             # instead of ending the step on a bare "mount: wrong fs type".
             if sudo blkid -s TYPE -o value "${ROOT_PART}" >/dev/null 2>&1 \
               && sudo mount "${ROOT_PART}" /mnt/root; then
-              DEPLOY=$(sudo find /mnt/root/ostree/deploy/default/deploy/ -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | head -1)
+              DEPLOY=$(sudo find "/mnt/root/${DEPLOY_DIR}" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | head -1)
               if [[ -n "${DEPLOY}" ]]; then
                 break
               fi
@@ -516,8 +558,16 @@ jobs:
           fi
           ROOT_UUID=$(sudo blkid -s UUID -o value "${ROOT_PART}")
           echo "root=${ROOT_PART}  uuid=${ROOT_UUID}"
-          D="/mnt/root/ostree/deploy/default/deploy/${DEPLOY}"
-          VAR="/mnt/root/ostree/deploy/default/var"
+          D="/mnt/root/${DEPLOY_DIR}/${DEPLOY}"
+          VAR="/mnt/root/${STATE_DIR}/var"
+          # Direct kernel boot prep. For firmware boot (OVMF) systemd-boot reads
+          # the deployment's kernel + BLS entry straight from the disk, so none of
+          # this ostree-only setup runs. Guard it so composefs deployments are never
+          # given a bogus /ostree/ tree and a missing initramfs.img can't abort the
+          # step under set -e.
+          if [[ "${FIRMWARE_BOOT}" == "true" ]]; then
+            :
+          else
           # el10/LTS images may have multiple entries in usr/lib/modules/ (e.g., a
           # modules-only dir for the old kernel + a full dir with vmlinuz for the new
           # one). Pick the version that actually contains a vmlinuz; fall back to the
@@ -608,6 +658,7 @@ jobs:
           fi
 
           echo "ostree boot path: ${OSTREE_PATH}"
+          fi
           # Mask services not needed in CI to shorten first-boot time.
           # NetworkManager-wait-online can block for up to 120s — most
           # expensive to leave unmasked on a SLIRP QEMU network.
@@ -636,7 +687,16 @@ jobs:
           if [[ "${FIRMWARE_BOOT}" == "true" ]]; then
             # shellcheck disable=SC2086 # split KERNEL_ARGS into one argument per line
             CI_KARGS=$(printf '%s\n' ${KERNEL_ARGS} | grep -vE '^(root=|rw$|ostree=)' | tr '\n' ' ')
-            ENTRIES=$(sudo find /mnt/root/boot/loader/entries -maxdepth 1 -name '*.conf' 2>/dev/null)
+            # systemd-boot reads BLS entries from the boot partition (xbootldr /
+            # p2). Some images also mirror them in the root's /boot (p3). Search
+            # both so composefs (p2) and ostree (p2 or p3) both get CI kargs.
+            mountpoint -q /mnt/boot || sudo mount "${LOOP}p2" /mnt/boot
+            ENTRIES=""
+            for ENTRY_ROOT in /mnt/root/boot/loader/entries /mnt/boot/loader/entries; do
+              [[ -d "${ENTRY_ROOT}" ]] || continue
+              ENTRIES+="$(sudo find "${ENTRY_ROOT}" -maxdepth 1 -name '*.conf' 2>/dev/null)"
+            done
+            ENTRIES=$(printf '%s\n' "${ENTRIES}" | grep -v '^$' | sort -u)
             if [[ -z "${ENTRIES}" ]]; then
               echo "::error title=no loader entries::bootc wrote no /boot/loader/entries/*.conf; nothing to boot through the image's own loader"
               exit 1
@@ -664,7 +724,7 @@ jobs:
           echo "SELinux: expected=${SELINUX_EXPECTED} policy=${SELINUX_POLICY}"
           echo "SELINUX_EXPECTED=${SELINUX_EXPECTED}" >> "$GITHUB_ENV"
           SELINUX_DIR="$(pwd)/results/selinux"
-          STATEROOT="/mnt/root/ostree/deploy/default"
+          STATEROOT="/mnt/root/${STATE_DIR}"
           mkdir -p "${SELINUX_DIR}"
           if [[ "${SELINUX_EXPECTED}" == enforcing ]]; then
             for DEP in $(sudo find "${STATEROOT}/deploy" -maxdepth 1 -mindepth 1 -type d 2>/dev/null); do
@@ -681,7 +741,7 @@ jobs:
           # bootc may deploy with a different checksum than what `ls|head-1`
           # returns, so we iterate to ensure the booted deployment gets set up.
           BFT_UID=1001
-          for DEP in $(sudo find /mnt/root/ostree/deploy/default/deploy \
+          for DEP in $(sudo find "${STATEROOT}/deploy" \
               -maxdepth 1 -mindepth 1 -type d 2>/dev/null); do
             # CI VMs are not users: opt out of the daily countme ping
             # (projectbluefin-countme.service honours this marker).
@@ -835,7 +895,7 @@ jobs:
           sudo chmod 700 "${VAR}/home/bluefin-test/.ssh"
           sudo chmod 600 "${VAR}/home/bluefin-test/.ssh/authorized_keys"
           # Write key to AuthorizedKeysCommand target in every deployment
-          for DEP in $(sudo find /mnt/root/ostree/deploy/default/deploy \
+          for DEP in $(sudo find "${STATEROOT}/deploy" \
               -maxdepth 1 -mindepth 1 -type d 2>/dev/null); do
             sudo cp /tmp/vm_key.pub "${DEP}/etc/ssh/ci-authorized-keys"
             sudo chown root:root "${DEP}/etc/ssh/ci-authorized-keys"
@@ -890,7 +950,7 @@ jobs:
           fi
           # Pre-boot diagnostics: confirm key files and sshd drop-in are correct.
           echo "=== ci-authorized-keys ==="
-          for DEP in $(sudo find /mnt/root/ostree/deploy/default/deploy \
+          for DEP in $(sudo find "${STATEROOT}/deploy" \
               -maxdepth 1 -mindepth 1 -type d 2>/dev/null); do
             echo "--- ${DEP}/etc/ssh/ci-authorized-keys ---"
             sudo cat "${DEP}/etc/ssh/ci-authorized-keys" || echo "(missing)"
