@@ -447,16 +447,17 @@ jobs:
           #    composefs images install systemd-boot via --bootloader systemd and
           #    still need firmware boot, so detect composefs too.
           COMPOSEFS=false
-          if [[ "${SUITE_DIR}" == "lifecycle" ]] \
-            && sudo podman run --rm --quiet --entrypoint /bin/sh "${IMAGE}" -c \
-                 'grep -lq composefs-backend /usr/lib/bootc/install/*.toml 2>/dev/null' >/dev/null 2>&1; then
-            COMPOSEFS=true
-          fi
           FIRMWARE_BOOT=false
-          if [[ "${COMPOSEFS}" == "true" ]]; then
+          if [[ "${SUITE_DIR}" == "lifecycle" ]] \
+            && sudo podman run --rm --quiet --entrypoint /bin/sh "${IMAGE}" -c 'command -v bootupctl' >/dev/null 2>&1; then
             FIRMWARE_BOOT=true
           elif [[ "${SUITE_DIR}" == "lifecycle" ]] \
-            && sudo podman run --rm --quiet --entrypoint /bin/sh "${IMAGE}" -c 'command -v bootupctl' >/dev/null 2>&1; then
+            && sudo podman run --rm --quiet --entrypoint /bin/sh "${IMAGE}" -c \
+                 'grep -lq composefs-backend /usr/lib/bootc/install/*.toml 2>/dev/null' >/dev/null 2>&1; then
+            # Composefs images (e.g. dakota) ship no bootupd, so they fall through
+            # the bootupctl probe above. Detect them from the install config and
+            # still force firmware boot (#1215).
+            COMPOSEFS=true
             FIRMWARE_BOOT=true
           elif [[ "${SUITE_DIR}" == "lifecycle" ]]; then
             echo "::warning title=lifecycle without firmware boot::${IMAGE} has no bootupctl and is not composefs-native, so the lifecycle VM boots the first deployment's kernel directly and reboots cannot reach a staged deployment (#1023)"

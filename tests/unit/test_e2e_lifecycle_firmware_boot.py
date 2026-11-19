@@ -26,7 +26,7 @@ def test_lifecycle_install_keeps_the_images_own_loader_and_needs_it():
     lifecycle = install.index('if [[ "${SUITE_DIR}" == "lifecycle" ]]')
     probe = install.index("command -v bootupctl", lifecycle)
     firmware = install.index("FIRMWARE_BOOT=true", lifecycle)
-    override = install.index('BOOTLOADER_FLAG="--bootloader systemd"')
+    override = install.index('INSTALL_EXTRA="--bootloader systemd"')
     # Firmware boot needs bootupd in the image; the systemd-boot override
     # applies only when firmware boot is off (other suites, or an image
     # without bootupd such as dakota, run 43525356388).

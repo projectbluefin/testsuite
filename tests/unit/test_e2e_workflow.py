@@ -47,12 +47,12 @@ def test_e2e_composefs_firmware_boot_branch_for_dakota():
     workflow = _workflow("e2e.yml")
 
     # Composefs is detected from the image's install config, and a detected
-    # composefs backend forces the firmware-boot path (no bootupd to use).
+    # composefs backend forces the firmware-boot path (no bootupd to use). The
+    # composefs branch is a fallback after the bootupctl probe, and it sets
+    # FIRMWARE_BOOT=true.
     assert "grep -lq composefs-backend /usr/lib/bootc/install/*.toml" in workflow
-    assert (
-        'if [[ "${COMPOSEFS}" == "true" ]]; then\n'
-        "            FIRMWARE_BOOT=true"
-    ) in workflow
+    composefs_probe = workflow.index("grep -lq composefs-backend /usr/lib/bootc/install/*.toml")
+    assert workflow.index("FIRMWARE_BOOT=true", composefs_probe) > composefs_probe
 
     # Composefs images install with --composefs-backend (the ostree backend
     # aborts without it, #1215) plus --bootloader systemd to install systemd-boot.
