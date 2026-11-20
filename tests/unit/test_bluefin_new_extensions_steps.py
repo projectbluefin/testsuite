@@ -71,17 +71,16 @@ def _ctx(**attrs):
 # ---------------------------------------------------------------------------
 
 class TestConstants:
-    def test_seven_extension_uuids_defined(self, mod):
+    def test_six_extension_uuids_defined(self, mod):
         uuids = {
             mod.COPYOUS_UUID,
-            mod.SYNCTHING_TOGGLE_UUID,
             mod.BLUETOOTH_BATTERY_METER_UUID,
             mod.AUDIO_HIDER_UUID,
             mod.AUDIO_RENAMER_UUID,
             mod.TILING_ASSISTANT_UUID,
             mod.TAILSCALE_UUID,
         }
-        assert len(uuids) == 7
+        assert len(uuids) == 6
         assert mod.COPYOUS_UUID == "copyous@boerdereinar.dev"
 
 
@@ -197,36 +196,6 @@ class TestExtensionGsettingsValue:
         assert schema is None
 
 
-class TestTheExtensionHonorsSetting:
-    def test_soft_passes_when_schema_unresolvable(self, mod, capsys):
-        context = _ctx()
-        with patch.object(mod, "_extension_gsettings_value", return_value=(None, None)):
-            mod.the_extension_honors_setting(context, "start-stop-only = true")
-        assert "WARNING" in capsys.readouterr().out
-
-    def test_passes_when_value_matches(self, mod):
-        context = _ctx()
-        with patch.object(
-            mod, "_extension_gsettings_value",
-            return_value=("true", "org.gnome.shell.extensions.syncthing-toggle"),
-        ):
-            mod.the_extension_honors_setting(context, "start-stop-only = true")
-
-    def test_raises_when_value_differs(self, mod):
-        context = _ctx()
-        with patch.object(
-            mod, "_extension_gsettings_value",
-            return_value=("false", "org.gnome.shell.extensions.syncthing-toggle"),
-        ):
-            with pytest.raises(AssertionError, match="expected 'true'"):
-                mod.the_extension_honors_setting(context, "start-stop-only = true")
-
-    def test_rejects_unparsable_setting_expression(self, mod):
-        context = _ctx()
-        with pytest.raises(AssertionError, match="Could not parse"):
-            mod.the_extension_honors_setting(context, "not a key value pair")
-
-
 class TestSymbolicIndicatorColor:
     def test_strips_gvariant_type_prefix_before_comparing(self, mod):
         context = _ctx()
@@ -247,68 +216,18 @@ class TestSymbolicIndicatorColor:
 
 
 # ---------------------------------------------------------------------------
-# systemd unit helper
-# ---------------------------------------------------------------------------
-
-class TestSystemdUnitStartStop:
-    def test_unit_not_found_reports_unavailable(self, mod):
-        with patch.object(mod, "_run_host", return_value=("LoadState=not-found", 0, "")):
-            available, ok, _detail = mod._systemd_unit_start_stop("syncthing.service")
-        assert available is False
-        assert ok is False
-
-    def test_available_unit_starts_and_stops_successfully(self, mod):
-        responses = iter([
-            ("LoadState=loaded", 0, ""),
-            ("", 0, ""),
-            ("", 0, ""),
-        ])
-        with patch.object(mod, "_run_host", side_effect=lambda *a, **kw: next(responses)), \
-             patch.object(mod.time, "sleep"):
-            available, ok, _detail = mod._systemd_unit_start_stop("syncthing.service")
-        assert available is True
-        assert ok is True
-
-    def test_available_unit_reports_failure_detail(self, mod):
-        responses = iter([
-            ("LoadState=loaded", 0, ""),
-            ("", 1, "start failed"),
-            ("", 0, ""),
-        ])
-        with patch.object(mod, "_run_host", side_effect=lambda *a, **kw: next(responses)), \
-             patch.object(mod.time, "sleep"):
-            available, ok, detail = mod._systemd_unit_start_stop("syncthing.service")
-        assert available is True
-        assert ok is False
-        assert detail == "start failed"
-
-
-# ---------------------------------------------------------------------------
 # Quick Settings text scan
 # ---------------------------------------------------------------------------
 
 class TestQuickSettingsContainsText:
     def test_returns_true_when_eval_bool_true(self, mod):
         with patch.object(mod, "_eval_bool", return_value=True) as eval_bool:
-            assert mod._quick_settings_contains_text("Sync Folder") is True
-        assert "Sync Folder" in eval_bool.call_args[0][0]
+            assert mod._quick_settings_contains_text("Tailscale") is True
+        assert "Tailscale" in eval_bool.call_args[0][0]
 
     def test_returns_false_when_eval_bool_raises(self, mod):
         with patch.object(mod, "_eval_bool", side_effect=AssertionError("boom")):
-            assert mod._quick_settings_contains_text("Sync Folder") is False
-
-
-class TestQuickSettingsContainsALabeledToggle:
-    def test_passes_when_present(self, mod):
-        context = _ctx()
-        with patch.object(mod, "_quick_settings_contains_text", return_value=True):
-            mod.quick_settings_contains_a_toggle_labeled(context, "Sync Folder")
-
-    def test_raises_when_absent(self, mod):
-        context = _ctx()
-        with patch.object(mod, "_quick_settings_contains_text", return_value=False):
-            with pytest.raises(AssertionError, match="Sync Folder"):
-                mod.quick_settings_contains_a_toggle_labeled(context, "Sync Folder")
+            assert mod._quick_settings_contains_text("Tailscale") is False
 
 
 # ---------------------------------------------------------------------------

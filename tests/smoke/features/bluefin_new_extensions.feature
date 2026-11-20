@@ -22,15 +22,6 @@ Feature: Newly enabled Bluefin GNOME extension stability
     * GNOME Shell remains accessible and does not crash during the stress run
     * GNOME Shell memory usage remains bounded after repeated copy and paste operations
 
-  @bluefin @extensions
-  Scenario: Syncthing Toggle Quick Settings control is enabled
-    * GNOME Shell is accessible via AT-SPI
-    * GNOME extension "syncthing-toggle@rehhouari.github.com" is enabled
-    * Quick Settings contains a toggle labeled "Sync Folder"
-    * The pill and header use the label "Sync Folder"
-    * The toggle starts and stops the Syncthing service without shell errors
-    * The extension honors "start-stop-only = true"
-
   @extensions @pending
   # @pending: 'The Bluetooth battery panel icon is rendered' soft-passes when
   # dogtail is unavailable or gnome-shell is absent from the AT-SPI tree.
