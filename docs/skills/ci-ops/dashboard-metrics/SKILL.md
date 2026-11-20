@@ -93,6 +93,8 @@ This skill guides agents through modifying, compiling, and deploying the QA dash
 
 11. **`publish-to-pages.yml` is not exercised by PR checks**: the workflow only triggers on `schedule`, `workflow_dispatch`, and pushes to `main` under `dashboard/**`. A dependency PR can therefore merge fully green and only break the dashboard hours later on the next 2-hourly cron. Any PR touching `dashboard/package.json`, `dashboard/package-lock.json`, or `dashboard/scripts/**` must be validated locally with `npm ci && npm run build` before merge.
 
+12. **Renovate's npm pin must match CI's npm**: `renovate.json` sets `constraints.npm` (`^11.20.0`, #1255) so Renovate writes `dashboard/package-lock.json` with the same npm CI uses; npm 12 could not update that lock file (#1257). CI's npm is the one bundled with Node (`node-version: '26'` → npm 11), and Renovate doesn't offer updates to the pin. So a Node major PR that brings a newer npm fails `dashboard-build` at `prebuild` (`dashboard/scripts/check-npm-pin.mjs`), with the exact value to set. Fix it by raising `constraints.npm` in that same PR, not by editing or skipping the check. Local builds skip the check; it only enforces when `CI` is set.
+
 ## Common Rationalizations
 
 | Rationalization | Reality |
