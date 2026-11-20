@@ -33,7 +33,6 @@ from tests.shared.ssh_config import ssh_argv
 # Extension identifiers (issue #793 / projectbluefin/common#1087)
 # ---------------------------------------------------------------------------
 COPYOUS_UUID = "copyous@boerdereinar.dev"
-SYNCTHING_TOGGLE_UUID = "syncthing-toggle@rehhouari.github.com"
 BLUETOOTH_BATTERY_METER_UUID = "Bluetooth-Battery-Meter@maniacx.github.com"
 AUDIO_HIDER_UUID = "quicksettings-audio-devices-hider@marcinjahn.com"
 AUDIO_RENAMER_UUID = "quicksettings-audio-devices-renamer@marcinjahn.com"
@@ -166,18 +165,6 @@ def _extension_gsettings_value(uuid: str, key: str):
         if rc == 0:
             return stdout.strip(), schema
     return None, None
-
-
-def _systemd_unit_start_stop(unit: str) -> tuple[bool, bool, str]:
-    """Try to start then stop a systemd (user) unit. Returns
-    (unit_available, both_succeeded, detail)."""
-    show_out, show_rc, _ = _run_host(f"systemctl --user show -p LoadState {unit} 2>&1")
-    if show_rc != 0 or "LoadState=not-found" in show_out or "LoadState=" not in show_out:
-        return False, False, show_out
-    _, start_rc, start_err = _run_host(f"systemctl --user start {unit} 2>&1")
-    sleep(1)
-    _, stop_rc, stop_err = _run_host(f"systemctl --user stop {unit} 2>&1")
-    return True, (start_rc == 0 and stop_rc == 0), (start_err or stop_err)
 
 
 # ---------------------------------------------------------------------------
@@ -389,57 +376,6 @@ def gnome_shell_memory_usage_remains_bounded(context) -> None:
     assert after_kb <= max_allowed_kb, (
         f"gnome-shell memory grew from {baseline_kb}KiB to {after_kb}KiB after clipboard "
         f"stress, exceeding the {max_allowed_kb}KiB bound — possible leak"
-    )
-
-
-# ---------------------------------------------------------------------------
-# Syncthing Toggle
-# ---------------------------------------------------------------------------
-
-@step('Quick Settings contains a toggle labeled "{label}"')
-def quick_settings_contains_a_toggle_labeled(context, label: str) -> None:
-    assert _quick_settings_contains_text(label), (
-        f'Quick Settings does not expose a toggle labeled "{label}"'
-    )
-
-
-@step('The pill and header use the label "{label}"')
-def the_pill_and_header_use_the_label(context, label: str) -> None:
-    assert _quick_settings_contains_text(label), (
-        f'Quick Settings pill/header does not use the label "{label}"'
-    )
-
-
-@step("The toggle starts and stops the Syncthing service without shell errors")
-def the_toggle_starts_and_stops_the_syncthing_service(context) -> None:
-    marker = _journal_snapshot_marker()
-    available, ok, detail = _systemd_unit_start_stop("syncthing.service")
-    if not available:
-        print(
-            "WARNING: syncthing.service not present on this image — "
-            "soft-skipping start/stop exercise",
-            flush=True,
-        )
-    else:
-        assert ok, f"Failed to start/stop syncthing.service cleanly: {detail}"
-    _assert_no_new_shell_errors(marker, extra_pattern=re.escape(SYNCTHING_TOGGLE_UUID))
-
-
-@step('The extension honors "{setting}"')
-def the_extension_honors_setting(context, setting: str) -> None:
-    match = re.match(r"\s*([\w-]+)\s*=\s*(\S+)\s*", setting)
-    assert match, f"Could not parse setting expression: {setting!r}"
-    key, expected = match.group(1), match.group(2)
-    value, schema = _extension_gsettings_value(SYNCTHING_TOGGLE_UUID, key)
-    if value is None:
-        print(
-            f"WARNING: could not resolve gsettings schema for {SYNCTHING_TOGGLE_UUID} "
-            f"key {key!r} — soft pass (schema id is not standardized for community extensions)",
-            flush=True,
-        )
-        return
-    assert value.strip().lower() == expected.lower(), (
-        f"{schema} {key} is {value!r}, expected {expected!r}"
     )
 
 

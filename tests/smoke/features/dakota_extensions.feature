@@ -6,7 +6,8 @@ Feature: Dakota GNOME Shell extension presence and configuration
   are present and valid, and that dconf schema overrides match the shipped specification.
   The default-enabled set is @dakota_family: Utah enables the same set
   (projectbluefin/utah#1252). The installed-only checks name Dakota's
-  shipped UUIDs and stay @dakota_only.
+  shipped UUIDs and stay @dakota_only, except bling's Sync Folder toggle,
+  which Utah ships with the same start-stop-only default.
 
   # ---------------------------------------------------------------------------
   # Default-enabled extensions (from disable-ext-validator.bst)
@@ -94,8 +95,8 @@ Feature: Dakota GNOME Shell extension presence and configuration
     * GNOME Shell is accessible via AT-SPI
     * GNOME extension "quicksettings-audio-devices-renamer@marcinjahn.com" is installed
 
-  @dakota_only @extensions
-  Scenario: Syncthing Toggle extension is installed and configured on Dakota
+  @dakota_family @extensions
+  Scenario: Syncthing Toggle extension is installed and configured on Dakota-family images
     * GNOME Shell is accessible via AT-SPI
     * GNOME extension "syncthing-toggle@projectbluefin.io" is installed
     * Dconf path "/org/gnome/shell/extensions/syncthing-toggle/start-stop-only" has value "true"
