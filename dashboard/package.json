@@ -7,6 +7,7 @@
     "start": "astro dev",
     "build:astro": "astro check && astro build",
     "postbuild:search": "pagefind --site dist --output-path dist/pagefind",
+    "prebuild": "node scripts/check-npm-pin.mjs",
     "build": "npm run build:astro && npm run postbuild:search",
     "preview": "astro preview"
   },
