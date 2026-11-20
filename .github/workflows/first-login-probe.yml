@@ -68,7 +68,7 @@ jobs:
           persist-credentials: false
 
       - name: Free disk space and install QEMU, qemu-img and OVMF
-        uses: projectbluefin/actions/bootc-build/setup-runner@60c9845049b89b668a5704ca472b165845a253d0 # v1
+        uses: projectbluefin/actions/bootc-build/setup-runner@2463703fd33dc4f11924ea9a99d98b0cb1b88838 # v1
         with:
           update-podman: "false"
           apt-packages: qemu-system-x86 qemu-utils ovmf
