@@ -615,6 +615,25 @@ def test_point_origin_command_rewrites_the_composefs_origin_directly(tmp_path):
         "\n[boot]\nboot_type=bls\n"
     )
 
+    # bootc writes the origin with tini, which may put spaces around "="
+    # (run 44933769711 found no "key=value" line to rewrite).
+    origin.write_text(
+        "[origin]\n"
+        "container-image-reference = ostree-unverified-image:docker://ghcr.io/x@sha256:old\n"
+    )
+    subprocess.run(["sh", "-c", script, "sh", "ghcr.io/x@sha256:new", "abc123"],
+                   capture_output=True, text=True, check=True)
+    assert origin.read_text() == (
+        "[origin]\n"
+        "container-image-reference = ostree-unverified-image:docker://ghcr.io/x@sha256:new\n"
+    )
+
+    # An origin with no image reference fails and shows what it has.
+    origin.write_text("[origin]\nrefspec = something\n")
+    miss = subprocess.run(["sh", "-c", script, "sh", "ghcr.io/x@sha256:new", "abc123"],
+                          capture_output=True, text=True)
+    assert miss.returncode != 0 and "no container-image-reference to rewrite" in miss.stderr
+
     # A missing origin fails instead of reporting success.
     bad = subprocess.run(["sh", "-c", script, "sh", "ghcr.io/x@sha256:new", "nope"],
                          capture_output=True, text=True)

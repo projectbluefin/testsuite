@@ -351,8 +351,8 @@ COMPOSEFS_POINT_ORIGIN = (
     'mount -o remount,rw /sysroot || exit 1; '
     'f="/sysroot/state/deploy/$2/$2.origin"; '
     '[ -f "$f" ] || { echo "no composefs origin at $f" >&2; exit 1; }; '
-    'sed -E "s#^(container-image-reference=.*(docker://|registry:)).*\\$#\\1$1#" "$f" > /run/bootc-origin.new || exit 1; '
-    'grep -qF "$1" /run/bootc-origin.new || { echo "origin has no container-image-reference to rewrite" >&2; exit 1; }; '
+    'sed -E "s#^(container-image-reference[[:space:]]*=[[:space:]]*.*(docker://|registry:)).*\\$#\\1$1#" "$f" > /run/bootc-origin.new || exit 1; '
+    'grep -qF "$1" /run/bootc-origin.new || { echo "origin has no container-image-reference to rewrite:" >&2; grep -n "image-reference" "$f" >&2; exit 1; }; '
     'cat /run/bootc-origin.new > "$f" && rm -f /run/bootc-origin.new && echo "Updated $2 to pull from $1"'
 )
 
