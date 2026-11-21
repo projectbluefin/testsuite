@@ -100,3 +100,21 @@ def test_e2e_ci_user_tmpfiles_has_no_recursive_home_relabel():
     assert "'Z " not in block and "\\nZ " not in block
     assert "d /var/home/bluefin-test 0700" in block
     assert "d /var/home/bluefin-test/.ssh 0700" in block
+
+
+def test_target_step_rewrites_the_composefs_origin_with_the_suite_script():
+    # The workflow step and steps.py must point a composefs deployment's origin
+    # the same way, since --mutate-in-place is ostree-only (run 44931663470).
+    import re
+
+    workflow = _workflow("e2e.yml")
+    step = workflow[workflow.index("- name: Point the VM at the target image"):]
+    step = step[:step.index("\n      - name:", 1)]
+    assert 'if [[ "${COMPOSEFS:-false}" == "true" ]]; then' in step
+    assert ".status.booted.composefs.verity // empty" in step
+    assert "bootc switch --mutate-in-place" in step  # ostree keeps its path
+    point = re.search(r"POINT='(.*)'\n", step).group(1)
+
+    steps = (Path(__file__).resolve().parents[2] / "tests/lifecycle/features/steps/steps.py").read_text()
+    body = re.search(r"COMPOSEFS_POINT_ORIGIN = \((.*?)\n\)", steps, re.S).group(1)
+    assert point == "".join(re.findall(r"'((?:[^'\\]|\\.)*)'", body)).replace("\\\\", "\\")

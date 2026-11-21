@@ -579,6 +579,63 @@ def test_point_origin_command_remounts_sysroot_in_a_private_namespace():
     assert argv[7:] == ["sh", "ghcr.io/x@sha256:c d"]
 
 
+def test_point_origin_command_rewrites_the_composefs_origin_directly(tmp_path):
+    # `bootc switch --mutate-in-place` is ostree-only: on composefs it opens
+    # /sysroot/ostree/deploy and fails "No such file or directory" (run
+    # 44931663470). A composefs deployment id selects a direct origin rewrite.
+    import shlex
+    import subprocess
+
+    mod = _import_lifecycle_steps()
+    argv = shlex.split(mod.point_origin_command("ghcr.io/x@sha256:new", "abc123"))
+    assert argv[:5] == ["sudo", "unshare", "-m", "--", "sh"]
+    assert argv[5] == "-c"
+    assert "--mutate-in-place" not in argv[6]
+    assert argv[7:] == ["sh", "ghcr.io/x@sha256:new", "abc123"]
+
+    # Run the script against a fake /sysroot laid out as bootc writes it.
+    deploy = tmp_path / "state/deploy/abc123"
+    deploy.mkdir(parents=True)
+    origin = deploy / "abc123.origin"
+    origin.write_text(
+        "[origin]\n"
+        "container-image-reference=ostree-unverified-image:docker://ghcr.io/x@sha256:old\n"
+        "\n[boot]\nboot_type=bls\n"
+    )
+    script = (argv[6]
+              .replace("mount -o remount,rw /sysroot || exit 1; ", "")
+              .replace("/sysroot", str(tmp_path))
+              .replace("/run/", f"{tmp_path}/"))
+    out = subprocess.run(["sh", "-c", script, "sh", "ghcr.io/x@sha256:new", "abc123"],
+                         capture_output=True, text=True, check=True)
+    assert "Updated abc123 to pull from ghcr.io/x@sha256:new" in out.stdout
+    assert origin.read_text() == (
+        "[origin]\n"
+        "container-image-reference=ostree-unverified-image:docker://ghcr.io/x@sha256:new\n"
+        "\n[boot]\nboot_type=bls\n"
+    )
+
+    # A missing origin fails instead of reporting success.
+    bad = subprocess.run(["sh", "-c", script, "sh", "ghcr.io/x@sha256:new", "nope"],
+                         capture_output=True, text=True)
+    assert bad.returncode != 0 and "no composefs origin" in bad.stderr
+
+
+def test_point_origin_uses_the_booted_composefs_id(monkeypatch):
+    mod = _import_lifecycle_steps()
+    monkeypatch.setenv("TARGET_IMAGE", "ghcr.io/x@sha256:new")
+    run = MagicMock(return_value=("Updated", 0))
+    monkeypatch.setattr(mod, "run_ssh", run)
+    status = {"booted": {"image": {"image": {"image": "ghcr.io/x@sha256:old"}},
+                         "composefs": {"verity": "abc123"}}}
+    mod._point_booted_origin_at_target(MagicMock(), status)
+    assert run.call_args[0][1] == mod.point_origin_command("ghcr.io/x@sha256:new", "abc123")
+
+    status = {"booted": {"image": {"image": {"image": "ghcr.io/x@sha256:old"}}, "ostree": {}}}
+    mod._point_booted_origin_at_target(MagicMock(), status)
+    assert run.call_args[0][1] == mod.point_origin_command("ghcr.io/x@sha256:new")
+
+
 class TestIsDeploymentSettled:
     def setup_method(self):
         self.mod = _import_lifecycle_steps()

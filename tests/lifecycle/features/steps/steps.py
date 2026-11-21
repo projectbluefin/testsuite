@@ -339,7 +339,25 @@ def _deployment_ref(deployment):
     return (((deployment or {}).get("image") or {}).get("image") or {}).get("image", "")
 
 
-def point_origin_command(target):
+# Composefs counterpart of ``bootc switch --mutate-in-place``, which only
+# handles ostree (bootc cli.rs switch(): "for now this just assumes ostree";
+# it opens /sysroot/ostree/deploy and fails with "No such file or directory"
+# on composefs, run 44931663470). A composefs deployment's image comes from
+# ``[origin] container-image-reference`` in
+# /sysroot/state/deploy/<id>/<id>.origin (bootc_composefs/state.rs), so
+# rewrite only the image after its transport prefix. ``cat >`` keeps the
+# file's inode and SELinux label. $1 = target image, $2 = deployment id.
+COMPOSEFS_POINT_ORIGIN = (
+    'mount -o remount,rw /sysroot || exit 1; '
+    'f="/sysroot/state/deploy/$2/$2.origin"; '
+    '[ -f "$f" ] || { echo "no composefs origin at $f" >&2; exit 1; }; '
+    'sed -E "s#^(container-image-reference=.*(docker://|registry:)).*\\$#\\1$1#" "$f" > /run/bootc-origin.new || exit 1; '
+    'grep -qF "$1" /run/bootc-origin.new || { echo "origin has no container-image-reference to rewrite" >&2; exit 1; }; '
+    'cat /run/bootc-origin.new > "$f" && rm -f /run/bootc-origin.new && echo "Updated $2 to pull from $1"'
+)
+
+
+def point_origin_command(target, composefs_id=""):
     """Shell command that points the booted deployment's origin at ``target``.
 
     ``bootc switch --mutate-in-place`` rewrites the origin without pulling or
@@ -347,9 +365,20 @@ def point_origin_command(target):
     read-only ("Writing origin: Read-only file system", run 43504555365). As
     ostree's own admin tools do, remount /sysroot read-write in a private
     mount namespace for that one command; the system's own mount is untouched.
+
+    A composefs deployment (``composefs_id`` set, from bootc status
+    ``composefs.verity``) gets the same origin rewrite done directly, because
+    ``--mutate-in-place`` is ostree-only (#1215).
     """
+    if composefs_id:
+        return (f"sudo unshare -m -- sh -c {shlex.quote(COMPOSEFS_POINT_ORIGIN)} sh "
+                f"{shlex.quote(target)} {shlex.quote(composefs_id)}")
     inner = 'mount -o remount,rw /sysroot && exec bootc switch --mutate-in-place "$1"'
     return f"sudo unshare -m -- sh -c {shlex.quote(inner)} sh {shlex.quote(target)}"
+
+
+def _composefs_id(deployment):
+    return (((deployment or {}).get("composefs") or {}).get("verity") or "")
 
 
 def _point_booted_origin_at_target(context, status):
@@ -365,7 +394,7 @@ def _point_booted_origin_at_target(context, status):
         return
     if _deployment_ref(status.get("staged")) == target:
         return
-    command = point_origin_command(target)
+    command = point_origin_command(target, _composefs_id(status.get("booted")))
     stdout, rc = run_ssh(context, command)
     assert rc == 0, f"{command} exited {rc}: {stdout!r}"
     print(f"Pointed the booted deployment's origin at {target}", flush=True)

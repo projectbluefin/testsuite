@@ -1084,8 +1084,24 @@ jobs:
           # read-only: remount it read-write in a private mount namespace for
           # this one command, as ostree's admin tools do. Same command as
           # point_origin_command() in tests/lifecycle/features/steps/steps.py.
-          timeout 120 ssh ${SSH_COMMON} -p 2222 bluefin-test@127.0.0.1 \
-            "sudo unshare -m -- sh -c 'mount -o remount,rw /sysroot && exec bootc switch --mutate-in-place \"\$1\"' sh $(printf '%q' "${TARGET_IMAGE}")"
+          if [[ "${COMPOSEFS:-false}" == "true" ]]; then
+            # --mutate-in-place is ostree-only (bootc cli.rs switch()), so on
+            # composefs rewrite the booted deployment's origin directly. Same
+            # script as COMPOSEFS_POINT_ORIGIN in steps.py (#1215).
+            CFS_ID=$(timeout 60 ssh ${SSH_COMMON} -p 2222 bluefin-test@127.0.0.1 "sudo bootc status --format=json" \
+              | jq -r '.status.booted.composefs.verity // empty')
+            if [[ -z "${CFS_ID}" ]]; then
+              echo "::error title=no composefs deployment id::bootc status reports no booted composefs.verity"
+              exit 1
+            fi
+            # shellcheck disable=SC2016 # $1/$2 expand in the guest's sh
+            POINT='mount -o remount,rw /sysroot || exit 1; f="/sysroot/state/deploy/$2/$2.origin"; [ -f "$f" ] || { echo "no composefs origin at $f" >&2; exit 1; }; sed -E "s#^(container-image-reference=.*(docker://|registry:)).*\$#\1$1#" "$f" > /run/bootc-origin.new || exit 1; grep -qF "$1" /run/bootc-origin.new || { echo "origin has no container-image-reference to rewrite" >&2; exit 1; }; cat /run/bootc-origin.new > "$f" && rm -f /run/bootc-origin.new && echo "Updated $2 to pull from $1"'
+            timeout 120 ssh ${SSH_COMMON} -p 2222 bluefin-test@127.0.0.1 \
+              "sudo unshare -m -- sh -c $(printf '%q' "${POINT}") sh $(printf '%q' "${TARGET_IMAGE}") $(printf '%q' "${CFS_ID}")"
+          else
+            timeout 120 ssh ${SSH_COMMON} -p 2222 bluefin-test@127.0.0.1 \
+              "sudo unshare -m -- sh -c 'mount -o remount,rw /sysroot && exec bootc switch --mutate-in-place \"\$1\"' sh $(printf '%q' "${TARGET_IMAGE}")"
+          fi
 
       - name: Dump VM serial log
         if: always()
