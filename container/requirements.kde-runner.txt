@@ -4,7 +4,7 @@ behave==1.3.3
 selenium==4.53.0
 websocket-client==1.9.2
 lxml==6.1.3
-PyYAML==6.0.3
+PyYAML==6.0.4
 
 # NOTE: no perceptual image differ is installed.
 # The PyPI package named "odiff" is NOT the perceptual image diff tool
