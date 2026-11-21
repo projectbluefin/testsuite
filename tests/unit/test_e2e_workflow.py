@@ -118,3 +118,15 @@ def test_target_step_rewrites_the_composefs_origin_with_the_suite_script():
     steps = (Path(__file__).resolve().parents[2] / "tests/lifecycle/features/steps/steps.py").read_text()
     body = re.search(r"COMPOSEFS_POINT_ORIGIN = \((.*?)\n\)", steps, re.S).group(1)
     assert point == "".join(re.findall(r"'((?:[^'\\]|\\.)*)'", body)).replace("\\\\", "\\")
+
+
+def test_composefs_runs_mask_uupd_and_tell_the_runner_the_backend():
+    # dakota's uupd staged the target before the suite ran, so every upgrade
+    # found "Update already staged" (run 44934532807). Ostree keeps its args.
+    workflow = _workflow("e2e.yml")
+    guard = workflow.index('KERNEL_ARGS="${KERNEL_ARGS} systemd.mask=uupd.timer systemd.mask=uupd.service"')
+    assert workflow.rindex('if [[ "${COMPOSEFS}" == "true" ]]; then', 0, guard) > workflow.index("KERNEL_ARGS=\"root=UUID=")
+    assert guard < workflow.index('echo "KERNEL_ARGS=${KERNEL_ARGS}" >> "$GITHUB_ENV"')
+    # Both behave invocations receive the backend.
+    assert workflow.count('-e COMPOSEFS="${COMPOSEFS:-false}"') == 1
+    assert workflow.count('-e COMPOSEFS=\\"${COMPOSEFS:-false}\\"') == 1

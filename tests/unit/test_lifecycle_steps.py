@@ -896,3 +896,134 @@ class TestOsReleaseBluefinIdentity:
     def test_non_bluefin_fails(self):
         with pytest.raises(AssertionError, match="Bluefin os-release identity"):
             self._check(self.UBUNTU)
+
+
+class TestComposefsUpgradeStaged:
+    """A composefs upgrade prints no "Queued for next boot" (bootc_composefs/
+    update.rs), so on COMPOSEFS=true the gate reads bootc status (#1215)."""
+
+    def setup_method(self):
+        self.mod = _import_lifecycle_steps()
+
+    def _status(self, monkeypatch, booted, staged):
+        import json
+
+        def deployment(digest):
+            if digest is None:
+                return None
+            return {"image": {"imageDigest": digest}, "composefs": {"verity": "v" + digest[-4:]}}
+
+        raw = json.dumps({"status": {"booted": deployment(booted), "staged": deployment(staged)}})
+
+        def fake_run_ssh(context, command):
+            context.command_stdout = raw
+            return raw, 0
+
+        monkeypatch.setattr(self.mod, "run_ssh", fake_run_ssh)
+
+    def _context(self, output):
+        return types.SimpleNamespace(command_stdout=output, ssh_rc=0, last_ssh_result=None)
+
+    def test_silent_composefs_upgrade_with_a_distinct_staged_digest_passes(self, monkeypatch):
+        monkeypatch.setenv("COMPOSEFS", "true")
+        self._status(monkeypatch, "sha256:" + "a" * 64, "sha256:" + "b" * 64)
+        context = self._context("")
+        self.mod.upgrade_output_staged(context)
+        # The status read does not replace the upgrade output.
+        assert context.command_stdout == ""
+
+    def test_update_already_staged_passes(self, monkeypatch):
+        monkeypatch.setenv("COMPOSEFS", "true")
+        self._status(monkeypatch, "sha256:" + "a" * 64, "sha256:" + "b" * 64)
+        output = "Update already staged. To apply update run `bootc update --apply`"
+        context = self._context(output)
+        self.mod.upgrade_output_staged(context)
+        assert context.command_stdout == output
+
+    def test_composefs_noop_with_nothing_staged_fails(self, monkeypatch):
+        monkeypatch.setenv("COMPOSEFS", "true")
+        self._status(monkeypatch, "sha256:" + "a" * 64, None)
+        with pytest.raises(AssertionError, match="no-op"):
+            self.mod.upgrade_output_staged(self._context("No changes in: ghcr.io/x"))
+
+    def test_staged_equal_to_booted_fails(self, monkeypatch):
+        monkeypatch.setenv("COMPOSEFS", "true")
+        self._status(monkeypatch, "sha256:" + "a" * 64, "sha256:" + "a" * 64)
+        with pytest.raises(AssertionError, match="no-op"):
+            self.mod.upgrade_output_staged(self._context(""))
+
+    def test_ostree_never_reads_status(self, monkeypatch):
+        monkeypatch.delenv("COMPOSEFS", raising=False)
+        run = MagicMock()
+        monkeypatch.setattr(self.mod, "run_ssh", run)
+        with pytest.raises(AssertionError, match="no-op"):
+            self.mod.upgrade_output_staged(self._context(""))
+        run.assert_not_called()
+
+    def test_conditional_reboot_follows_the_composefs_status(self, monkeypatch):
+        monkeypatch.setenv("COMPOSEFS", "true")
+        self._status(monkeypatch, "sha256:" + "a" * 64, "sha256:" + "b" * 64)
+        reboot = MagicMock()
+        monkeypatch.setattr(self.mod, "reboot_and_wait", reboot)
+        self.mod.maybe_reboot_after_upgrade(self._context(""))
+        reboot.assert_called_once()
+
+
+class TestOstreeOnlyScenarios:
+    def setup_method(self):
+        _import_lifecycle_steps()
+        sys.modules.pop("tests.lifecycle.features.environment", None)
+        import tests.lifecycle.features.environment as environment
+        self.mod = environment
+
+    @staticmethod
+    def scenario(tags, status="skipped"):
+        return types.SimpleNamespace(
+            name="ostree admin status reports at least two deployments after upgrade",
+            effective_tags=list(tags),
+            tags=list(tags),
+            status=types.SimpleNamespace(name=status),
+            steps=[types.SimpleNamespace(
+                name="bootc upgrade output indicates image was staged",
+                status=types.SimpleNamespace(name=status),
+            )],
+            skip=MagicMock(),
+        )
+
+    def test_skipped_with_a_reason_on_composefs(self, monkeypatch):
+        monkeypatch.setenv("COMPOSEFS", "true")
+        scenario = self.scenario(["lifecycle", "ostree", "ostree_only"])
+        self.mod.before_scenario(types.SimpleNamespace(), scenario)
+        scenario.skip.assert_called_once_with(self.mod.OSTREE_ONLY_SKIP_REASON)
+        assert "ostree-only" in self.mod.OSTREE_ONLY_SKIP_REASON
+
+    def test_not_required_on_composefs(self, monkeypatch):
+        monkeypatch.setenv("COMPOSEFS", "true")
+        passed = self.scenario(["lifecycle", "upgrade"], status="passed")
+        skipped = self.scenario(["lifecycle", "ostree", "ostree_only"])
+        self.mod._assert_required_lifecycle_passed(
+            [types.SimpleNamespace(walk_scenarios=lambda: iter([passed, skipped]))])
+
+    def test_still_runs_and_is_required_on_ostree(self, monkeypatch):
+        monkeypatch.delenv("COMPOSEFS", raising=False)
+        scenario = self.scenario(["lifecycle", "ostree", "ostree_only"])
+        assert not self.mod._ostree_only_skipped(scenario)
+        with pytest.raises(AssertionError, match="skipped or incomplete"):
+            self.mod._assert_required_lifecycle_passed(
+                [types.SimpleNamespace(walk_scenarios=lambda: iter([scenario]))])
+
+
+def test_only_the_ostree_admin_scenarios_are_ostree_only():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2] / "tests/lifecycle/features"
+    tagged = []
+    for feature in root.glob("*.feature"):
+        lines = feature.read_text().splitlines()
+        for i, line in enumerate(lines):
+            if "@ostree_only" in line and line.strip().startswith("@"):
+                tagged.append(lines[i + 1].strip())
+    assert sorted(tagged) == [
+        "Scenario: bootc can pin and unpin the current deployment",
+        "Scenario: ostree admin status reports at least two deployments after upgrade",
+    ]

@@ -680,6 +680,14 @@ jobs:
           # systemd.journald.forward_to_console=1 — forward full journal to serial for
           #   diagnostics when SSH fails (output captured in vm-serial.log artifact).
           KERNEL_ARGS="root=UUID=${ROOT_UUID} rw ostree=${OSTREE_PATH} systemd.firstboot=no console=ttyS0,115200 systemd.journald.forward_to_console=1 systemd.mask=brew-setup.service systemd.mask=NetworkManager-wait-online.service systemd.mask=firewalld.service systemd.mask=wpa_supplicant.service systemd.mask=flatpak-preinstall.service systemd.mask=podman-auto-update.service systemd.mask=podman-auto-update.timer systemd.mask=malcontent-webd.service systemd.mask=malcontent-webd-update.service systemd.mask=malcontent-control.service systemd.mask=speech-dispatcherd.service systemd.mask=avahi-daemon.service systemd.mask=avahi-daemon.socket systemd.mask=cups.service systemd.mask=cups.path systemd.mask=cups.socket systemd.mask=cups.browsed.service systemd.mask=blueman-mechanism.service systemd.mask=gnome-remote-desktop.service systemd.mask=bazzite-hardware-setup.service systemd.mask=greenboot-healthcheck.service systemd.mask=greenboot-set-rollback-trigger.service systemd.mask=systemd-udev-settle.service systemd.wants=sshd.service"
+          # Composefs images (dakota) run uupd, Universal Blue's auto-updater, at
+          # boot. Once the origin points at TARGET_IMAGE it stages the candidate
+          # before the suite runs, so every upgrade scenario finds "Update already
+          # staged" (run 44934532807). Mask it like the other background services.
+          # Ostree images keep their arguments unchanged (#1215).
+          if [[ "${COMPOSEFS}" == "true" ]]; then
+            KERNEL_ARGS="${KERNEL_ARGS} systemd.mask=uupd.timer systemd.mask=uupd.service"
+          fi
           # Enforcing mode is the default (inputs.selinux_enforcing); passing
           # false falls back to the legacy SELinux-off boot.
           if [[ "${SELINUX_ENFORCING}" != "true" ]]; then
@@ -1756,6 +1764,7 @@ jobs:
               -e PYTHONPATH=/tmp/bluefin-tests \
               -e BEHAVE_RETRIES=${BEHAVE_RETRIES:-2} \
               -e TARGET_IMAGE="${TARGET_IMAGE}" \
+              -e COMPOSEFS="${COMPOSEFS:-false}" \
               "${RUNNER_IMAGE}" \
               "python3 /tmp/bluefin-tests/tests/shared/behave_retry.py ${KDE_FEATURE_ARGS} --format json.pretty --outfile /tmp/results/results.json --no-capture ${BEHAVE_TAG_ARGS}" || BEHAVE_RC=$?
           else
@@ -1810,6 +1819,7 @@ jobs:
                 -e PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
                 -e BEHAVE_RETRIES=${BEHAVE_RETRIES:-2} \
                 -e TARGET_IMAGE=\"${TARGET_IMAGE}\" \
+                -e COMPOSEFS=\"${COMPOSEFS:-false}\" \
                 -e BASE_IMAGE=\"${BASE_IMAGE}\" \
                 -e IMAGE=\"${IMAGE}\" \
                 -e PYTHONPATH=/tmp/bluefin-tests \

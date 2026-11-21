@@ -19,7 +19,9 @@ Feature: bootc upgrade and rollback lifecycle
 
   # Settled-deployment barrier ensures the staged-deployment writer and
   # early-boot finalization have completed before mutating pin state.
-  @lifecycle @pin
+  # @ostree_only: pinning is `ostree admin pin`; bootc has no pin command and a
+  # composefs deployment has no ostree deployment to pin (#1215).
+  @lifecycle @pin @ostree_only
   Scenario: bootc can pin and unpin the current deployment
     * Bluefin VM is booted and reachable over SSH
     * Deployment is settled
@@ -95,7 +97,10 @@ Feature: bootc upgrade and rollback lifecycle
     * Run SSH command: "sudo bootc status --format=json"
     * Active deployment matches upgrade target digest
 
-  @lifecycle @ostree
+  # @ostree_only: `ostree admin status` lists ostree deployments only; on
+  # composefs the same booted + rollback pair is checked through bootc status by
+  # the rollback scenarios (#1215).
+  @lifecycle @ostree @ostree_only
   Scenario: ostree admin status reports at least two deployments after upgrade
     # Run after an upgrade + reboot so both booted and rollback deployments are present.
     * VM is restored to the pre-upgrade baseline deployment

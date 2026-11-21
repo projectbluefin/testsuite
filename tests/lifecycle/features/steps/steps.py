@@ -219,6 +219,35 @@ def active_matches_original(context):
 
 
 _UPGRADE_STAGED_MARKERS = ("Queued for next boot", "Staged update present")
+# A composefs upgrade (bootc_composefs/update.rs) prints "Update already
+# staged" when the fetched image is already staged and nothing when it stages a
+# new one, so its outcome is read from bootc status instead.
+
+
+def _upgrade_staged(context, output):
+    """Whether the last ``bootc upgrade`` left a distinct candidate staged.
+
+    Ostree answers from its output markers alone, unchanged. A composefs
+    upgrade prints no "Queued for next boot", so on a composefs deployment
+    (COMPOSEFS=true, exported by e2e.yml) read bootc status and require a
+    staged deployment whose digest differs from the booted one (#1215). The
+    status read must not replace the upgrade output.
+    """
+    if any(marker in output for marker in _UPGRADE_STAGED_MARKERS):
+        return True
+    if os.environ.get("COMPOSEFS", "").strip().lower() != "true":
+        return False
+    saved = (getattr(context, "command_stdout", ""), getattr(context, "ssh_rc", None),
+             getattr(context, "last_ssh_result", None))
+    try:
+        status = _read_bootc_status(context)
+    finally:
+        context.command_stdout, context.ssh_rc, context.last_ssh_result = saved
+    booted = status.get("booted") or {}
+    if not booted.get("composefs"):
+        return False
+    staged_digest = _deployment_digest(status.get("staged"))
+    return bool(staged_digest) and staged_digest != _deployment_digest(booted)
 
 
 @step("bootc upgrade output indicates image was staged")
@@ -249,7 +278,7 @@ def upgrade_output_staged(context):
     VM and wait for SSH" to reboot only when something was actually staged.
     """
     output = getattr(context, "command_stdout", "")
-    if not any(marker in output for marker in _UPGRADE_STAGED_MARKERS):
+    if not _upgrade_staged(context, output):
         raise AssertionError(
             "bootc upgrade did not stage a new image — this mandatory lifecycle "
             "qualification requires a real upgrade to a distinct candidate digest, "
@@ -493,7 +522,7 @@ def os_release_reports_bluefin_identity(context):
 @step("If bootc upgrade output indicates image was staged, reboot VM and wait for SSH")
 def maybe_reboot_after_upgrade(context):
     output = getattr(context, "command_stdout", "")
-    if any(marker in output for marker in _UPGRADE_STAGED_MARKERS):
+    if _upgrade_staged(context, output):
         reboot_and_wait(context)
 
 
