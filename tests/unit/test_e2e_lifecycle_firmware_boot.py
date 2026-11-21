@@ -27,9 +27,10 @@ def test_lifecycle_install_keeps_the_images_own_loader_and_needs_it():
     probe = install.index("command -v bootupctl", lifecycle)
     firmware = install.index("FIRMWARE_BOOT=true", lifecycle)
     override = install.index('INSTALL_EXTRA="--bootloader systemd"')
-    # Firmware boot needs bootupd in the image; the systemd-boot override
-    # applies only when firmware boot is off (other suites, or an image
-    # without bootupd such as dakota, run 43525356388).
+    # Ostree firmware boot needs bootupd in the image; the plain systemd-boot
+    # override applies only when firmware boot is off (other suites). Composefs
+    # images such as dakota have no bootupd and take their own
+    # --composefs-backend --bootloader systemd branch (#1215).
     assert lifecycle < probe < firmware < override
     guard = install.index('if [[ "${FIRMWARE_BOOT}" != "true" ]]')
     assert firmware < guard < override

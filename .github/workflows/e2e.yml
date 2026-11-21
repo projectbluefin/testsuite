@@ -428,12 +428,6 @@ jobs:
           # kernel again (#1023). It boots through OVMF and the image's own
           # loader instead, so the install must not override the bootloader
           # and the bootloader step must succeed.
-          # Firmware boot needs the image to install its own loader, which
-          # bootc does through bootupd. An image without bootupd (dakota) keeps
-          # the direct-boot path below: its bootc refuses an ostree install
-          # without an override ("bootupd is required for ostree-based
-          # installs", run 43525356388), and its lifecycle reboots stay as
-          # limited as before #1189.
           # Two independent things drive how the installed disk boots:
           #  - COMPOSEFS: the image's install config (usr/lib/bootc/install/*.toml)
           #    sets composefs-backend, so bootc must install with --composefs-backend
@@ -481,10 +475,12 @@ jobs:
 
           # Backend-aware deployment prefix. Ostree images store deployments
           # under /ostree/deploy/default/deploy/<hash>.<serial>. Composefs images
-          # store them under /sysroot/state/deploy/<id> (#1215).
+          # store them under /sysroot/state/deploy/<id> (#1215). /mnt/root is the
+          # physical root, i.e. bootc's /sysroot, so both paths are relative to
+          # it (bootc composefs_consts.rs: STATE_DIR_RELATIVE, SHARED_VAR_PATH).
           if [[ "${COMPOSEFS}" == "true" ]]; then
-            DEPLOY_DIR="sysroot/state/deploy"
-            STATE_DIR="sysroot/state"
+            DEPLOY_DIR="state/deploy"
+            STATE_DIR="state"
           else
             DEPLOY_DIR="ostree/deploy/default/deploy"
             STATE_DIR="ostree/deploy/default"
@@ -560,13 +556,18 @@ jobs:
           ROOT_UUID=$(sudo blkid -s UUID -o value "${ROOT_PART}")
           echo "root=${ROOT_PART}  uuid=${ROOT_UUID}"
           D="/mnt/root/${DEPLOY_DIR}/${DEPLOY}"
-          VAR="/mnt/root/${STATE_DIR}/var"
-          # Direct kernel boot prep. For firmware boot (OVMF) systemd-boot reads
-          # the deployment's kernel + BLS entry straight from the disk, so none of
-          # this ostree-only setup runs. Guard it so composefs deployments are never
-          # given a bogus /ostree/ tree and a missing initramfs.img can't abort the
-          # step under set -e.
-          if [[ "${FIRMWARE_BOOT}" == "true" ]]; then
+          if [[ "${COMPOSEFS}" == "true" ]]; then
+            # Shared /var of a composefs install; each deployment's var is a
+            # symlink to it.
+            VAR="/mnt/root/state/os/default/var"
+          else
+            VAR="/mnt/root/${STATE_DIR}/var"
+          fi
+          # Direct kernel boot prep (kernel copy, ostree boot.N symlink). It is
+          # ostree-only: a composefs deployment has no /usr on disk and no
+          # /ostree tree, and boots through systemd-boot, so skip it there.
+          # Ostree images (utah) keep running it exactly as before (#1215).
+          if [[ "${COMPOSEFS}" == "true" ]]; then
             :
           else
           # el10/LTS images may have multiple entries in usr/lib/modules/ (e.g., a
@@ -688,14 +689,19 @@ jobs:
           if [[ "${FIRMWARE_BOOT}" == "true" ]]; then
             # shellcheck disable=SC2086 # split KERNEL_ARGS into one argument per line
             CI_KARGS=$(printf '%s\n' ${KERNEL_ARGS} | grep -vE '^(root=|rw$|ostree=)' | tr '\n' ' ')
-            # systemd-boot reads BLS entries from the boot partition (xbootldr /
-            # p2). Some images also mirror them in the root's /boot (p3). Search
-            # both so composefs (p2) and ostree (p2 or p3) both get CI kargs.
-            mountpoint -q /mnt/boot || sudo mount "${LOOP}p2" /mnt/boot
+            # Ostree images keep their entries in the root's /boot (p3).
+            # Composefs images install systemd-boot, which reads them from the
+            # boot partition (p2), so mount p2 and search it too (#1215).
+            ENTRY_ROOTS=(/mnt/root/boot/loader/entries)
+            if [[ "${COMPOSEFS}" == "true" ]]; then
+              sudo mkdir -p /mnt/boot
+              mountpoint -q /mnt/boot || sudo mount "${LOOP}p2" /mnt/boot
+              ENTRY_ROOTS+=(/mnt/boot/loader/entries)
+            fi
             ENTRIES=""
-            for ENTRY_ROOT in /mnt/root/boot/loader/entries /mnt/boot/loader/entries; do
+            for ENTRY_ROOT in "${ENTRY_ROOTS[@]}"; do
               [[ -d "${ENTRY_ROOT}" ]] || continue
-              ENTRIES+="$(sudo find "${ENTRY_ROOT}" -maxdepth 1 -name '*.conf' 2>/dev/null)"
+              ENTRIES+="$(sudo find "${ENTRY_ROOT}" -maxdepth 1 -name '*.conf' 2>/dev/null)"$'\n'
             done
             ENTRIES=$(printf '%s\n' "${ENTRIES}" | grep -v '^$' | sort -u)
             if [[ -z "${ENTRIES}" ]]; then
@@ -708,6 +714,9 @@ jobs:
               echo "--- ${ENTRY#/mnt/root} ---"
               sudo grep '^options ' "${ENTRY}"
             done
+            if mountpoint -q /mnt/boot; then
+              sudo umount /mnt/boot
+            fi
           fi
           # SELinux: the guest boots with the candidate's own mode, which must
           # be enforcing whenever the image ships a policy store (#1024).
@@ -965,7 +974,11 @@ jobs:
           sudo umount /mnt/root
           sudo losetup -d "${LOOP}"
           sudo podman rmi "${IMAGE}" 2>/dev/null || true
-          ls -lh disk.raw vmlinuz initramfs.img
+          if [[ "${COMPOSEFS}" == "true" ]]; then
+            ls -lh disk.raw
+          else
+            ls -lh disk.raw vmlinuz initramfs.img
+          fi
           df -h .
 
       # Pre-create serial log world-writable: root QEMU writes it, runner reads it

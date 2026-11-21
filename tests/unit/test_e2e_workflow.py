@@ -58,17 +58,32 @@ def test_e2e_composefs_firmware_boot_branch_for_dakota():
     # aborts without it, #1215) plus --bootloader systemd to install systemd-boot.
     assert "--composefs-backend --bootloader systemd" in workflow
 
-    # Deployment discovery is backend-aware: composefs deployments live under
-    # /sysroot/state/deploy/<id>, not /ostree/deploy/default/deploy.
-    assert 'DEPLOY_DIR="sysroot/state/deploy"' in workflow
+    # Deployment discovery is backend-aware. /mnt/root is the physical root
+    # (bootc's /sysroot), so composefs paths are relative to it: deployments
+    # under state/deploy/<id>, the shared /var under state/os/default/var.
+    assert 'DEPLOY_DIR="state/deploy"' in workflow
+    assert 'STATE_DIR="state"' in workflow
+    assert '="sysroot/' not in workflow
     assert 'DEPLOY_DIR="ostree/deploy/default/deploy"' in workflow
     assert 'D="/mnt/root/${DEPLOY_DIR}/${DEPLOY}"' in workflow
+    assert 'VAR="/mnt/root/state/os/default/var"' in workflow
 
-    # The ostree-only direct-boot prep (kernel extraction, boot.N symlink,
-    # ostree= arg) must not run for firmware boot, or it would write a bogus
-    # /ostree/ tree onto the composefs deployment.
-    assert "Direct kernel boot prep" in workflow
-    assert 'if [[ "${FIRMWARE_BOOT}" == "true" ]]; then' in workflow
+    # The ostree-only direct-boot prep (kernel copy, boot.N symlink) is skipped
+    # for composefs only. Ostree firmware boot (utah) still runs it, so the
+    # vmlinuz/initramfs.img listing after it keeps working.
+    prep = workflow.index("Direct kernel boot prep")
+    assert workflow.index('if [[ "${COMPOSEFS}" == "true" ]]; then', prep) < workflow.index("KVER=", prep)
+    assert 'ls -lh disk.raw vmlinuz initramfs.img' in workflow
+    listing = workflow.index("ls -lh disk.raw vmlinuz initramfs.img")
+    assert workflow.rindex('if [[ "${COMPOSEFS}" == "true" ]]; then', 0, listing) > workflow.index("sudo umount /mnt/root", prep)
+
+    # The boot partition is created before it is mounted, searched only for
+    # composefs, and unmounted again before the loop device is released.
+    loader = workflow.index("ENTRY_ROOTS=(/mnt/root/boot/loader/entries)")
+    mkdir = workflow.index("sudo mkdir -p /mnt/boot", loader)
+    mount = workflow.index('sudo mount "${LOOP}p2" /mnt/boot', loader)
+    umount = workflow.index("sudo umount /mnt/boot", loader)
+    assert mkdir < mount < umount < workflow.index('sudo losetup -d "${LOOP}"', loader)
 
 
 def test_e2e_ci_user_tmpfiles_has_no_recursive_home_relabel():
