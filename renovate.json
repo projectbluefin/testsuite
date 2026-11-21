@@ -65,6 +65,12 @@
       ]
     },
     {
+      "description": "build-runner.yml, build-kde-runner.yml, e2e.yml are human-merge paths in the hive. Give their updates their own branches, so a pin-only update to them is a PR of its own that the hive's pin-only exception can merge, instead of being held with other workflows. Renovate doesn't merge these updates itself, because its own merge would skip the hive's hold on these files. The hive merges a pin-only update, and anything else, a major included, waits for a person.",
+      "matchFileNames": [".github/workflows/build-runner.yml", ".github/workflows/build-kde-runner.yml", ".github/workflows/e2e.yml"],
+      "additionalBranchPrefix": "human-merge-paths-",
+      "automerge": false
+    },
+    {
       "description": "A major update always waits for a person. automerge false only stops Renovate; the hive merges trusted-bot pull requests itself, so label the update needs-owner-merge (the hive's auto_merge.human_merge_labels default): the hive never merges a PR with it, and only the owner's merge click lands it. hold was used first (#1233) but a held PR merges as soon as someone removes hold. The hive merged #1229 and #1230 before any label, and #1230 broke the dashboard publish. Last matching rule wins, so keep this rule last.",
       "matchUpdateTypes": ["major"],
       "automerge": false,
