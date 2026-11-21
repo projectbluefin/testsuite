@@ -1027,3 +1027,76 @@ def test_only_the_ostree_admin_scenarios_are_ostree_only():
         "Scenario: bootc can pin and unpin the current deployment",
         "Scenario: ostree admin status reports at least two deployments after upgrade",
     ]
+
+
+class TestComposefsBaselineRestore:
+    """composefs skips an upgrade to an image that is still the rollback
+    deployment, so the restore deletes that candidate (run 44935806454)."""
+
+    BASE = "sha256:" + "a" * 64
+    CAND = "sha256:" + "b" * 64
+
+    def setup_method(self):
+        self.mod = _import_lifecycle_steps()
+        self.commands = []
+
+    @staticmethod
+    def _status(booted, rollback=None):
+        import json
+
+        def dep(digest, verity):
+            if digest is None:
+                return None
+            return {"image": {"imageDigest": digest}, "composefs": {"verity": verity}}
+
+        return json.dumps({"status": {"booted": dep(booted, "vbase" if booted == TestComposefsBaselineRestore.BASE else "vcand"),
+                                      "rollback": dep(rollback, "vcand" if rollback == TestComposefsBaselineRestore.CAND else "vbase"),
+                                      "staged": None}})
+
+    def _run_ssh(self, statuses):
+        statuses = list(statuses)
+
+        def run_ssh(context, cmd, timeout=60):
+            self.commands.append(cmd)
+            out = statuses.pop(0) if cmd == "sudo bootc status --format=json" else ""
+            context.command_stdout = out
+            return out, 0
+
+        return run_ssh
+
+    def test_rollback_then_delete_the_candidate(self, monkeypatch):
+        monkeypatch.setenv("COMPOSEFS", "true")
+        monkeypatch.delenv("TARGET_IMAGE", raising=False)
+        monkeypatch.setattr(self.mod, "run_ssh", self._run_ssh([
+            self._status(self.CAND, rollback=self.BASE),   # booted on the candidate
+            self._status(self.BASE, rollback=self.CAND),   # after rollback + reboot
+            self._status(self.BASE),                       # after the delete
+        ]))
+        monkeypatch.setattr(self.mod, "reboot_and_wait", MagicMock())
+        context = types.SimpleNamespace(command_stdout="", lifecycle_baseline={"digest": self.BASE})
+        self.mod.restore_pre_upgrade_baseline(context)
+        assert "sudo bootc rollback" in self.commands
+        assert "sudo bootc delete-deployment vcand" in self.commands
+        assert self.commands.index("sudo bootc rollback") < self.commands.index("sudo bootc delete-deployment vcand")
+
+    def test_never_deletes_the_baseline(self, monkeypatch):
+        monkeypatch.setenv("COMPOSEFS", "true")
+        monkeypatch.delenv("TARGET_IMAGE", raising=False)
+        monkeypatch.setattr(self.mod, "run_ssh", self._run_ssh([
+            self._status(self.BASE, rollback=self.BASE),
+        ]))
+        context = types.SimpleNamespace(command_stdout="", lifecycle_baseline={"digest": self.BASE})
+        self.mod.restore_pre_upgrade_baseline(context)
+        assert not any("delete-deployment" in c for c in self.commands)
+
+    def test_ostree_never_deletes(self, monkeypatch):
+        monkeypatch.delenv("COMPOSEFS", raising=False)
+        monkeypatch.delenv("TARGET_IMAGE", raising=False)
+        monkeypatch.setattr(self.mod, "run_ssh", self._run_ssh([
+            self._status(self.CAND, rollback=self.BASE),
+            self._status(self.BASE, rollback=self.CAND),
+        ]))
+        monkeypatch.setattr(self.mod, "reboot_and_wait", MagicMock())
+        context = types.SimpleNamespace(command_stdout="", lifecycle_baseline={"digest": self.BASE})
+        self.mod.restore_pre_upgrade_baseline(context)
+        assert not any("delete-deployment" in c for c in self.commands)

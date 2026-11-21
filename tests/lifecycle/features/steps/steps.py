@@ -361,7 +361,35 @@ def restore_pre_upgrade_baseline(context):
         )
         print(f"Restored pre-upgrade baseline {booted_digest}", flush=True)
 
+    status = _drop_composefs_candidate(context, status, baseline["digest"])
     _point_booted_origin_at_target(context, status)
+
+
+def _drop_composefs_candidate(context, status, baseline_digest):
+    """On composefs, delete the candidate left behind as the rollback deployment.
+
+    After a rollback the candidate stays on disk as the rollback deployment.
+    Ostree's ``bootc upgrade`` stages it again, but composefs skips any image
+    whose fs-verity already matches a deployment, booted or not ("matching a
+    non-booted deployment (staged/rollback) means skip", bootc
+    bootc_composefs/update.rs validate_update), and answers "No changes in"
+    (run 44935806454). Deleting that rollback deployment
+    (``bootc delete-deployment``, composefs-only, refuses the booted one) lets
+    the scenario's own upgrade stage the candidate for real (#1215). Ostree
+    runs never reach this.
+    """
+    if os.environ.get("COMPOSEFS", "").strip().lower() != "true":
+        return status
+    rollback = status.get("rollback")
+    rollback_id = _composefs_id(rollback)
+    if not rollback_id or _deployment_digest(rollback) == baseline_digest:
+        return status
+    command = f"sudo bootc delete-deployment {shlex.quote(rollback_id)}"
+    stdout, rc = run_ssh(context, command)
+    assert rc == 0, f"{command} exited {rc}: {stdout!r}"
+    print(f"Deleted composefs candidate deployment {rollback_id} "
+          f"({_deployment_digest(rollback)}) so the next upgrade stages it again", flush=True)
+    return _read_bootc_status(context)
 
 
 def _deployment_ref(deployment):
