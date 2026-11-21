@@ -554,6 +554,28 @@ def maybe_reboot_after_upgrade(context):
         reboot_and_wait(context)
 
 
+@step("Cancel the staged deployment before reboot")
+def cancel_staged_deployment(context):
+    """Discard the staged deployment without rebooting.
+
+    Ostree: ``bootc rollback`` drops the staged deployment, unchanged. On
+    composefs ``bootc rollback`` needs a rollback deployment ("No rollback
+    available", run 44937664089), which the baseline restore deletes so the
+    upgrade can stage again; composefs cancels a staged deployment with
+    ``bootc delete-deployment <staged verity>`` instead (bootc
+    bootc_composefs/delete.rs, present in dakota's bootc v1.17.3) (#1215).
+    """
+    if os.environ.get("COMPOSEFS", "").strip().lower() == "true":
+        status = _read_bootc_status(context)
+        staged_id = _composefs_id(status.get("staged"))
+        assert staged_id, f"No staged composefs deployment to cancel: {status}"
+        command = f"sudo bootc delete-deployment {shlex.quote(staged_id)}"
+    else:
+        command = "sudo bootc rollback"
+    stdout, rc = run_ssh(context, command)
+    assert rc == 0, f"{command} exited {rc}: {stdout!r}"
+
+
 @step("No staged deployment is present in bootc status")
 def no_staged_deployment_present(context):
     status = _parse_bootc_status(context)

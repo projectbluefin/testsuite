@@ -1100,3 +1100,48 @@ class TestComposefsBaselineRestore:
         context = types.SimpleNamespace(command_stdout="", lifecycle_baseline={"digest": self.BASE})
         self.mod.restore_pre_upgrade_baseline(context)
         assert not any("delete-deployment" in c for c in self.commands)
+
+
+class TestCancelStagedDeployment:
+    def setup_method(self):
+        self.mod = _import_lifecycle_steps()
+        self.commands = []
+
+    def _run_ssh(self, status_raw):
+        def run_ssh(context, cmd, timeout=60):
+            self.commands.append(cmd)
+            out = status_raw if cmd == "sudo bootc status --format=json" else ""
+            context.command_stdout = out
+            return out, 0
+        return run_ssh
+
+    def test_ostree_cancels_with_bootc_rollback(self, monkeypatch):
+        monkeypatch.delenv("COMPOSEFS", raising=False)
+        monkeypatch.setattr(self.mod, "run_ssh", self._run_ssh(""))
+        self.mod.cancel_staged_deployment(types.SimpleNamespace(command_stdout=""))
+        assert self.commands == ["sudo bootc rollback"]
+
+    def test_composefs_deletes_the_staged_deployment(self, monkeypatch):
+        import json
+
+        monkeypatch.setenv("COMPOSEFS", "true")
+        raw = json.dumps({"status": {"booted": {"composefs": {"verity": "vbase"}},
+                                     "staged": {"composefs": {"verity": "vcand"}}}})
+        monkeypatch.setattr(self.mod, "run_ssh", self._run_ssh(raw))
+        self.mod.cancel_staged_deployment(types.SimpleNamespace(command_stdout=""))
+        assert self.commands[-1] == "sudo bootc delete-deployment vcand"
+
+    def test_composefs_without_a_staged_deployment_fails(self, monkeypatch):
+        import json
+
+        monkeypatch.setenv("COMPOSEFS", "true")
+        raw = json.dumps({"status": {"booted": {"composefs": {"verity": "vbase"}}, "staged": None}})
+        monkeypatch.setattr(self.mod, "run_ssh", self._run_ssh(raw))
+        with pytest.raises(AssertionError, match="No staged composefs deployment"):
+            self.mod.cancel_staged_deployment(types.SimpleNamespace(command_stdout=""))
+
+    def test_rollback_failure_is_reported(self, monkeypatch):
+        monkeypatch.delenv("COMPOSEFS", raising=False)
+        monkeypatch.setattr(self.mod, "run_ssh", lambda c, cmd, timeout=60: ("No rollback available", 1))
+        with pytest.raises(AssertionError, match="sudo bootc rollback exited 1"):
+            self.mod.cancel_staged_deployment(types.SimpleNamespace(command_stdout=""))
