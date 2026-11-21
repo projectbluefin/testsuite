@@ -429,11 +429,16 @@ jobs:
           # loader instead, so the install must not override the bootloader
           # and the bootloader step must succeed.
           # Two independent things drive how the installed disk boots:
-          #  - COMPOSEFS: the image's install config (usr/lib/bootc/install/*.toml)
-          #    sets composefs-backend, so bootc must install with --composefs-backend
-          #    or the ostree backend aborts ("bootupd is required for ostree-based
-          #    installs", #1215). Composefs deployments live under
-          #    /sysroot/state/deploy/<id>, not /ostree/deploy/default/deploy.
+          #  - COMPOSEFS: the image ships no bootupd but its install config
+          #    (usr/lib/bootc/install/*.toml) asks for composefs-backend or for
+          #    bootloader = "systemd". bootc's ostree backend cannot install such
+          #    an image at all ("bootupd is required for ostree-based installs",
+          #    runs 43525356388 and 43526626625), so its own loader can only be
+          #    installed with --composefs-backend. dakota's config sets just
+          #    bootloader = "systemd" (dakota files/bootc-install/00-defaults.toml),
+          #    and dakota installs itself with --composefs-backend (Justfile).
+          #    Composefs deployments live under /sysroot/state/deploy/<id>, not
+          #    /ostree/deploy/default/deploy.
           #  - FIRMWARE_BOOT: the lifecycle suite reboots into staged deployments,
           #    which a direct -kernel boot can't do (#1023). It boots through OVMF
           #    and the image's own loader. Firmware boot needs the image to install
@@ -447,7 +452,7 @@ jobs:
             FIRMWARE_BOOT=true
           elif [[ "${SUITE_DIR}" == "lifecycle" ]] \
             && sudo podman run --rm --quiet --entrypoint /bin/sh "${IMAGE}" -c \
-                 'grep -lq composefs-backend /usr/lib/bootc/install/*.toml 2>/dev/null' >/dev/null 2>&1; then
+                 'grep -lq composefs-backend /usr/lib/bootc/install/*.toml 2>/dev/null || grep -Eq "^[[:space:]]*bootloader[[:space:]]*=[[:space:]]*\"systemd\"" /usr/lib/bootc/install/*.toml 2>/dev/null' >/dev/null 2>&1; then
             # Composefs images (e.g. dakota) ship no bootupd, so they fall through
             # the bootupctl probe above. Detect them from the install config and
             # still force firmware boot (#1215).

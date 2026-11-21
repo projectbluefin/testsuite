@@ -53,6 +53,11 @@ def test_e2e_composefs_firmware_boot_branch_for_dakota():
     assert "grep -lq composefs-backend /usr/lib/bootc/install/*.toml" in workflow
     composefs_probe = workflow.index("grep -lq composefs-backend /usr/lib/bootc/install/*.toml")
     assert workflow.index("FIRMWARE_BOOT=true", composefs_probe) > composefs_probe
+    # dakota's install config names no backend; it sets bootloader = "systemd",
+    # which bootc's ostree backend cannot install without bootupd, so that
+    # setting marks the image as composefs-only too (run 44928280119).
+    probe_line = workflow[composefs_probe:workflow.index("\n", composefs_probe)]
+    assert '|| grep -Eq "^[[:space:]]*bootloader[[:space:]]*=[[:space:]]*\\"systemd\\""' in probe_line
 
     # Composefs images install with --composefs-backend (the ostree backend
     # aborts without it, #1215) plus --bootloader systemd to install systemd-boot.
