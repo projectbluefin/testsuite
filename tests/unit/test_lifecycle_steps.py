@@ -579,6 +579,82 @@ def test_point_origin_command_remounts_sysroot_in_a_private_namespace():
     assert argv[7:] == ["sh", "ghcr.io/x@sha256:c d"]
 
 
+def test_point_origin_command_rewrites_the_composefs_origin_directly(tmp_path):
+    # `bootc switch --mutate-in-place` is ostree-only: on composefs it opens
+    # /sysroot/ostree/deploy and fails "No such file or directory" (run
+    # 44931663470). A composefs deployment id selects a direct origin rewrite.
+    import shlex
+    import subprocess
+
+    mod = _import_lifecycle_steps()
+    argv = shlex.split(mod.point_origin_command("ghcr.io/x@sha256:new", "abc123"))
+    assert argv[:5] == ["sudo", "unshare", "-m", "--", "sh"]
+    assert argv[5] == "-c"
+    assert "--mutate-in-place" not in argv[6]
+    assert argv[7:] == ["sh", "ghcr.io/x@sha256:new", "abc123"]
+
+    # Run the script against a fake /sysroot laid out as bootc writes it.
+    deploy = tmp_path / "state/deploy/abc123"
+    deploy.mkdir(parents=True)
+    origin = deploy / "abc123.origin"
+    origin.write_text(
+        "[origin]\n"
+        "container-image-reference=ostree-unverified-image:docker://ghcr.io/x@sha256:old\n"
+        "\n[boot]\nboot_type=bls\n"
+    )
+    script = (argv[6]
+              .replace("mount -o remount,rw /sysroot || exit 1; ", "")
+              .replace("/sysroot", str(tmp_path))
+              .replace("/run/", f"{tmp_path}/"))
+    out = subprocess.run(["sh", "-c", script, "sh", "ghcr.io/x@sha256:new", "abc123"],
+                         capture_output=True, text=True, check=True)
+    assert "Updated abc123 to pull from ghcr.io/x@sha256:new" in out.stdout
+    assert origin.read_text() == (
+        "[origin]\n"
+        "container-image-reference=ostree-unverified-image:docker://ghcr.io/x@sha256:new\n"
+        "\n[boot]\nboot_type=bls\n"
+    )
+
+    # bootc writes the origin with tini, which may put spaces around "="
+    # (run 44933769711 found no "key=value" line to rewrite).
+    origin.write_text(
+        "[origin]\n"
+        "container-image-reference = ostree-unverified-image:docker://ghcr.io/x@sha256:old\n"
+    )
+    subprocess.run(["sh", "-c", script, "sh", "ghcr.io/x@sha256:new", "abc123"],
+                   capture_output=True, text=True, check=True)
+    assert origin.read_text() == (
+        "[origin]\n"
+        "container-image-reference = ostree-unverified-image:docker://ghcr.io/x@sha256:new\n"
+    )
+
+    # An origin with no image reference fails and shows what it has.
+    origin.write_text("[origin]\nrefspec = something\n")
+    miss = subprocess.run(["sh", "-c", script, "sh", "ghcr.io/x@sha256:new", "abc123"],
+                          capture_output=True, text=True)
+    assert miss.returncode != 0 and "no container-image-reference to rewrite" in miss.stderr
+
+    # A missing origin fails instead of reporting success.
+    bad = subprocess.run(["sh", "-c", script, "sh", "ghcr.io/x@sha256:new", "nope"],
+                         capture_output=True, text=True)
+    assert bad.returncode != 0 and "no composefs origin" in bad.stderr
+
+
+def test_point_origin_uses_the_booted_composefs_id(monkeypatch):
+    mod = _import_lifecycle_steps()
+    monkeypatch.setenv("TARGET_IMAGE", "ghcr.io/x@sha256:new")
+    run = MagicMock(return_value=("Updated", 0))
+    monkeypatch.setattr(mod, "run_ssh", run)
+    status = {"booted": {"image": {"image": {"image": "ghcr.io/x@sha256:old"}},
+                         "composefs": {"verity": "abc123"}}}
+    mod._point_booted_origin_at_target(MagicMock(), status)
+    assert run.call_args[0][1] == mod.point_origin_command("ghcr.io/x@sha256:new", "abc123")
+
+    status = {"booted": {"image": {"image": {"image": "ghcr.io/x@sha256:old"}}, "ostree": {}}}
+    mod._point_booted_origin_at_target(MagicMock(), status)
+    assert run.call_args[0][1] == mod.point_origin_command("ghcr.io/x@sha256:new")
+
+
 class TestIsDeploymentSettled:
     def setup_method(self):
         self.mod = _import_lifecycle_steps()
@@ -820,3 +896,252 @@ class TestOsReleaseBluefinIdentity:
     def test_non_bluefin_fails(self):
         with pytest.raises(AssertionError, match="Bluefin os-release identity"):
             self._check(self.UBUNTU)
+
+
+class TestComposefsUpgradeStaged:
+    """A composefs upgrade prints no "Queued for next boot" (bootc_composefs/
+    update.rs), so on COMPOSEFS=true the gate reads bootc status (#1215)."""
+
+    def setup_method(self):
+        self.mod = _import_lifecycle_steps()
+
+    def _status(self, monkeypatch, booted, staged):
+        import json
+
+        def deployment(digest):
+            if digest is None:
+                return None
+            return {"image": {"imageDigest": digest}, "composefs": {"verity": "v" + digest[-4:]}}
+
+        raw = json.dumps({"status": {"booted": deployment(booted), "staged": deployment(staged)}})
+
+        def fake_run_ssh(context, command):
+            context.command_stdout = raw
+            return raw, 0
+
+        monkeypatch.setattr(self.mod, "run_ssh", fake_run_ssh)
+
+    def _context(self, output):
+        return types.SimpleNamespace(command_stdout=output, ssh_rc=0, last_ssh_result=None)
+
+    def test_silent_composefs_upgrade_with_a_distinct_staged_digest_passes(self, monkeypatch):
+        monkeypatch.setenv("COMPOSEFS", "true")
+        self._status(monkeypatch, "sha256:" + "a" * 64, "sha256:" + "b" * 64)
+        context = self._context("")
+        self.mod.upgrade_output_staged(context)
+        # The status read does not replace the upgrade output.
+        assert context.command_stdout == ""
+
+    def test_update_already_staged_passes(self, monkeypatch):
+        monkeypatch.setenv("COMPOSEFS", "true")
+        self._status(monkeypatch, "sha256:" + "a" * 64, "sha256:" + "b" * 64)
+        output = "Update already staged. To apply update run `bootc update --apply`"
+        context = self._context(output)
+        self.mod.upgrade_output_staged(context)
+        assert context.command_stdout == output
+
+    def test_composefs_noop_with_nothing_staged_fails(self, monkeypatch):
+        monkeypatch.setenv("COMPOSEFS", "true")
+        self._status(monkeypatch, "sha256:" + "a" * 64, None)
+        with pytest.raises(AssertionError, match="no-op"):
+            self.mod.upgrade_output_staged(self._context("No changes in: ghcr.io/x"))
+
+    def test_staged_equal_to_booted_fails(self, monkeypatch):
+        monkeypatch.setenv("COMPOSEFS", "true")
+        self._status(monkeypatch, "sha256:" + "a" * 64, "sha256:" + "a" * 64)
+        with pytest.raises(AssertionError, match="no-op"):
+            self.mod.upgrade_output_staged(self._context(""))
+
+    def test_ostree_never_reads_status(self, monkeypatch):
+        monkeypatch.delenv("COMPOSEFS", raising=False)
+        run = MagicMock()
+        monkeypatch.setattr(self.mod, "run_ssh", run)
+        with pytest.raises(AssertionError, match="no-op"):
+            self.mod.upgrade_output_staged(self._context(""))
+        run.assert_not_called()
+
+    def test_conditional_reboot_follows_the_composefs_status(self, monkeypatch):
+        monkeypatch.setenv("COMPOSEFS", "true")
+        self._status(monkeypatch, "sha256:" + "a" * 64, "sha256:" + "b" * 64)
+        reboot = MagicMock()
+        monkeypatch.setattr(self.mod, "reboot_and_wait", reboot)
+        self.mod.maybe_reboot_after_upgrade(self._context(""))
+        reboot.assert_called_once()
+
+
+class TestOstreeOnlyScenarios:
+    def setup_method(self):
+        _import_lifecycle_steps()
+        sys.modules.pop("tests.lifecycle.features.environment", None)
+        import tests.lifecycle.features.environment as environment
+        self.mod = environment
+
+    @staticmethod
+    def scenario(tags, status="skipped"):
+        return types.SimpleNamespace(
+            name="ostree admin status reports at least two deployments after upgrade",
+            effective_tags=list(tags),
+            tags=list(tags),
+            status=types.SimpleNamespace(name=status),
+            steps=[types.SimpleNamespace(
+                name="bootc upgrade output indicates image was staged",
+                status=types.SimpleNamespace(name=status),
+            )],
+            skip=MagicMock(),
+        )
+
+    def test_skipped_with_a_reason_on_composefs(self, monkeypatch):
+        monkeypatch.setenv("COMPOSEFS", "true")
+        scenario = self.scenario(["lifecycle", "ostree", "ostree_only"])
+        self.mod.before_scenario(types.SimpleNamespace(), scenario)
+        scenario.skip.assert_called_once_with(self.mod.OSTREE_ONLY_SKIP_REASON)
+        assert "ostree-only" in self.mod.OSTREE_ONLY_SKIP_REASON
+
+    def test_not_required_on_composefs(self, monkeypatch):
+        monkeypatch.setenv("COMPOSEFS", "true")
+        passed = self.scenario(["lifecycle", "upgrade"], status="passed")
+        skipped = self.scenario(["lifecycle", "ostree", "ostree_only"])
+        self.mod._assert_required_lifecycle_passed(
+            [types.SimpleNamespace(walk_scenarios=lambda: iter([passed, skipped]))])
+
+    def test_still_runs_and_is_required_on_ostree(self, monkeypatch):
+        monkeypatch.delenv("COMPOSEFS", raising=False)
+        scenario = self.scenario(["lifecycle", "ostree", "ostree_only"])
+        assert not self.mod._ostree_only_skipped(scenario)
+        with pytest.raises(AssertionError, match="skipped or incomplete"):
+            self.mod._assert_required_lifecycle_passed(
+                [types.SimpleNamespace(walk_scenarios=lambda: iter([scenario]))])
+
+
+def test_only_the_ostree_admin_scenarios_are_ostree_only():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2] / "tests/lifecycle/features"
+    tagged = []
+    for feature in root.glob("*.feature"):
+        lines = feature.read_text().splitlines()
+        for i, line in enumerate(lines):
+            if "@ostree_only" in line and line.strip().startswith("@"):
+                tagged.append(lines[i + 1].strip())
+    assert sorted(tagged) == [
+        "Scenario: bootc can pin and unpin the current deployment",
+        "Scenario: ostree admin status reports at least two deployments after upgrade",
+    ]
+
+
+class TestComposefsBaselineRestore:
+    """composefs skips an upgrade to an image that is still the rollback
+    deployment, so the restore deletes that candidate (run 44935806454)."""
+
+    BASE = "sha256:" + "a" * 64
+    CAND = "sha256:" + "b" * 64
+
+    def setup_method(self):
+        self.mod = _import_lifecycle_steps()
+        self.commands = []
+
+    @staticmethod
+    def _status(booted, rollback=None):
+        import json
+
+        def dep(digest, verity):
+            if digest is None:
+                return None
+            return {"image": {"imageDigest": digest}, "composefs": {"verity": verity}}
+
+        return json.dumps({"status": {"booted": dep(booted, "vbase" if booted == TestComposefsBaselineRestore.BASE else "vcand"),
+                                      "rollback": dep(rollback, "vcand" if rollback == TestComposefsBaselineRestore.CAND else "vbase"),
+                                      "staged": None}})
+
+    def _run_ssh(self, statuses):
+        statuses = list(statuses)
+
+        def run_ssh(context, cmd, timeout=60):
+            self.commands.append(cmd)
+            out = statuses.pop(0) if cmd == "sudo bootc status --format=json" else ""
+            context.command_stdout = out
+            return out, 0
+
+        return run_ssh
+
+    def test_rollback_then_delete_the_candidate(self, monkeypatch):
+        monkeypatch.setenv("COMPOSEFS", "true")
+        monkeypatch.delenv("TARGET_IMAGE", raising=False)
+        monkeypatch.setattr(self.mod, "run_ssh", self._run_ssh([
+            self._status(self.CAND, rollback=self.BASE),   # booted on the candidate
+            self._status(self.BASE, rollback=self.CAND),   # after rollback + reboot
+            self._status(self.BASE),                       # after the delete
+        ]))
+        monkeypatch.setattr(self.mod, "reboot_and_wait", MagicMock())
+        context = types.SimpleNamespace(command_stdout="", lifecycle_baseline={"digest": self.BASE})
+        self.mod.restore_pre_upgrade_baseline(context)
+        assert "sudo bootc rollback" in self.commands
+        assert "sudo bootc delete-deployment vcand" in self.commands
+        assert self.commands.index("sudo bootc rollback") < self.commands.index("sudo bootc delete-deployment vcand")
+
+    def test_never_deletes_the_baseline(self, monkeypatch):
+        monkeypatch.setenv("COMPOSEFS", "true")
+        monkeypatch.delenv("TARGET_IMAGE", raising=False)
+        monkeypatch.setattr(self.mod, "run_ssh", self._run_ssh([
+            self._status(self.BASE, rollback=self.BASE),
+        ]))
+        context = types.SimpleNamespace(command_stdout="", lifecycle_baseline={"digest": self.BASE})
+        self.mod.restore_pre_upgrade_baseline(context)
+        assert not any("delete-deployment" in c for c in self.commands)
+
+    def test_ostree_never_deletes(self, monkeypatch):
+        monkeypatch.delenv("COMPOSEFS", raising=False)
+        monkeypatch.delenv("TARGET_IMAGE", raising=False)
+        monkeypatch.setattr(self.mod, "run_ssh", self._run_ssh([
+            self._status(self.CAND, rollback=self.BASE),
+            self._status(self.BASE, rollback=self.CAND),
+        ]))
+        monkeypatch.setattr(self.mod, "reboot_and_wait", MagicMock())
+        context = types.SimpleNamespace(command_stdout="", lifecycle_baseline={"digest": self.BASE})
+        self.mod.restore_pre_upgrade_baseline(context)
+        assert not any("delete-deployment" in c for c in self.commands)
+
+
+class TestCancelStagedDeployment:
+    def setup_method(self):
+        self.mod = _import_lifecycle_steps()
+        self.commands = []
+
+    def _run_ssh(self, status_raw):
+        def run_ssh(context, cmd, timeout=60):
+            self.commands.append(cmd)
+            out = status_raw if cmd == "sudo bootc status --format=json" else ""
+            context.command_stdout = out
+            return out, 0
+        return run_ssh
+
+    def test_ostree_cancels_with_bootc_rollback(self, monkeypatch):
+        monkeypatch.delenv("COMPOSEFS", raising=False)
+        monkeypatch.setattr(self.mod, "run_ssh", self._run_ssh(""))
+        self.mod.cancel_staged_deployment(types.SimpleNamespace(command_stdout=""))
+        assert self.commands == ["sudo bootc rollback"]
+
+    def test_composefs_deletes_the_staged_deployment(self, monkeypatch):
+        import json
+
+        monkeypatch.setenv("COMPOSEFS", "true")
+        raw = json.dumps({"status": {"booted": {"composefs": {"verity": "vbase"}},
+                                     "staged": {"composefs": {"verity": "vcand"}}}})
+        monkeypatch.setattr(self.mod, "run_ssh", self._run_ssh(raw))
+        self.mod.cancel_staged_deployment(types.SimpleNamespace(command_stdout=""))
+        assert self.commands[-1] == "sudo bootc delete-deployment vcand"
+
+    def test_composefs_without_a_staged_deployment_fails(self, monkeypatch):
+        import json
+
+        monkeypatch.setenv("COMPOSEFS", "true")
+        raw = json.dumps({"status": {"booted": {"composefs": {"verity": "vbase"}}, "staged": None}})
+        monkeypatch.setattr(self.mod, "run_ssh", self._run_ssh(raw))
+        with pytest.raises(AssertionError, match="No staged composefs deployment"):
+            self.mod.cancel_staged_deployment(types.SimpleNamespace(command_stdout=""))
+
+    def test_rollback_failure_is_reported(self, monkeypatch):
+        monkeypatch.delenv("COMPOSEFS", raising=False)
+        monkeypatch.setattr(self.mod, "run_ssh", lambda c, cmd, timeout=60: ("No rollback available", 1))
+        with pytest.raises(AssertionError, match="sudo bootc rollback exited 1"):
+            self.mod.cancel_staged_deployment(types.SimpleNamespace(command_stdout=""))

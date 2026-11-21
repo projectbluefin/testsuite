@@ -219,6 +219,35 @@ def active_matches_original(context):
 
 
 _UPGRADE_STAGED_MARKERS = ("Queued for next boot", "Staged update present")
+# A composefs upgrade (bootc_composefs/update.rs) prints "Update already
+# staged" when the fetched image is already staged and nothing when it stages a
+# new one, so its outcome is read from bootc status instead.
+
+
+def _upgrade_staged(context, output):
+    """Whether the last ``bootc upgrade`` left a distinct candidate staged.
+
+    Ostree answers from its output markers alone, unchanged. A composefs
+    upgrade prints no "Queued for next boot", so on a composefs deployment
+    (COMPOSEFS=true, exported by e2e.yml) read bootc status and require a
+    staged deployment whose digest differs from the booted one (#1215). The
+    status read must not replace the upgrade output.
+    """
+    if any(marker in output for marker in _UPGRADE_STAGED_MARKERS):
+        return True
+    if os.environ.get("COMPOSEFS", "").strip().lower() != "true":
+        return False
+    saved = (getattr(context, "command_stdout", ""), getattr(context, "ssh_rc", None),
+             getattr(context, "last_ssh_result", None))
+    try:
+        status = _read_bootc_status(context)
+    finally:
+        context.command_stdout, context.ssh_rc, context.last_ssh_result = saved
+    booted = status.get("booted") or {}
+    if not booted.get("composefs"):
+        return False
+    staged_digest = _deployment_digest(status.get("staged"))
+    return bool(staged_digest) and staged_digest != _deployment_digest(booted)
 
 
 @step("bootc upgrade output indicates image was staged")
@@ -249,7 +278,7 @@ def upgrade_output_staged(context):
     VM and wait for SSH" to reboot only when something was actually staged.
     """
     output = getattr(context, "command_stdout", "")
-    if not any(marker in output for marker in _UPGRADE_STAGED_MARKERS):
+    if not _upgrade_staged(context, output):
         raise AssertionError(
             "bootc upgrade did not stage a new image — this mandatory lifecycle "
             "qualification requires a real upgrade to a distinct candidate digest, "
@@ -332,14 +361,60 @@ def restore_pre_upgrade_baseline(context):
         )
         print(f"Restored pre-upgrade baseline {booted_digest}", flush=True)
 
+    status = _drop_composefs_candidate(context, status, baseline["digest"])
     _point_booted_origin_at_target(context, status)
+
+
+def _drop_composefs_candidate(context, status, baseline_digest):
+    """On composefs, delete the candidate left behind as the rollback deployment.
+
+    After a rollback the candidate stays on disk as the rollback deployment.
+    Ostree's ``bootc upgrade`` stages it again, but composefs skips any image
+    whose fs-verity already matches a deployment, booted or not ("matching a
+    non-booted deployment (staged/rollback) means skip", bootc
+    bootc_composefs/update.rs validate_update), and answers "No changes in"
+    (run 44935806454). Deleting that rollback deployment
+    (``bootc delete-deployment``, composefs-only, refuses the booted one) lets
+    the scenario's own upgrade stage the candidate for real (#1215). Ostree
+    runs never reach this.
+    """
+    if os.environ.get("COMPOSEFS", "").strip().lower() != "true":
+        return status
+    rollback = status.get("rollback")
+    rollback_id = _composefs_id(rollback)
+    if not rollback_id or _deployment_digest(rollback) == baseline_digest:
+        return status
+    command = f"sudo bootc delete-deployment {shlex.quote(rollback_id)}"
+    stdout, rc = run_ssh(context, command)
+    assert rc == 0, f"{command} exited {rc}: {stdout!r}"
+    print(f"Deleted composefs candidate deployment {rollback_id} "
+          f"({_deployment_digest(rollback)}) so the next upgrade stages it again", flush=True)
+    return _read_bootc_status(context)
 
 
 def _deployment_ref(deployment):
     return (((deployment or {}).get("image") or {}).get("image") or {}).get("image", "")
 
 
-def point_origin_command(target):
+# Composefs counterpart of ``bootc switch --mutate-in-place``, which only
+# handles ostree (bootc cli.rs switch(): "for now this just assumes ostree";
+# it opens /sysroot/ostree/deploy and fails with "No such file or directory"
+# on composefs, run 44931663470). A composefs deployment's image comes from
+# ``[origin] container-image-reference`` in
+# /sysroot/state/deploy/<id>/<id>.origin (bootc_composefs/state.rs), so
+# rewrite only the image after its transport prefix. ``cat >`` keeps the
+# file's inode and SELinux label. $1 = target image, $2 = deployment id.
+COMPOSEFS_POINT_ORIGIN = (
+    'mount -o remount,rw /sysroot || exit 1; '
+    'f="/sysroot/state/deploy/$2/$2.origin"; '
+    '[ -f "$f" ] || { echo "no composefs origin at $f" >&2; exit 1; }; '
+    'sed -E "s#^(container-image-reference[[:space:]]*=[[:space:]]*.*(docker://|registry:)).*\\$#\\1$1#" "$f" > /run/bootc-origin.new || exit 1; '
+    'grep -qF "$1" /run/bootc-origin.new || { echo "origin has no container-image-reference to rewrite:" >&2; grep -n "image-reference" "$f" >&2; exit 1; }; '
+    'cat /run/bootc-origin.new > "$f" && rm -f /run/bootc-origin.new && echo "Updated $2 to pull from $1"'
+)
+
+
+def point_origin_command(target, composefs_id=""):
     """Shell command that points the booted deployment's origin at ``target``.
 
     ``bootc switch --mutate-in-place`` rewrites the origin without pulling or
@@ -347,9 +422,20 @@ def point_origin_command(target):
     read-only ("Writing origin: Read-only file system", run 43504555365). As
     ostree's own admin tools do, remount /sysroot read-write in a private
     mount namespace for that one command; the system's own mount is untouched.
+
+    A composefs deployment (``composefs_id`` set, from bootc status
+    ``composefs.verity``) gets the same origin rewrite done directly, because
+    ``--mutate-in-place`` is ostree-only (#1215).
     """
+    if composefs_id:
+        return (f"sudo unshare -m -- sh -c {shlex.quote(COMPOSEFS_POINT_ORIGIN)} sh "
+                f"{shlex.quote(target)} {shlex.quote(composefs_id)}")
     inner = 'mount -o remount,rw /sysroot && exec bootc switch --mutate-in-place "$1"'
     return f"sudo unshare -m -- sh -c {shlex.quote(inner)} sh {shlex.quote(target)}"
+
+
+def _composefs_id(deployment):
+    return (((deployment or {}).get("composefs") or {}).get("verity") or "")
 
 
 def _point_booted_origin_at_target(context, status):
@@ -365,7 +451,7 @@ def _point_booted_origin_at_target(context, status):
         return
     if _deployment_ref(status.get("staged")) == target:
         return
-    command = point_origin_command(target)
+    command = point_origin_command(target, _composefs_id(status.get("booted")))
     stdout, rc = run_ssh(context, command)
     assert rc == 0, f"{command} exited {rc}: {stdout!r}"
     print(f"Pointed the booted deployment's origin at {target}", flush=True)
@@ -464,8 +550,30 @@ def os_release_reports_bluefin_identity(context):
 @step("If bootc upgrade output indicates image was staged, reboot VM and wait for SSH")
 def maybe_reboot_after_upgrade(context):
     output = getattr(context, "command_stdout", "")
-    if any(marker in output for marker in _UPGRADE_STAGED_MARKERS):
+    if _upgrade_staged(context, output):
         reboot_and_wait(context)
+
+
+@step("Cancel the staged deployment before reboot")
+def cancel_staged_deployment(context):
+    """Discard the staged deployment without rebooting.
+
+    Ostree: ``bootc rollback`` drops the staged deployment, unchanged. On
+    composefs ``bootc rollback`` needs a rollback deployment ("No rollback
+    available", run 44937664089), which the baseline restore deletes so the
+    upgrade can stage again; composefs cancels a staged deployment with
+    ``bootc delete-deployment <staged verity>`` instead (bootc
+    bootc_composefs/delete.rs, present in dakota's bootc v1.17.3) (#1215).
+    """
+    if os.environ.get("COMPOSEFS", "").strip().lower() == "true":
+        status = _read_bootc_status(context)
+        staged_id = _composefs_id(status.get("staged"))
+        assert staged_id, f"No staged composefs deployment to cancel: {status}"
+        command = f"sudo bootc delete-deployment {shlex.quote(staged_id)}"
+    else:
+        command = "sudo bootc rollback"
+    stdout, rc = run_ssh(context, command)
+    assert rc == 0, f"{command} exited {rc}: {stdout!r}"
 
 
 @step("No staged deployment is present in bootc status")

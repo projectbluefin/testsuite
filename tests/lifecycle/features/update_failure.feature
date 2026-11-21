@@ -53,9 +53,11 @@ Feature: Update failure and rollback guard
 
   @lifecycle @rollback @update_failure
   Scenario: Staged deployment can be cancelled before reboot
-    # `bootc upgrade` stages a deployment; `bootc rollback` before rebooting
-    # discards the staged deployment.  This guards the cancel-before-reboot
-    # path that power users rely on when they want to abort an update.
+    # `bootc upgrade` stages a deployment; cancelling it before rebooting
+    # discards it.  This guards the cancel-before-reboot path that power users
+    # rely on when they want to abort an update.  On ostree the cancel is
+    # `bootc rollback`; on composefs, where the restore leaves no rollback
+    # deployment, it is `bootc delete-deployment <staged id>` (#1215).
     * VM is restored to the pre-upgrade baseline deployment
     * Capture booted image digest for rollback verification
     * Run long SSH command: "sudo bootc upgrade"
@@ -63,8 +65,7 @@ Feature: Update failure and rollback guard
     * bootc upgrade output indicates image was staged
     * Run SSH command: "sudo bootc status --format=json"
     * Staged deployment is present in bootc status
-    * Run SSH command: "sudo bootc rollback"
-    * SSH command return code is "0"
+    * Cancel the staged deployment before reboot
     * Run SSH command: "sudo bootc status --format=json"
     * No staged deployment is present in bootc status
     * Active deployment matches original image digest

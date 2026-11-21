@@ -65,10 +65,30 @@ def before_all(context):
     context.lifecycle_baseline = {}
 
 
+OSTREE_ONLY_SKIP_REASON = (
+    "ostree-only: the VM runs a composefs deployment (COMPOSEFS=true), which has "
+    "no ostree deployment for `ostree admin` to act on (#1215)."
+)
+
+
+def composefs_backend(environ=None):
+    """True when e2e.yml installed the image with --composefs-backend."""
+    environ = os.environ if environ is None else environ
+    return environ.get("COMPOSEFS", "").strip().lower() == "true"
+
+
+def _ostree_only_skipped(scenario, environ=None):
+    return "ostree_only" in scenario.effective_tags and composefs_backend(environ)
+
+
 def before_scenario(context, scenario):
     from tests.shared.quarantine import skip_quarantine
 
     if skip_quarantine(scenario):
+        return
+    if _ostree_only_skipped(scenario):
+        print(f"SKIP Scenario {scenario.name}: {OSTREE_ONLY_SKIP_REASON}", flush=True)
+        scenario.skip(OSTREE_ONLY_SKIP_REASON)
         return
     if "homed_migration" in scenario.effective_tags:
         reason = homed_migration_skip_reason()
@@ -99,7 +119,8 @@ def _assert_required_lifecycle_passed(features):
     the parsed model rather than after_scenario events: Behave does not call
     scenario hooks for scenarios excluded by a tag filter. Scenarios parked
     by a skip tag (@pending, @future, @quarantine, @hardware_blocked) never
-    run, so they are not required.
+    run, so they are not required; nor are @ostree_only scenarios on a
+    composefs deployment, which before_scenario skips (#1215).
     """
     from tests.shared.quarantine import is_non_runnable
 
@@ -108,6 +129,7 @@ def _assert_required_lifecycle_passed(features):
         for feature in features
         for scenario in feature.walk_scenarios()
         if not is_non_runnable(scenario)
+        and not _ostree_only_skipped(scenario)
         and any(
             step.name == "bootc upgrade output indicates image was staged"
             for step in scenario.steps
