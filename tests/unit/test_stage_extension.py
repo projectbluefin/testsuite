@@ -223,10 +223,15 @@ def test_workflow_builds_offline_and_passes_the_recorded_hash():
     assert "secrets." not in WORKFLOW.read_text()
 
 
-def test_workflow_offers_just_perfection_and_shade():
+def test_workflow_offers_just_perfection_sjc_gold_shade_and_stock_market():
     workflow = yaml.safe_load(WORKFLOW.read_text())
     profile = workflow[True]["workflow_dispatch"]["inputs"]["profile"]
-    assert profile["options"] == ["just-perfection", "shade-inactive-windows"]
+    assert profile["options"] == [
+        "just-perfection",
+        "sjc-gold",
+        "shade-inactive-windows",
+        "stock-market",
+    ]
     assert profile["default"] == "just-perfection"
 
 
