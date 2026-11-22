@@ -12,15 +12,16 @@ import sys
 from pathlib import Path
 
 from scripts.extension_baseline import (
+    _create_issue,
     attribution_line,
+    bot_issues,
     build_issue_body,
     classify,
-    bot_issues,
-    find_existing_issue,
     file_issues,
+    find_existing_issue,
     main,
-    merge_rerun_outcomes,
     marker,
+    merge_rerun_outcomes,
     select_baseline,
 )
 
@@ -139,6 +140,18 @@ def test_attribution_fails_on_both():
     assert "FAILS on" in line and "Not a GNOME OS" in line
 
 
+def test_attribution_infrastructure_is_inconclusive():
+    infra = {**CANDIDATE, "classification": "infrastructure"}
+    line = attribution_line("just-perfection", infra, BASELINE, RERUN_FAILED)
+    assert "Inconclusive" in line
+
+
+def test_attribution_infrastructure_rerun_is_inconclusive():
+    rerun = {**RERUN_FAILED, "classification": "infrastructure"}
+    line = attribution_line("just-perfection", CANDIDATE, BASELINE, rerun)
+    assert "Inconclusive" in line
+
+
 def test_build_issue_body_has_marker_and_sections():
     body = build_issue_body("just-perfection", CANDIDATE, BASELINE, RERUN_PASSED)
     assert marker("just-perfection") in body
@@ -146,6 +159,7 @@ def test_build_issue_body_has_marker_and_sections():
     assert "## Attribution" in body and "## Candidate build" in body
     assert "## Baseline build" in body
     assert CANDIDATE["digest"][:19] in body
+    assert CANDIDATE["digest"] in body  # full digest, not truncated
     assert CANDIDATE["run_url"] in body
 
 
@@ -202,7 +216,7 @@ def test_merge_rerun_outcomes_attaches_rerun(tmp_path):
     out.write_text(json.dumps({"profile": "just-perfection", "passed": True, "reason": "ok"}))
     merge_rerun_outcomes(report, str(tmp_path / "rerun-outcomes"))
     assert report["profiles"]["just-perfection"]["rerun"] == {
-        "passed": True, "reason": "ok", "run_url": ""}
+        "passed": True, "reason": "ok", "run_url": "", "classification": ""}
 
 
 def test_merge_rerun_outcomes_missing_leaves_no_rerun(tmp_path):
@@ -220,6 +234,16 @@ def test_merge_rerun_outcomes_ignores_unknown_profile(tmp_path):
     assert "rerun" not in report["profiles"]["known"]
 
 
+def test_merge_rerun_outcomes_copies_classification(tmp_path):
+    report = {"profiles": {"just-perfection": {"profile": "just-perfection", "passed": False}}}
+    out = tmp_path / "rerun-outcomes" / "just-perfection.json"
+    out.parent.mkdir(parents=True)
+    out.write_text(json.dumps({"profile": "just-perfection", "passed": False,
+                               "reason": "infra", "classification": "infrastructure"}))
+    merge_rerun_outcomes(report, str(tmp_path / "rerun-outcomes"))
+    assert report["profiles"]["just-perfection"]["rerun"]["classification"] == "infrastructure"
+
+
 def test_bot_issues_flags_bot_authors(monkeypatch):
     import types
     captured = {}
@@ -227,8 +251,8 @@ def test_bot_issues_flags_bot_authors(monkeypatch):
     def fake_run(cmd, **kw):
         captured["cmd"] = cmd
         return types.SimpleNamespace(
-            stdout=json.dumps([{"number": 7, "author": {"bot": True},
-                                "title": "x", "body": ""}]))
+            stdout=json.dumps([{"number": 7, "author": {"login": "github-actions[bot]",
+                                "is_bot": True}, "title": "x", "body": ""}]))
 
     monkeypatch.setattr("scripts.extension_baseline.subprocess.run", fake_run)
     issues = bot_issues("tok")
@@ -292,4 +316,20 @@ def test_cli_file_issues(monkeypatch, tmp_path):
                         lambda token, profile, body: 3)
     monkeypatch.setenv("GH_TOKEN", "tok")
     rc = main(["file-issues", "--report", str(report_path)])
-    assert rc == 1
+    assert rc == 0
+
+
+def test_create_issue_parses_issue_url(monkeypatch):
+    import types
+    captured = {}
+
+    def fake_run(cmd, **kw):
+        captured["cmd"] = cmd
+        return types.SimpleNamespace(
+            stdout="Issue created. URL: https://github.com/projectbluefin/testsuite/issues/123\n",
+            stderr="")
+
+    monkeypatch.setattr("scripts.extension_baseline.subprocess.run", fake_run)
+    number = _create_issue("tok", "sjc-gold", "body")
+    assert number == 123
+    assert "issue create" in " ".join(captured["cmd"])

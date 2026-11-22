@@ -99,10 +99,12 @@ def find_existing_issue(issues: list[dict[str, Any]], profile: str) -> dict[str,
     return None
 
 
-def _short(digest: str | None) -> str:
+def _digest(digest: str | None) -> str:
+    """Return the full image digest. #1259 requires exact digests, so the
+    71-char ``sha256:...`` string is printed verbatim (never truncated)."""
     if not digest:
         return "unknown"
-    return digest if len(digest) <= 19 else f"{digest[:19]}..."
+    return digest
 
 
 def attribution_line(profile: str, candidate: dict[str, Any], baseline: dict[str, Any] | None,
@@ -117,8 +119,17 @@ def attribution_line(profile: str, candidate: dict[str, Any], baseline: dict[str
     if not baseline:
         return (f"No earlier passing GNOME OS build is recorded for {profile}, so this "
                 f"cannot yet be attributed to GNOME OS.")
-    base = f"GNOME OS {baseline.get('os_release', 'build')} ({_short(baseline.get('digest'))})"
-    cand = f"GNOME OS {candidate.get('os_release', 'devel')} ({_short(candidate.get('digest'))})"
+    # An infrastructure/harness failure means the guest never ran the scenarios,
+    # so nothing can be attributed to GNOME OS or the extension. The candidate
+    # and the baseline rerun are both checked: a harness failure in either
+    # outcome makes attribution inconclusive.
+    if (candidate.get("classification") == "infrastructure"
+            or (rerun and rerun.get("classification") == "infrastructure")):
+        return ("Inconclusive: the failure is an infrastructure/harness failure in "
+                "GNOME OS validation, not an extension or test result. Fix the harness "
+                "before attributing this to GNOME OS.")
+    base = f"GNOME OS {baseline.get('os_release', 'build')} ({_digest(baseline.get('digest'))})"
+    cand = f"GNOME OS {candidate.get('os_release', 'devel')} ({_digest(candidate.get('digest'))})"
     if not rerun:
         return (f"Attribution: rerun on {base} has not run yet; compare against {cand} "
                 f"once it does.")
@@ -136,14 +147,18 @@ def build_issue_body(profile: str, candidate: dict[str, Any], baseline: dict[str
     lines = [summary, "", marker(profile), "", "---", "", "## Attribution",
              attribution_line(profile, candidate, baseline, rerun), ""]
     lines += ["## Candidate build",
-              f"- **Image:** {candidate.get('os_release', 'devel')} (`{_short(candidate.get('digest'))}`)",
+              f"- **Image:** {candidate.get('os_release', 'devel')} (`{_digest(candidate.get('digest'))}`)",
+              f"- **Candidate digest:** {_digest(candidate.get('devel_digest', candidate.get('digest')))}",
+              f"- **Base digest:** {_digest(candidate.get('base_digest'))}",
               f"- **Run:** {candidate.get('run_url', 'n/a')}",
               f"- **Shell version:** {candidate.get('shell_version', 'n/a')}",
               f"- **Scenarios:** {', '.join(candidate.get('scenarios', []) or ['(none recorded)'])}",
               ""]
     if baseline:
         lines += ["## Baseline build",
-                  f"- **Image:** {baseline.get('os_release', 'build')} (`{_short(baseline.get('digest'))}`)",
+                  f"- **Image:** {baseline.get('os_release', 'build')} (`{_digest(baseline.get('digest'))}`)",
+                  f"- **Baseline digest:** {_digest(baseline.get('devel_digest', baseline.get('digest')))}",
+                  f"- **Base digest:** {_digest(baseline.get('base_digest'))}",
                   f"- **Date:** {baseline.get('date', 'n/a')}",
                   f"- **Result on baseline:** {('passes' if (rerun and rerun.get('passed')) else 'fails')}",
                   ""]
@@ -153,11 +168,16 @@ def build_issue_body(profile: str, candidate: dict[str, Any], baseline: dict[str
                   ""]
     lines += ["## Details",
               f"- **Gate verdict:** {candidate.get('reason', 'non-success scenarios present')}",
+              f"- **Classification:** {candidate.get('classification', 'extension')}",
               f"- **Extension artifact:** {candidate.get('extension_zip', 'n/a')}",
               f"- **Extension sha256:** {candidate.get('extension_sha256', 'n/a')}",
-              "- **Next step:** if this is a GNOME OS change, open a follow-up and bisect the "
-              "image range above to name the culprit commit. Do not file a fix PR for the "
-              "extension here.",
+              ("- **Next step:** infrastructure/harness failure in GNOME OS validation; the "
+               "guest never ran the scenarios. Fix the harness before attributing this to "
+               "GNOME OS." if (candidate.get("classification") == "infrastructure"
+                               or (rerun and rerun.get("classification") == "infrastructure")) else
+               "- **Next step:** if this is a GNOME OS change, open a follow-up and bisect the "
+               "image range above to name the culprit commit. Do not file a fix PR for the "
+               "extension here."),
               ""]
     return "\n".join(lines)
 
@@ -183,18 +203,27 @@ def merge_rerun_outcomes(report: dict, rerun_dir: str | os.PathLike) -> None:
                 "passed": outcome.get("passed"),
                 "reason": outcome.get("reason", ""),
                 "run_url": outcome.get("run_url", ""),
+                "classification": outcome.get("classification", ""),
             }
 
 
 def bot_issues(token: str) -> list[dict[str, Any]]:
-    """Return the bot-authored issues as JSON objects with a ``bot`` flag."""
+    """Return the bot-authored issues as JSON objects with a ``bot`` flag.
+
+    ``gh issue list --json author`` returns each author as
+    ``{"login": ..., "is_bot": ...}``; match the validation bot by login so a
+    change in the author payload shape can no longer hide every issue. The
+    workflow limits matching to ``github-actions[bot]`` (#1259) so the weekly
+    run updates its own issues and never edits a maintainer's.
+    """
     out = subprocess.run(["gh", "issue", "list", "--state", "all", "--limit", "200",
                           "--json", "number,title,body,author"],
                          capture_output=True, text=True)
     raw = json.loads(out.stdout) if out.stdout.strip() else []
     issues = []
     for item in raw:
-        if item.get("author", {}).get("bot"):
+        author = item.get("author", {})
+        if author.get("login") in ("github-actions[bot]", "app/github-actions"):
             item["bot"] = True
             issues.append(item)
     return issues
@@ -212,8 +241,9 @@ def _create_issue(token: str, profile: str, body: str) -> int:
     proc = subprocess.run(["gh", "issue", "create", "--title", title, "--body-file", ".issue-body.md"],
                           capture_output=True, text=True)
     for line in proc.stdout.splitlines():
-        if "#" in line and line.split("#")[-1].strip().isdigit():
-            return int(line.split("#")[-1].strip())
+        tail = line.rstrip("/").rsplit("/", 1)[-1]
+        if tail.isdigit():
+            return int(tail)
     raise RuntimeError(f"gh issue create failed: {proc.stderr}")
 
 
@@ -296,7 +326,7 @@ def main(argv: list[str] | None = None) -> int:
         rerun = _load(args.rerun) if args.rerun else None
         print(build_issue_body(args.profile, candidate, baseline, rerun))
     elif args.command == "file-issues":
-        return file_issues(args.report, os.environ.get("GH_TOKEN", ""))
+        file_issues(args.report, os.environ.get("GH_TOKEN", ""))
     return 0
 
 
