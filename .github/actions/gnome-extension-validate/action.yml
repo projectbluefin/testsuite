@@ -41,11 +41,22 @@ inputs:
     type: string
     required: false
     default: ""
+  checkout:
+    description: "Set to 'false' to skip the checkout step (rerun reuses a ZIP downloaded by the caller)."
+    type: string
+    required: false
+    default: "true"
+  artifact-name:
+    description: "Override the uploaded artifact name (rerun uses a distinct name to avoid a same-run conflict)."
+    type: string
+    required: false
+    default: ""
 
 runs:
   using: composite
   steps:
     - name: Checkout
+      if: inputs.checkout != 'false'
       id: checkout
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       with:
@@ -104,21 +115,18 @@ runs:
         results, outdir = Path(sys.argv[1]), Path(sys.argv[2])
         outdir.mkdir(parents=True, exist_ok=True)
         prov = json.loads((results / "harness-provenance.json").read_text())
-        passed = os.environ.get("GNOME_E2E_BEHAVE_RC") == "0" and (results / "results.json").is_file()
         results_json = results / "results.json"
-        if not results_json.is_file():
-            reason = "missing results file"
-        elif passed:
-            reason = ""
-        else:
-            reason = "non-success scenarios present"
+        from scripts.extension_validation import gate_report
+        gate = gate_report(results_json)
+        passed = gate["passed"]
+        reason = gate["reason"]
         scenarios = []
         if results_json.is_file():
             report = json.loads(results_json.read_text())
             scenarios = [s.get("name", "") for f in report if isinstance(f, dict)
                          for s in f.get("scenarios", []) if isinstance(s, dict)]
         profile = os.environ["PROFILE"]
-        classification = classify(results_json) if results_json.is_file() else "infrastructure"
+        classification = classify({"passed": passed, "reason": reason})
         outcome = {
             "profile": profile,
             "classification": classification,
@@ -164,7 +172,7 @@ runs:
       if: always()
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
       with:
-        name: extension-validation-${{ inputs.profile }}
+        name: ${{ inputs.artifact-name || 'extension-validation-' + inputs.profile }}
         if-no-files-found: error
         path: |
           results/

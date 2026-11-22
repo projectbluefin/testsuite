@@ -43,12 +43,18 @@ jobs:
   # the extension's own scenarios, records the outcome and uploads it per profile.
   validate:
     needs: profiles
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
     strategy:
       matrix: ${{ needs.profiles.outputs.matrix }}
       fail-fast: false
-    uses: ./.github/actions/gnome-extension-validate
-    with:
-      profile: ${{ matrix.profile }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/gnome-extension-validate
+        with:
+          profile: ${{ matrix.profile }}
 
   # Fold this run's passing builds into the baseline store on its dedicated
   # branch, mirroring the gh-pages/coverage-snapshot commit-back pattern. Only
@@ -56,11 +62,12 @@ jobs:
   # rerun can select the most recent known-good GNOME OS build per profile.
   baseline-store:
     needs: validate
+    if: ${{ always() && needs.validate.result != 'cancelled' }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          persist-credentials: false
+          persist-credentials: true
       - name: Download every profile outcome
         uses: actions/download-artifact@4bc1171bd881987a7af24aed9899bab0927737bd # v7
         with:
@@ -71,7 +78,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git fetch --quiet origin extension-validation-baselines
+          git fetch --quiet origin extension-validation-baselines || true
           # Build the local branch on top of the remote store branch when it
           # exists so commits stay linear (fast-forward push); fall back to main
           # on the first run before the branch is created.
@@ -127,10 +134,11 @@ jobs:
   # so nothing is filed.
   attribution:
     needs: [validate, baseline-store]
-    if: ${{ always() && needs.validate.result == 'failure' && needs.baseline-store.result == 'success' }}
+    if: ${{ always() && needs.validate.result == 'failure' && needs.baseline-store.result != 'cancelled' }}
     runs-on: ubuntu-24.04
     outputs:
       failed_profiles: ${{ steps.plan.outputs.failed_profiles }}
+      rerun_matrix: ${{ steps.plan.outputs.rerun_matrix }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -159,6 +167,7 @@ jobs:
           from pathlib import Path
           sys.path.insert(0, os.getcwd())
           from scripts.extension_baseline import select_baseline
+          from datetime import datetime, timezone
           store = json.loads(Path("baseline-builds.json").read_text()) \
               if Path("baseline-builds.json").is_file() else {}
           profiles = {}
@@ -180,7 +189,7 @@ jobs:
                       "devel_digest": baseline.get("devel_digest"),
                   })
           report = {
-              "scheduled_at": os.environ.get("GITHUB_RUN_AT", "")[:10],
+              "scheduled_at": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
               "run_url": os.environ.get("GITHUB_RUN_URL", ""),
               "profiles": profiles,
           }
@@ -189,8 +198,7 @@ jobs:
           print("rerun_matrix=" + json.dumps(rerun))
           print("count=" + str(len(rerun)))
         env:
-          GITHUB_RUN_URL: ${{ github.run_url }}
-          GITHUB_RUN_AT: ${{ github.run_at }}
+          GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
       - name: Upload the attribution report
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -201,15 +209,15 @@ jobs:
 
   # Rerun each failed profile that has a selectable baseline on the last passing
   # GNOME OS build, reusing the exact ZIP the matrix job packed (gnome-extensions
-  # pack embeds mtimes, so rebuilding would not be byte-identical). This is a
-  # regular job so it can look up the baseline digests and download the matrix
-  # ZIP before calling the composite action with them.
+  # pack embeds mtimes, so rebuilding would not be byte-identical). The baseline
+  # digests come straight from the attribution matrix, so the action reuses the
+  # checkout-free ZIP the job downloaded before calling the composite action.
   rerun:
     needs: attribution
     if: ${{ always() && needs.attribution.result == 'success' && needs.attribution.outputs.rerun_matrix != '[]' }}
     strategy:
       matrix:
-        rerun: ${{ json(needs.attribution.outputs.rerun_matrix) }}
+        rerun: ${{ fromJSON(needs.attribution.outputs.rerun_matrix) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 75
     steps:
@@ -217,23 +225,6 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - name: Fetch the baseline store from its dedicated branch
-        run: |
-          git fetch --quiet origin extension-validation-baselines
-          git show origin/extension-validation-baselines:extension-validation-baselines/baseline-builds.json \
-            > baseline-builds.json 2>/dev/null || printf '{}' > baseline-builds.json
-      - name: Look up the baseline digests
-        id: store
-        run: |
-          python3 - <<'PY' > "$GITHUB_OUTPUT"
-          import json, sys
-          from pathlib import Path
-          sys.path.insert(0, os.getcwd())
-          store = json.loads(Path("baseline-builds.json").read_text())
-          p = "${{ matrix.rerun.profile }}"
-          b = (store.get(p) or [{}])[-1]
-          print("base_digest=" + (b.get("base_digest") or ""))
-          print("devel_digest=" + (b.get("devel_digest") or ""))
       - name: Download the matrix job's exact extension ZIP
         uses: actions/download-artifact@4bc1171bd881987a7af24aed9899bab0927737bd # v7
         with:
@@ -250,10 +241,12 @@ jobs:
         uses: ./.github/actions/gnome-extension-validate
         with:
           profile: ${{ matrix.rerun.profile }}
-          base-digest: ${{ steps.store.outputs.base_digest }}
-          devel-digest: ${{ steps.store.outputs.devel_digest }}
+          base-digest: ${{ matrix.rerun.base_digest }}
+          devel-digest: ${{ matrix.rerun.devel_digest }}
           extension-zip: ${{ steps.zip.outputs.zip }}
           extension-sha256: ${{ steps.zip.outputs.sha256 }}
+          checkout: "false"
+          artifact-name: rerun-${{ matrix.rerun.profile }}
       - name: Record the rerun outcome
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
