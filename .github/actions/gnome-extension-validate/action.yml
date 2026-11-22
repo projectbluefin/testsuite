@@ -172,7 +172,7 @@ runs:
       if: always()
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
       with:
-        name: ${{ inputs.artifact-name || 'extension-validation-' + inputs.profile }}
+        name: ${{ inputs.artifact-name || format('extension-validation-{0}', inputs.profile) }}
         if-no-files-found: error
         path: |
           results/

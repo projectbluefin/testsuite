@@ -151,7 +151,7 @@ jobs:
           merge: true
       - name: Fetch the baseline store from its dedicated branch
         run: |
-          git fetch --quiet origin extension-validation-baselines
+          git fetch --quiet origin extension-validation-baselines || true
           if git show origin/extension-validation-baselines:extension-validation-baselines/baseline-builds.json \
               > baseline-builds.json 2>/dev/null; then
             echo "loaded baseline store from extension-validation-baselines"
@@ -279,7 +279,7 @@ jobs:
       - name: Merge rerun outcomes into the report
         run: |
           python3 - <<'PY'
-          import json, glob, sys
+          import json, glob, os, sys
           from pathlib import Path
           sys.path.insert(0, os.getcwd())
           from scripts.extension_baseline import merge_rerun_outcomes
