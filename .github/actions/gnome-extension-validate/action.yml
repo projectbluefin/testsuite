@@ -113,6 +113,7 @@ runs:
       run: |
         python3 - results outcomes <<'PY'
         import json, os, sys
+        from datetime import datetime, timezone
         from pathlib import Path
         sys.path.insert(0, os.getcwd())
         from scripts.extension_baseline import classify
@@ -145,7 +146,7 @@ runs:
             "extension_zip": os.environ.get("EXTENSION_ZIP", ""),
             "extension_sha256": os.environ.get("EXTENSION_SHA256", ""),
             "run_url": os.environ.get("GITHUB_RUN_URL", ""),
-            "date": os.environ.get("GITHUB_RUN_AT", "")[:10],
+            "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
         }
         (outdir / f"{profile}.json").write_text(json.dumps(outcome, indent=2) + "\n")
         print(f"recorded outcome for {profile}: passed={passed} reason={reason!r}")
@@ -154,7 +155,6 @@ runs:
         EXTENSION_ZIP: ${{ inputs.extension-zip || steps.build.outputs.zip }}
         EXTENSION_SHA256: ${{ inputs.extension-sha256 || steps.build.outputs.sha256 }}
         GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        GITHUB_RUN_AT: ${{ github.run_at }}
 
     - name: Collect guest journal and stop VM
       if: always()
