@@ -50,7 +50,7 @@ podman build --arch amd64 --build-arg "GNOMEOS_BASE=$GNOMEOS_BASE" \
 podman image inspect localhost/gnomeos-harness:canary > "$OUTPUT/harness-image-inspect.json"
 # Record the GNOME OS nightly release and shell version the extension is tested
 # on, straight from the devel image the harness was built from.
-OS_RELEASE=$(podman run --rm "$GNOMEOS_DEVEL" cat /usr/lib/os-release 2>/dev/null | sed -n 's/^VERSION="\(.*)"$/\1/p' | head -1)
+OS_RELEASE=$(podman run --rm "$GNOMEOS_DEVEL" cat /usr/lib/os-release 2>/dev/null | sed -n 's/^VERSION="\(.*\)"$/\1/p' | head -1)
 SHELL_VERSION=$(podman run --rm "$GNOMEOS_DEVEL" gnome-shell --version 2>/dev/null | sed -n 's/^GNOME Shell \(.*\)/\1/p' | head -1)
 export OS_RELEASE SHELL_VERSION
 python3 - "$OUTPUT" <<'PY'
