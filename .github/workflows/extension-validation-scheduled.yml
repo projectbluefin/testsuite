@@ -115,6 +115,7 @@ jobs:
               })
           store.write_text(json.dumps(data, indent=2) + "\n")
           print("baseline store updated for", [p for p in data if data[p]])
+          PY
         env:
           GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
@@ -198,6 +199,7 @@ jobs:
           print("failed_profiles=" + json.dumps(list(profiles)))
           print("rerun_matrix=" + json.dumps(rerun))
           print("count=" + str(len(rerun)))
+          PY
         env:
           GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
       - name: Upload the attribution report
@@ -289,6 +291,7 @@ jobs:
           report = json.loads(Path("scheduled-outcomes.json").read_text())
           merge_rerun_outcomes(report, "rerun-outcomes")
           Path("scheduled-outcomes.json").write_text(json.dumps(report, indent=2) + "\n")
+          PY
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: File or update attribution issues
