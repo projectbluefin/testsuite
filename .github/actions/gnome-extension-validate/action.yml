@@ -71,6 +71,7 @@ runs:
 
     - name: Build native harness over pinned GNOME OS
       id: harness
+      shell: bash
       env:
         PROFILE: ${{ inputs.profile }}
         GNOMEOS_BASE_DIGEST: ${{ inputs.base-digest }}
@@ -84,6 +85,7 @@ runs:
     - name: Pack the extension from its pinned revision
       if: inputs.extension-zip == ''
       id: build
+      shell: bash
       env:
         PROFILE: ${{ inputs.profile }}
       run: |
@@ -106,6 +108,8 @@ runs:
 
     - name: Record the run outcome
       id: outcome
+      if: always()
+      shell: bash
       run: |
         python3 - results outcomes <<'PY'
         import json, os, sys
@@ -149,9 +153,12 @@ runs:
         PROFILE: ${{ inputs.profile }}
         EXTENSION_ZIP: ${{ inputs.extension-zip || steps.build.outputs.zip }}
         EXTENSION_SHA256: ${{ inputs.extension-sha256 || steps.build.outputs.sha256 }}
+        GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        GITHUB_RUN_AT: ${{ github.run_at }}
 
     - name: Collect guest journal and stop VM
       if: always()
+      shell: bash
       run: |
         mkdir -p results
         GUEST_USER="${GNOME_E2E_SSH_USER:-gnome-e2e-harness}"

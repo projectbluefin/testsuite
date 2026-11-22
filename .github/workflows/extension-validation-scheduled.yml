@@ -14,8 +14,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
-  issues: write
+  contents: read
   actions: read
 
 jobs:
@@ -64,6 +63,8 @@ jobs:
     needs: validate
     if: ${{ always() && needs.validate.result != 'cancelled' }}
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -93,14 +94,14 @@ jobs:
           store = Path("extension-validation-baselines/baseline-builds.json")
           store.parent.mkdir(parents=True, exist_ok=True)
           data = json.loads(store.read_text()) if store.is_file() else {}
-          seen = {p: set() for p in data}
+          seen = {}
           for path in sorted(glob.glob("outcomes/**/outcomes/*.json", recursive=True)):
               o = json.loads(Path(path).read_text())
               if not o.get("passed"):
                   continue
               p = o["profile"]
               digest = o.get("devel_digest") or o.get("base_digest")
-              if not digest or digest in seen[p]:
+              if not digest or digest in seen.setdefault(p, set()):
                   continue
               seen[p].add(digest)
               data.setdefault(p, []).append({
@@ -115,7 +116,7 @@ jobs:
           store.write_text(json.dumps(data, indent=2) + "\n")
           print("baseline store updated for", [p for p in data if data[p]])
         env:
-          GITHUB_RUN_URL: ${{ github.run_url }}
+          GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
       - name: Commit the baseline store to its dedicated branch
         run: |
@@ -262,6 +263,8 @@ jobs:
     needs: [attribution, rerun]
     if: ${{ always() && needs.attribution.result == 'success' && needs.attribution.outputs.failed_profiles != '[]' }}
     runs-on: ubuntu-24.04
+    permissions:
+      issues: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
