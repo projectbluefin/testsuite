@@ -50,7 +50,7 @@ jobs:
           persist-credentials: false
 
       - name: Free disk space
-        uses: projectbluefin/actions/bootc-build/setup-runner@9eccc77361d4e1bdc8c412dd3b6573d8680d2246 # v1
+        uses: projectbluefin/actions/bootc-build/setup-runner@03d9862e4e82640beea35a64d578d44faf163ea9 # v1
         with:
           update-podman: "false"
           apt-packages: skopeo
