@@ -142,7 +142,7 @@ runs:
     # asked; setup-runner skips both freeing steps for any storage backend
     # other than btrfs or remove-software.
     - name: Free disk space and install QEMU
-      uses: projectbluefin/actions/bootc-build/setup-runner@da0469cf14f4b714f3756fe66454a207459924e9 # v1
+      uses: projectbluefin/actions/bootc-build/setup-runner@66e378ec91547d283fa077dec1282540b85256d2 # v1
       with:
         update-podman: "false"
         storage-backend: ${{ inputs.free-disk-space == 'true' && 'btrfs' || 'none' }}
