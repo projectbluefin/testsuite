@@ -172,14 +172,15 @@ def launch_application_windows(context):
                 return actors.length === 1 && actors[0].is_mapped() &&
                     actors[0].get_opacity() === 255;
             }})()""", timeout=20)
-        except AssertionError:
+        except AssertionError as exc:
             # The generic "Shell condition not reached" does not say which
             # application or which window-readiness condition failed. Probe the
             # structured state and name it, without weakening the assertion above
-            # or extending its timeout.
+            # or extending its timeout. Chain from the original error so the
+            # underlying wait_for/Shell.Eval traceback is preserved.
             raise AssertionError(
                 _window_readiness_failure(application, _window_readiness(context, application))
-            ) from None
+            ) from exc
         context.shade_windows[application] = context.extension.shell_json(f"""(() => {{
             const actor = ({actors})[0];
             const window = actor.get_meta_window();

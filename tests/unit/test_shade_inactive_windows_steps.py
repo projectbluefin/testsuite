@@ -80,3 +80,20 @@ def test_launch_reports_the_application_and_condition_that_failed(monkeypatch):
 
     with pytest.raises(AssertionError, match="Text Editor.*no window opened"):
         launch_application_windows(context)
+
+
+def test_launch_chains_the_original_wait_error(monkeypatch):
+    # The specific readiness message must chain from the underlying
+    # ``wait_for`` error. ``from None`` (the pre-fix behaviour) suppresses that
+    # error and leaves no traceback of why the wait failed; ``from exc`` keeps
+    # it so the diagnostic stays complete.
+    _install_fake_gi(monkeypatch)
+    extension = _FakeExtension({"count": 0, "mapped": None, "opacity": None})
+    context = SimpleNamespace(extension=extension, shade_windows={}, extension_cleanups=[])
+
+    with pytest.raises(AssertionError, match="Text Editor.*no window opened") as excinfo:
+        launch_application_windows(context)
+
+    cause = excinfo.value.__cause__
+    assert isinstance(cause, AssertionError)
+    assert "Shell condition not reached" in str(cause)
