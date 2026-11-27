@@ -326,7 +326,11 @@ def main(argv: list[str] | None = None) -> int:
         rerun = _load(args.rerun) if args.rerun else None
         print(build_issue_body(args.profile, candidate, baseline, rerun))
     elif args.command == "file-issues":
-        file_issues(args.report, os.environ.get("GH_TOKEN", ""))
+        token = os.environ.get("GH_TOKEN", "")
+        if not token:
+            print("file-issues: GH_TOKEN is not set; aborting", file=sys.stderr)
+            return 1
+        file_issues(args.report, token)
     return 0
 
 

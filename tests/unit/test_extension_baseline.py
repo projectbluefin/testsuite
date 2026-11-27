@@ -319,6 +319,14 @@ def test_cli_file_issues(monkeypatch, tmp_path):
     assert rc == 0
 
 
+def test_cli_file_issues_requires_token(monkeypatch, tmp_path):
+    report = {"profiles": {}}
+    report_path = tmp_path / "report.json"
+    report_path.write_text(json.dumps(report))
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    assert main(["file-issues", "--report", str(report_path)]) == 1
+
+
 def test_create_issue_parses_issue_url(monkeypatch):
     import types
     captured = {}
