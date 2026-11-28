@@ -9,9 +9,11 @@ from pathlib import Path
 
 import pytest
 
+import scripts.vm_validation_plan as vm_validation_plan
 from scripts.vm_validation_plan import (
     ACTION,
     ACTION_LANES,
+    ADVISORY_SUITES,
     FULL,
     HOSTED_SUITES,
     plan,
@@ -220,3 +222,71 @@ def test_extension_paths_never_boot_in_e2e_yml(path):
     result = plan([path], pr=True)
     assert "extensions" not in result["suites"]
     assert result["composite_action"] == [ACTION]
+
+
+CHAIRLIFT_PATHS = [
+    "tests/chairlift/features/chairlift.feature",
+    "tests/chairlift/features/steps/steps.py",
+    "tests/chairlift/features/environment.py",
+    "tests/chairlift/polkit_tty_agent.py",
+    ".github/workflows/chairlift-scheduled.yml",
+]
+
+
+def test_chairlift_is_the_only_advisory_suite_and_is_never_hosted():
+    assert set(ADVISORY_SUITES) == {"chairlift"}
+    assert not set(ADVISORY_SUITES) & HOSTED_SUITES
+    assert all("gates nothing" in why for why in ADVISORY_SUITES.values())
+
+
+@pytest.mark.parametrize("pr", [False, True])
+def test_chairlift_only_change_boots_nothing_and_says_why(pr):
+    for path in CHAIRLIFT_PATHS:
+        assert suites_for_path(path) == ("chairlift",)
+    result = plan(CHAIRLIFT_PATHS, pr=pr)
+    assert result["vm_required"] is False
+    assert result["suites"] == []
+    assert result["no_hosted_lane"] == []
+    assert result["composite_action"] == []
+    assert result["advisory"] == {"chairlift": ADVISORY_SUITES["chairlift"]}
+    assert "chairlift-scheduled.yml" in result["advisory"]["chairlift"]
+    # The path still names the suite it belongs to, for the reader.
+    assert result["reasons"]["tests/chairlift/features/steps/steps.py"] == ["chairlift"]
+    if pr:
+        assert result["canary"] is False
+
+
+@pytest.mark.parametrize("pr", [False, True])
+def test_chairlift_with_a_hosted_suite_still_gates_the_hosted_suite(pr):
+    result = plan(["tests/chairlift/features/steps/steps.py", "tests/smoke/features/x.feature"], pr=pr)
+    assert result["vm_required"] is True
+    assert result["suites"] == ["smoke"]
+    assert result["no_hosted_lane"] == []
+    assert set(result["advisory"]) == {"chairlift"}
+    # A suite with no hosted lane still holds next to it.
+    held = plan(["tests/chairlift/features/x.feature", "tests/hardware/features/x.feature"], pr=pr)
+    assert held["no_hosted_lane"] == ["hardware"]
+    assert "chairlift" not in held["no_hosted_lane"] + held["suites"]
+
+
+def _repo_paths() -> list[str]:
+    skip = {".git", ".worktrees", "__pycache__", ".pytest_cache", "node_modules"}
+    return sorted(
+        str(path.relative_to(REPO_ROOT))
+        for path in REPO_ROOT.rglob("*")
+        if path.is_file() and not skip & set(path.relative_to(REPO_ROOT).parts)
+    )
+
+
+@pytest.mark.parametrize("pr", [False, True])
+def test_advisory_suites_move_no_other_path(monkeypatch, pr):
+    # Every path in the repo outside the advisory suite plans exactly as it
+    # did before advisory suites existed, alone and all together.
+    others = [p for p in _repo_paths() if "chairlift" not in p]
+    others += ["unknown-base", "some/new/thing.py", "tests/hardware/features/x.feature"]
+    with_advisory = [plan([p], pr=pr) for p in others]
+    together = plan(others, pr=pr)
+    monkeypatch.setattr(vm_validation_plan, "ADVISORY_SUITES", {})
+    assert [plan([p], pr=pr) for p in others] == with_advisory
+    assert plan(others, pr=pr) == together
+    assert not any("advisory" in result for result in with_advisory)

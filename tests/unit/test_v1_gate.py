@@ -258,3 +258,28 @@ def test_cli_reads_extension_gaps_from_the_environment():
     lines = result.stdout.splitlines()
     assert "action=canary" in lines
     assert "extensions=true" in lines
+
+
+def test_chairlift_only_change_moves_v1_and_names_the_advisory_suite():
+    for pr in (False, True):
+        d = decide(plan(["tests/chairlift/features/steps/steps.py",
+                         ".github/workflows/chairlift-scheduled.yml"], pr=pr))
+        assert d["action"] == "move"
+        assert d["suites"] == ""
+        assert d["canary"] == "false"
+        assert d["reason"].startswith("no changed path needs a gate VM; advisory, not booted: chairlift (gates nothing")
+
+
+def test_chairlift_with_a_hosted_suite_gates_only_the_hosted_suite():
+    d = decide(plan(["tests/chairlift/features/chairlift.feature", "tests/smoke/features/x.feature"]))
+    assert d["action"] == "gate"
+    assert d["suites"] == "smoke"
+    assert d["reason"].startswith("boot smoke before moving v1; advisory, not booted: chairlift")
+    held = decide(plan(["tests/chairlift/features/chairlift.feature", "tests/hardware/features/x.feature"]))
+    assert held["action"] == "hold"
+    assert "(hardware)" in held["reason"] and "chairlift (gates nothing" in held["reason"]
+
+
+def test_reason_is_unchanged_without_an_advisory_suite():
+    assert decide(plan(["README.md"]))["reason"] == "no changed path reaches a VM"
+    assert decide(plan(["tests/smoke/features/x.feature"]))["reason"] == "boot smoke before moving v1"

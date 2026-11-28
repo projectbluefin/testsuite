@@ -25,6 +25,11 @@ This script turns the plan into one of four actions:
   maintainer validates by hand and moves it with the workflow's manual
   ``force`` run.
 
+Advisory suites (``advisory`` in the plan, ``ADVISORY_SUITES`` in
+``scripts/vm_validation_plan.py``) gate nothing: the plan has already dropped
+them from every lane, so they never cause a boot or a hold. The reason names
+them so the summary says why they were not booted.
+
 Suites in ``UNGATED_SUITES`` are left out of the boot because they cannot pass
 on a single image yet: every ``lifecycle`` upgrade scenario needs a second,
 newer image to upgrade to (#706, #1023), and on one image ``bootc upgrade`` is
@@ -126,6 +131,12 @@ def lanes_needed(
     return covered, canary, extensions
 
 
+def _advisory_note(plan: dict) -> str:
+    """Name each advisory suite in the plan and why it gates nothing."""
+    advisory = plan.get("advisory") or {}
+    return "; ".join(f"{suite} ({why})" for suite, why in sorted(advisory.items()))
+
+
 def decide(
     plan: dict,
     ungated: frozenset[str] = UNGATED_SUITES,
@@ -213,6 +224,11 @@ def decide(
             decision["reason"] += " and run " + " and ".join(runs)
         if skipped:
             decision["reason"] += f"; not gated: {', '.join(skipped)} (#706)"
+    advisory = _advisory_note(plan)
+    if advisory and decision["action"] == "move" and not plan.get("vm_required"):
+        decision["reason"] = f"no changed path needs a gate VM; advisory, not booted: {advisory}"
+    elif advisory:
+        decision["reason"] += f"; advisory, not booted: {advisory}"
     return decision
 
 

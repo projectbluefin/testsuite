@@ -17,13 +17,18 @@ Usage:
     python3 scripts/vm_validation_plan.py tests/smoke/features/steps/x.py
 
 Prints JSON: {"vm_required": bool, "suites": [...], "no_hosted_lane": [...],
-"composite_action": [...], "reasons": {path: [suite, ...]}}.
+"composite_action": [...], "reasons": {path: [suite, ...]}}, plus
+"advisory": {suite: why} when the change touches an advisory suite.
 
 ``composite_action`` lists pseudo-lanes for code e2e.yml never executes: the
 gnome-e2e composite action and the extension-validation gate it alone runs
 (e2e.yml neither uses the action nor sparse-checks-out that script). Booting
 e2e.yml suites cannot validate those changes, so they are reported separately
 and must be exercised through a workflow that calls the action at the PR ref.
+
+``advisory`` lists suites that gate nothing (``ADVISORY_SUITES``). A change to
+one is reported with the reason, never booted by a gate and never a hold; the
+suite runs on its own schedule instead.
 """
 
 from __future__ import annotations
@@ -67,6 +72,17 @@ HOSTED_SUITES = frozenset(
         "kde-smoke",
     }
 )
+
+# Advisory suites gate nothing (#1326). A change under tests/<suite>/** boots
+# no gate lane and never holds v1: the plan drops the suite from every lane
+# and reports it under "advisory" with the reason below. The suite runs on its
+# own schedule and files its own alert. Never list one in HOSTED_SUITES.
+ADVISORY_SUITES: dict[str, str] = {
+    "chairlift": (
+        "gates nothing; runs daily on dakota:testing in "
+        ".github/workflows/chairlift-scheduled.yml, which files its own alert issue"
+    ),
+}
 
 # Ordered (glob, suites) rules; first match wins. An empty tuple means the
 # path never executes inside a candidate VM.
@@ -120,6 +136,8 @@ RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     (".github/workflows/e2e.yml", FULL),
     (".github/workflows/manual.yml", FULL),
     (".github/workflows/iso-*.yml", ("installer",)),
+    # The advisory suite's own scheduled caller (see ADVISORY_SUITES).
+    (".github/workflows/chairlift-scheduled.yml", ("chairlift",)),
     # Helper scripts e2e.yml sparse-checks-out and runs per suite.
     ("scripts/install-kde-webdriver.sh", ("kde-smoke",)),
     # Also run inside the gnome-e2e composite action (mandatory-coverage gate).
@@ -179,6 +197,8 @@ def plan(paths: list[str], *, pr: bool = False) -> dict:
     canary = pr and CANARY in required
     if pr:
         required.discard(CANARY)
+    advisory = sorted(required & ADVISORY_SUITES.keys())
+    required.difference_update(advisory)
     result = {
         "vm_required": bool(required),
         "suites": sorted(required & HOSTED_SUITES),
@@ -188,6 +208,8 @@ def plan(paths: list[str], *, pr: bool = False) -> dict:
     }
     if pr:
         result["canary"] = canary
+    if advisory:
+        result["advisory"] = {suite: ADVISORY_SUITES[suite] for suite in advisory}
     return result
 
 

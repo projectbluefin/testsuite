@@ -28,6 +28,7 @@ git diff --name-only upstream/main...HEAD | python3 scripts/vm_validation_plan.p
 |---|---|
 | `*.md`, `docs/`, `tests/unit/`, `dashboard/`, `Justfile`, `plans/`, non-distributed workflows (`pr-validate`, `unit-tests`, `docs-validate`, `publish-to-pages`, `update-v1-tag`) | none |
 | `tests/<suite>/**` (steps, hooks, features) | that suite (`tests/extensions/**`: `gnome-e2e-action`) |
+| `tests/chairlift/**`, `chairlift-scheduled.yml` | `chairlift`, an advisory suite: reported under `advisory`, boots nothing |
 | `tests/shared/kde_*` | `kde-smoke` |
 | `tests/shared/extension_*`, `gnome_extensions_*` | `gnome-e2e-action` |
 | `tests/shared/ssh_*` | `common`, `lifecycle` |
@@ -50,6 +51,17 @@ from `suites` and `no_hosted_lane`; validate them with a workflow that uses
 `.github/actions/gnome-e2e` at the PR's ref. The `extensions` suite is in this
 lane too: its `before_all` refuses anything but a disposable guest
 (`-D disposable_guest=true`), so `e2e.yml` cannot run it.
+
+**Advisory suites gate nothing.** A suite in `ADVISORY_SUITES` (today only
+`chairlift`, #1326) is dropped from every lane: a change to it is reported
+under `advisory`, with the reason, and is in neither `suites` nor
+`no_hosted_lane`. So it never makes the PR VM check or the `v1` gate boot
+anything, and never holds `v1`. `scripts/v1_gate.py` names it in the reason
+("advisory, not booted: chairlift (...)"). A change that touches it and a
+hosted suite still gates the hosted suite. The suite runs on its own schedule
+instead (`.github/workflows/chairlift-scheduled.yml`), which files its own
+alert issue. Never put an advisory suite in `HOSTED_SUITES`; making one gate
+is a maintainer decision.
 
 When adding a workflow, script or shared helper, add a rule: an unmatched path
 silently costs the full set, and a wrong empty rule silently skips validation.
