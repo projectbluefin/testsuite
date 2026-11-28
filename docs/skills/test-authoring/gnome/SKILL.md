@@ -482,6 +482,7 @@ Load these when you hit the specific topic:
 - [Deep dive: Preinstalled Flatpak desktop app launch checks](references/preinstalled-flatpak-desktop-app-launch-checks.md)
 - [GNOME 50 → 51 workaround audit and its targeted probe evidence.](references/gnome-51-audit.md)
 - [Calculator and Text Editor scenarios on plain GNOME OS 51: causes and fixes.](references/gnome-51-app-divergences.md)
+- [Answering a real polkit password prompt, and Homebrew-installed apps (chairlift suite).](references/polkit-password-prompt.md)
 
 ## Overview, clone paint, and helper fault injection (issue #919)
 

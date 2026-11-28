@@ -83,6 +83,7 @@ def test_record_still_sets_attribute_when_marker_unwritable(tmp_path):
     "tests/vanilla-gnome/features/environment.py",
     "tests/bazzite/features/environment.py",
     "tests/kde-smoke/features/environment.py",
+    "tests/chairlift/features/environment.py",
 ])
 def test_every_failed_setup_assignment_writes_the_marker(suite):
     """A bare ``failed_setup`` assignment re-opens the harness-failure hole."""

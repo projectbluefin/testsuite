@@ -307,7 +307,6 @@ count override.
 
 ## Suite layout
 
-
 ```
 tests/
   smoke/          # GUI smoke — behave + dogtail
@@ -320,6 +319,7 @@ tests/
   nvidia/         # GPU tests
   hardware/       # hardware feature detection
   vanilla-gnome/  # upstream GNOME parity
+  chairlift/      # Control Center on a freshly booted image; advisory, gates nothing
   shared/
     ssh_steps.py  # canonical SSH step library
 ```
