@@ -200,7 +200,7 @@ that issue rather than file another, and close it when it no longer applies. Det
 
 <!-- coverage-snapshot:start -->
 
-553 scenarios across 81 feature files: 438 active, 0 quarantined, 115 `@future`/`@pending`/`@hardware_blocked`
+552 scenarios across 81 feature files: 437 active, 0 quarantined, 115 `@future`/`@pending`/`@hardware_blocked`
 
 | Suite | Scenarios | Active | Quarantined | Pending/Future | Notes |
 |---|---|---|---|---|---|
