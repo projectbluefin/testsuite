@@ -225,6 +225,11 @@ def before_scenario(context, scenario):
             f"(IMAGE={os.environ.get('IMAGE', 'unknown')})"
         )
         return
+    if is_dakota and "bluefin_classic" in scenario_tags:
+        scenario.skip(
+            "Skipping @bluefin_classic scenario on a Dakota image"
+        )
+        return
     # Skip @dakota_only scenarios when running against a non-Dakota image.
     if not getattr(context, "is_dakota_image", False) and "dakota_only" in scenario_tags:
         scenario.skip(

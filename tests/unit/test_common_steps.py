@@ -250,7 +250,16 @@ class TestCommonEnvironmentDakotaOnly:
 
 
 class TestCommonEnvironmentBluefinScenarios:
-    def test_allows_bluefin_scenario_on_dakota_image(self):
+    def test_skips_bluefin_classic_scenario_on_dakota_image(self):
+        m = _import_common_environment()
+        context = _ctx(is_bluefin_image=False, is_dakota_image=True, has_brew=True)
+        scenario = _Scenario(["bluefin", "bluefin_classic"])
+
+        m.before_scenario(context, scenario)
+
+        assert "Skipping @bluefin_classic scenario" in scenario.skip_message
+
+    def test_allows_common_bluefin_scenario_on_dakota_image(self):
         m = _import_common_environment()
         context = _ctx(is_bluefin_image=False, is_dakota_image=True, has_brew=True)
         scenario = _Scenario(["bluefin"])

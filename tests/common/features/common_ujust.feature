@@ -5,6 +5,7 @@ Feature: Bluefin common ujust recipes
   Background:
     * Bluefin VM is booted and reachable over SSH
 
+  @bluefin_classic
   Scenario: ujust check-local-overrides exits cleanly on a fresh system
     * Run SSH command: "NO_COLOR=1 ujust check-local-overrides"
     * SSH command return code is "0"

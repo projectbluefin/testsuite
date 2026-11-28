@@ -10,8 +10,10 @@ metadata:
 
 ## Cross-image tag skipping: @bluefin on non-bluefin images
 
-The common and smoke suites skip scenarios tagged `@bluefin` unless the image
-under test ships Bluefin's common desktop layer. Both environments use
+The smoke suite skips scenarios tagged `@bluefin` unless the image under test
+ships Bluefin's common desktop layer. The common suite also runs its shared
+`@bluefin` contract scenarios on Dakota, while `@bluefin_classic` marks
+assertions that still require Bluefin-classic defaults. Both environments use
 `tests/shared/image_family.py`.
 
 Read `BASE_IMAGE` before `IMAGE`: composed runs replace `IMAGE` with
@@ -25,7 +27,9 @@ trees onto its base image. Utah is Bluefin built on Fedora Hummingbird. Dakota
 remains separate and selects `@dakota_only` scenarios. In the common suite,
 `@skip_utah` excludes a `@bluefin` scenario on Utah only: it marks content that
 Bluefin's common pin still ships but Utah's newer pin does not (the Searchlight
-dconf scenario, until #1076 replaces it).
+dconf scenario, until #1076 replaces it). Use `@bluefin_classic` for a
+common-suite assertion that Dakota deliberately does not ship, such as a
+Bluefin-only MIME handler or ujust recipe.
 
 Desktop defaults split differently from the common layer. The Dakota family
 (`dakota`, `utah`; `is_dakota_family_image()`) follows Dakota's desktop
