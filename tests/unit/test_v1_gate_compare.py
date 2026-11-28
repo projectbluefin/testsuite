@@ -69,6 +69,40 @@ def test_new_failure_holds_v1(tmp_path):
     assert "Feature :: B" in result["problems"][0]
 
 
+def test_new_hook_error_next_to_an_old_failure_holds_v1(tmp_path):
+    # behave 1.3.3 gives a scenario whose before_scenario or after_scenario
+    # hook raised the status "hook_error" (Scenario.compute_status).
+    write_suite(
+        tmp_path, CANDIDATE, "smoke-a", "failure", {"A": "failed", "B": "hook_error"}
+    )
+    write_suite(
+        tmp_path, BASELINE, "smoke-a", "failure", {"A": "failed", "B": "passed"}
+    )
+    result = compare(tmp_path, CANDIDATE, BASELINE)
+    assert result["verdict"] == "hold"
+    assert "Feature :: B" in result["problems"][0]
+
+
+def test_hook_error_counts_as_a_failure_on_both_sides(tmp_path):
+    # In each pair the scenario fails at the candidate and at v1, so it is a
+    # known failure whichever side reports it as "hook_error".
+    pairs = [
+        ("hook_error", "hook_error"),
+        ("hook_error", "failed"),
+        ("failed", "hook_error"),
+    ]
+    for number, (candidate, baseline) in enumerate(pairs):
+        root = tmp_path / str(number)
+        write_suite(root, CANDIDATE, "smoke-a", "failure", {"A": candidate})
+        write_suite(root, BASELINE, "smoke-a", "failure", {"A": baseline})
+        result = compare(root, CANDIDATE, BASELINE)
+        assert result["verdict"] == "move", (candidate, baseline)
+        assert result["preexisting"] == {"smoke-a": ["Feature :: A"]}, (
+            candidate,
+            baseline,
+        )
+
+
 def test_failed_job_without_failing_scenario_holds_v1(tmp_path):
     write_suite(tmp_path, CANDIDATE, "smoke-b", "failure", {"A": "skipped"})
     write_suite(tmp_path, BASELINE, "smoke-b", "failure", {"A": "skipped"})
