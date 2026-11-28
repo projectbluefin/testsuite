@@ -1,0 +1,133 @@
+# ChairLift scheduled run — the advisory chairlift suite, once a day (#1326)
+#
+# Boots ghcr.io/projectbluefin/dakota:testing through e2e.yml and runs the
+# chairlift suite: Control Center (ChairLift) as the image ships it, installed
+# by Homebrew at the first login, with one admin action through the real
+# password prompt. Tests come from the commit this run is on (main for the
+# schedule), so the suite and e2e.yml's guest preparation for it always match.
+#
+# The suite gates nothing. scripts/vm_validation_plan.py lists it in
+# ADVISORY_SUITES, so neither the PR VM check nor the v1 gate boots it and a
+# change to it never holds v1. This workflow is not a required check, and no
+# gate calls it. Its only output is one alert issue:
+#
+#   - a failed run opens "chairlift suite failing on dakota:testing", or adds
+#     a comment to that issue while it is open; it never opens a second one;
+#   - the next passing run closes it with a comment.
+#
+# Only runs on main in projectbluefin/testsuite touch the issue: a fork never
+# runs the suite, and a manual run on another branch runs the suite without
+# the alert. To prove a branch, dispatch this workflow with --ref <branch>.
+#
+# Security: no secrets and no checkout in the alert job; every value from the
+# event reaches the shell through env. The suite job gets what every e2e.yml
+# caller grants (contents: read, packages: write for the screenshot push).
+
+name: ChairLift scheduled run
+
+on:
+  schedule:
+    # 09:23 UTC = 04:23 EST / 05:23 EDT, after dakota's overnight builds.
+    - cron: "23 9 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: chairlift-scheduled-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  suite:
+    name: chairlift on dakota:testing
+    if: github.repository == 'projectbluefin/testsuite'
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/e2e.yml
+    with:
+      image: ghcr.io/projectbluefin/dakota:testing
+      suites: chairlift
+      # The raw image, never a composed one: this suite tests the image as
+      # it boots. e2e.yml composes by default unless E2E_COMPOSE_IMAGE=0.
+      compose_image: false
+      test_ref: ${{ github.sha }}
+      test_repository: ${{ github.repository }}
+
+  alert:
+    name: Open, update or close the alert issue
+    needs: suite
+    if: >-
+      always() && !cancelled() &&
+      github.repository == 'projectbluefin/testsuite' &&
+      github.ref == 'refs/heads/main' &&
+      (needs.suite.result == 'success' || needs.suite.result == 'failure')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      REPO: ${{ github.repository }}
+      RESULT: ${{ needs.suite.result }}
+      RUN_ID: ${{ github.run_id }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      SHA: ${{ github.sha }}
+      EVENT: ${{ github.event_name }}
+      ALERT_TITLE: chairlift suite failing on dakota:testing
+    steps:
+      - name: Open, update or close the alert issue
+        run: |
+          set -euo pipefail
+          # Open issues only, read from the REST listing (no search-index
+          # lag), matched on the exact title and opened by this workflow's
+          # token, so a hand-made issue with the same title is never taken
+          # over. If more than one ever exists, keep using the oldest, so a
+          # run never adds another.
+          ALERT=$(gh api --paginate --slurp "repos/${REPO}/issues?state=open&per_page=100" \
+            | jq -r '[.[][] | select(.pull_request == null and .title == env.ALERT_TITLE and .user.login == "github-actions[bot]") | .number]
+                     | min // empty')
+
+          if [ "${RESULT}" = "success" ]; then
+            if [ -n "${ALERT}" ]; then
+              gh issue close "${ALERT}" \
+                --comment "The chairlift suite passed on dakota:testing again: ${RUN_URL} (tests at \`${SHA}\`). Closing."
+              echo "Closed #${ALERT}."
+            else
+              echo "Passed; no open alert issue."
+            fi
+            exit 0
+          fi
+
+          FAILED=$(gh api --paginate --slurp "repos/${REPO}/actions/runs/${RUN_ID}/jobs?per_page=100" \
+            | jq -r '[.[].jobs[] | select(.conclusion == "failure" or .conclusion == "timed_out")
+                     | "- [\(.name)](\(.html_url)) (\(.conclusion))"] | join("\n")')
+          BODY=$(printf '%s\n\n%s\n\n%s\n\n%s\n\n%s\n\n%s\n' \
+            "**Needs a maintainer:** the chairlift suite failed on \`ghcr.io/projectbluefin/dakota:testing\` (${EVENT} run)." \
+            "Run: ${RUN_URL}"$'\n'"Tests: \`${SHA}\` (main)" \
+            "Failed jobs:"$'\n'"${FAILED:-- (none listed; see the run)}" \
+            "The suite is advisory: it gates nothing, so no merge and no \`v1\` move is blocked, and this issue is the only place the failure shows up." \
+            "Where to look: the lines starting with \`CHAIRLIFT\` in the job log, and the run's \`e2e-*\` artifact (screenshots, \`chairlift*.txt\`, \`chairlift-action-journal.jsonl\`). Decide whether the image (Control Center, its helper, Homebrew setup) or the test harness is at fault." \
+            "Each failing run on main comments here; the next passing run closes this issue.")
+
+          if [ -n "${ALERT}" ]; then
+            gh issue comment "${ALERT}" --body "${BODY}"
+            echo "Commented on #${ALERT}."
+          else
+            URL=$(gh issue create --title "${ALERT_TITLE}" --body "${BODY}")
+            ALERT=${URL##*/}
+            echo "Opened #${ALERT}."
+          fi
+          # A maintainer's problem, not contributor work (the same labels the
+          # v1 gate gives a hold only a person can release).
+          for LABEL in kind/bug needs-human; do
+            gh issue edit "${ALERT}" --add-label "${LABEL}" > /dev/null \
+              || echo "::warning::could not label #${ALERT} ${LABEL}"
+          done
+          for LABEL in "good first issue" "help wanted"; do
+            gh issue edit "${ALERT}" --remove-label "${LABEL}" > /dev/null 2>&1 || true
+          done
+          echo "::error::the chairlift suite failed on dakota:testing; see #${ALERT}"
+          exit 1
