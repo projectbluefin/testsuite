@@ -43,7 +43,9 @@ import re
 import sys
 from pathlib import Path
 
-FAILED_STATUSES = frozenset({"failed", "error"})
+# behave 1.3 (Scenario.compute_status) also reports "hook_error" for a
+# scenario whose before_scenario or after_scenario hook raised.
+FAILED_STATUSES = frozenset({"failed", "error", "hook_error"})
 
 
 def artifact_suffix(image: str) -> str:
