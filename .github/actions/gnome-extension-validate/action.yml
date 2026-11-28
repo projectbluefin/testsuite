@@ -1,0 +1,190 @@
+name: 'GNOME OS extension validation'
+description: >-
+  Run one GNOME OS extension profile offline in a fresh GNOME OS guest: build
+  the native harness over a pinned GNOME OS build, stage the extension ZIP
+  before session start, run the extension's own Behave scenarios through the
+  extension-validation gate, and record the run outcome for baseline
+  attribution. One profile per invocation; no secrets are used by any step.
+  #
+  Inputs let the scheduled baseline workflow (#1259) reuse the exact ZIP the
+  matrix job packed and rebuild the harness from the last passing GNOME OS
+  build instead of the current nightly. When extension-zip is empty the action
+  packs from the profile's pinned revision.
+
+inputs:
+  profile:
+    description: "Profile key in tests/extensions/collection.json."
+    type: string
+    required: true
+  test_ref:
+    description: "Commit SHA or ref to test; empty means the calling commit."
+    type: string
+    required: false
+    default: ""
+  extension-zip:
+    description: "Pre-built extension ZIP to stage (rerun reuses the matrix job's ZIP); empty packs from the profile."
+    type: string
+    required: false
+    default: ""
+  extension-sha256:
+    description: "sha256 of the staged ZIP; empty when extension-zip is empty."
+    type: string
+    required: false
+    default: ""
+  base-digest:
+    description: "Optional GNOME OS base image digest pin (rerun: the baseline base digest)."
+    type: string
+    required: false
+    default: ""
+  devel-digest:
+    description: "Optional GNOME OS devel image digest pin (rerun: the baseline devel digest)."
+    type: string
+    required: false
+    default: ""
+  checkout:
+    description: "Set to 'false' to skip the checkout step (rerun reuses a ZIP downloaded by the caller)."
+    type: string
+    required: false
+    default: "true"
+  artifact-name:
+    description: "Override the uploaded artifact name (rerun uses a distinct name to avoid a same-run conflict)."
+    type: string
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout
+      if: inputs.checkout != 'false'
+      id: checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      with:
+        ref: ${{ inputs.test_ref || github.sha }}
+        persist-credentials: false
+
+    - name: Free disk space
+      uses: projectbluefin/actions/bootc-build/setup-runner@3ab43283cb0ec8bc62aa18208ccc4978a0fd4c44 # v1
+      with:
+        update-podman: "false"
+        apt-packages: skopeo
+
+    - name: Build native harness over pinned GNOME OS
+      id: harness
+      shell: bash
+      env:
+        PROFILE: ${{ inputs.profile }}
+        GNOMEOS_BASE_DIGEST: ${{ inputs.base-digest }}
+        GNOMEOS_DEVEL_DIGEST: ${{ inputs.devel-digest }}
+      run: |
+        sudo bash scripts/build-gnomeos-harness.sh results
+        sudo chown -R "$(id -u):$(id -g)" results
+
+    # Pack the extension from its pinned revision, unless the caller already
+    # built the ZIP (the scheduled rerun reuses the matrix job's artifact).
+    - name: Pack the extension from its pinned revision
+      if: inputs.extension-zip == ''
+      id: build
+      shell: bash
+      env:
+        PROFILE: ${{ inputs.profile }}
+      run: |
+        BUILDER=$(python3 -c 'import json; print(json.load(open("results/harness-provenance.json"))["builder_image"])')
+        sudo --preserve-env=GITHUB_OUTPUT python3 scripts/build_extension_artifact.py \
+          "${PROFILE}" extension-artifact --builder-image "${BUILDER}"
+        sudo chown -R "$(id -u):$(id -g)" extension-artifact
+        cp extension-artifact/build-provenance.json results/extension-build-provenance.json
+
+    - name: Boot GNOME OS with the extension staged and run its scenarios
+      id: e2e
+      uses: ./.github/actions/gnome-e2e
+      with:
+        image: localhost/gnomeos-harness:canary
+        suite: extensions
+        testsuite-ref: ${{ steps.checkout.outputs.commit }}
+        free-disk-space: 'false'
+        extension-zip: ${{ inputs.extension-zip || steps.build.outputs.zip }}
+        extension-sha256: ${{ inputs.extension-sha256 || steps.build.outputs.sha256 }}
+
+    - name: Record the run outcome
+      id: outcome
+      if: always()
+      shell: bash
+      run: |
+        python3 - results outcomes <<'PY'
+        import json, os, sys
+        from datetime import datetime, timezone
+        from pathlib import Path
+        sys.path.insert(0, os.getcwd())
+        from scripts.extension_baseline import classify
+        results, outdir = Path(sys.argv[1]), Path(sys.argv[2])
+        outdir.mkdir(parents=True, exist_ok=True)
+        prov = json.loads((results / "harness-provenance.json").read_text())
+        results_json = results / "results.json"
+        from scripts.extension_validation import gate_report
+        gate = gate_report(results_json)
+        passed = gate["passed"]
+        reason = gate["reason"]
+        scenarios = []
+        if results_json.is_file():
+            report = json.loads(results_json.read_text())
+            scenarios = [s.get("name", "") for f in report if isinstance(f, dict)
+                         for s in f.get("scenarios", []) if isinstance(s, dict)]
+        profile = os.environ["PROFILE"]
+        classification = classify({"passed": passed, "reason": reason})
+        outcome = {
+            "profile": profile,
+            "classification": classification,
+            "digest": prov.get("devel_digest"),
+            "base_digest": prov.get("base_digest"),
+            "devel_digest": prov.get("devel_digest"),
+            "os_release": prov.get("os_release"),
+            "shell_version": prov.get("shell_version"),
+            "scenarios": scenarios,
+            "passed": passed,
+            "reason": reason,
+            "extension_zip": os.environ.get("EXTENSION_ZIP", ""),
+            "extension_sha256": os.environ.get("EXTENSION_SHA256", ""),
+            "run_url": os.environ.get("GITHUB_RUN_URL", ""),
+            "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+        }
+        (outdir / f"{profile}.json").write_text(json.dumps(outcome, indent=2) + "\n")
+        print(f"recorded outcome for {profile}: passed={passed} reason={reason!r}")
+      env:
+        PROFILE: ${{ inputs.profile }}
+        EXTENSION_ZIP: ${{ inputs.extension-zip || steps.build.outputs.zip }}
+        EXTENSION_SHA256: ${{ inputs.extension-sha256 || steps.build.outputs.sha256 }}
+        GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+    - name: Collect guest journal and stop VM
+      if: always()
+      shell: bash
+      run: |
+        mkdir -p results
+        GUEST_USER="${GNOME_E2E_SSH_USER:-gnome-e2e-harness}"
+        if [[ -f /tmp/gnome_e2e_key ]]; then
+          ssh -i /tmp/gnome_e2e_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            -o BatchMode=yes -o ConnectTimeout=5 -p 2222 "${GUEST_USER}@127.0.0.1" \
+            'sudo journalctl -b --no-pager' > results/guest-journal.txt 2>&1 || true
+          ssh -i /tmp/gnome_e2e_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            -o BatchMode=yes -o ConnectTimeout=5 -p 2222 "${GUEST_USER}@127.0.0.1" \
+            'cat /opt/gnomeos-harness/packages.txt' > results/harness-packages.txt 2>&1 || true
+        fi
+        if [[ -f /tmp/gnome_e2e_qemu.pid ]]; then
+          sudo kill "$(sudo cat /tmp/gnome_e2e_qemu.pid)" || true
+        fi
+        sudo chown -R "$(id -u):$(id -g)" results
+
+    - name: Upload results and outcome
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+      with:
+        name: ${{ inputs.artifact-name || format('extension-validation-{0}', inputs.profile) }}
+        if-no-files-found: error
+        path: |
+          results/
+          extension-artifact/
+          outcomes/
+          session-isolation.json
+          bootc-install.log
+          vm-serial.log

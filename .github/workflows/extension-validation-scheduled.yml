@@ -1,0 +1,302 @@
+name: GNOME OS extension validation (scheduled)
+
+# Weekly scheduled validation of every extension profile on the current GNOME OS
+# devel image, with baseline attribution (#1259, step 6 of #909). Each profile
+# runs through the same offline gate as the on-demand workflow; when a profile
+# fails the identical extension artifact is rerun on the last passing GNOME OS
+# build so the report says whether the extension or GNOME OS changed, and one
+# issue is filed per failure and updated in place on later failures. Dispatchable
+# by hand for a full all-profiles run. No secrets, no EGO access, guest has no
+# write token.
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  # Build the profile matrix from the canonical collection so the scheduled run
+  # always covers every profile without a second source of truth.
+  profiles:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.set.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - id: set
+        run: |
+          python3 - <<'PY' > "$GITHUB_OUTPUT"
+          import json
+          profiles = list(json.load(open("tests/extensions/collection.json")).keys())
+          print("matrix=" + json.dumps({"profile": profiles}))
+          print("count=" + str(len(profiles)))
+          PY
+
+  # Run every profile on the current devel image. The composite action packs one
+  # extension from its pinned revision, boots a fresh guest with it staged, runs
+  # the extension's own scenarios, records the outcome and uploads it per profile.
+  validate:
+    needs: profiles
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    strategy:
+      matrix: ${{ needs.profiles.outputs.matrix }}
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/gnome-extension-validate
+        with:
+          profile: ${{ matrix.profile }}
+
+  # Fold this run's passing builds into the baseline store on its dedicated
+  # branch, mirroring the gh-pages/coverage-snapshot commit-back pattern. Only
+  # passing builds are recorded, oldest first, deduped by devel digest, so the
+  # rerun can select the most recent known-good GNOME OS build per profile.
+  baseline-store:
+    needs: validate
+    if: ${{ always() && needs.validate.result != 'cancelled' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: true
+      - name: Download every profile outcome
+        uses: actions/download-artifact@4bc1171bd881987a7af24aed9899bab0927737bd # v7
+        with:
+          path: outcomes
+          pattern: extension-validation-*
+          merge: true
+      - name: Prepare the dedicated store branch (from remote, else main)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch --quiet origin extension-validation-baselines || true
+          # Build the local branch on top of the remote store branch when it
+          # exists so commits stay linear (fast-forward push); fall back to main
+          # on the first run before the branch is created.
+          git checkout -f -B extension-validation-baselines \
+            origin/extension-validation-baselines 2>/dev/null \
+            || git checkout -f -B extension-validation-baselines origin/main
+      - name: Merge passing builds into the baseline store
+        run: |
+          python3 - <<'PY'
+          import json, os, glob
+          from pathlib import Path
+          store = Path("extension-validation-baselines/baseline-builds.json")
+          store.parent.mkdir(parents=True, exist_ok=True)
+          data = json.loads(store.read_text()) if store.is_file() else {}
+          seen = {}
+          for path in sorted(glob.glob("outcomes/**/outcomes/*.json", recursive=True)):
+              o = json.loads(Path(path).read_text())
+              if not o.get("passed"):
+                  continue
+              p = o["profile"]
+              digest = o.get("devel_digest") or o.get("base_digest")
+              if not digest or digest in seen.setdefault(p, set()):
+                  continue
+              seen[p].add(digest)
+              data.setdefault(p, []).append({
+                  "digest": o.get("devel_digest"),
+                  "devel_digest": o.get("devel_digest"),
+                  "base_digest": o.get("base_digest"),
+                  "os_release": o.get("os_release"),
+                  "shell_version": o.get("shell_version"),
+                  "run_url": o.get("run_url"),
+                  "date": o.get("date"),
+              })
+          store.write_text(json.dumps(data, indent=2) + "\n")
+          print("baseline store updated for", [p for p in data if data[p]])
+          PY
+        env:
+          GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+      - name: Commit the baseline store to its dedicated branch
+        run: |
+          git add extension-validation-baselines/baseline-builds.json
+          if git diff --cached --quiet; then
+            echo "no baseline changes this run"
+            exit 0
+          fi
+          git commit -q -m "chore: record GNOME OS extension baseline builds [skip ci]"
+          git push -q origin extension-validation-baselines
+
+  # When any profile failed, select the last passing GNOME OS build per failed
+  # profile from the baseline store and record a combined report: the base run
+  # outcome plus the baseline it would rerun on. The failed-profile list is
+  # output as a matrix for the rerun job. On a green week this job is skipped,
+  # so nothing is filed.
+  attribution:
+    needs: [validate, baseline-store]
+    if: ${{ always() && needs.validate.result == 'failure' && needs.baseline-store.result != 'cancelled' }}
+    runs-on: ubuntu-24.04
+    outputs:
+      failed_profiles: ${{ steps.plan.outputs.failed_profiles }}
+      rerun_matrix: ${{ steps.plan.outputs.rerun_matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Download every profile outcome
+        uses: actions/download-artifact@4bc1171bd881987a7af24aed9899bab0927737bd # v7
+        with:
+          path: outcomes
+          pattern: extension-validation-*
+          merge: true
+      - name: Fetch the baseline store from its dedicated branch
+        run: |
+          git fetch --quiet origin extension-validation-baselines || true
+          if git show origin/extension-validation-baselines:extension-validation-baselines/baseline-builds.json \
+              > baseline-builds.json 2>/dev/null; then
+            echo "loaded baseline store from extension-validation-baselines"
+          else
+            printf '{}' > baseline-builds.json
+            echo "no baseline store recorded yet"
+          fi
+      - name: Select baselines and build the attribution report
+        id: plan
+        run: |
+          python3 - <<'PY' > "$GITHUB_OUTPUT"
+          import json, os, glob, sys
+          from pathlib import Path
+          sys.path.insert(0, os.getcwd())
+          from scripts.extension_baseline import select_baseline
+          from datetime import datetime, timezone
+          store = json.loads(Path("baseline-builds.json").read_text()) \
+              if Path("baseline-builds.json").is_file() else {}
+          profiles = {}
+          rerun = []
+          for path in sorted(glob.glob("outcomes/**/outcomes/*.json", recursive=True)):
+              o = json.loads(Path(path).read_text())
+              if o.get("passed"):
+                  continue
+              base = {k: o[k] for k in ("profile", "classification", "reason", "scenarios",
+                                        "digest", "base_digest", "devel_digest", "os_release",
+                                        "shell_version", "run_url", "date")}
+              baseline = select_baseline(store, o["profile"])
+              base["baseline"] = baseline
+              profiles[o["profile"]] = base
+              if baseline:
+                  rerun.append({
+                      "profile": o["profile"],
+                      "base_digest": baseline.get("base_digest"),
+                      "devel_digest": baseline.get("devel_digest"),
+                  })
+          report = {
+              "scheduled_at": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+              "run_url": os.environ.get("GITHUB_RUN_URL", ""),
+              "profiles": profiles,
+          }
+          Path("scheduled-outcomes.json").write_text(json.dumps(report, indent=2) + "\n")
+          print("failed_profiles=" + json.dumps(list(profiles)))
+          print("rerun_matrix=" + json.dumps(rerun))
+          print("count=" + str(len(rerun)))
+          PY
+        env:
+          GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      - name: Upload the attribution report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: scheduled-outcomes
+          path: scheduled-outcomes.json
+          if-no-files-found: error
+
+  # Rerun each failed profile that has a selectable baseline on the last passing
+  # GNOME OS build, reusing the exact ZIP the matrix job packed (gnome-extensions
+  # pack embeds mtimes, so rebuilding would not be byte-identical). The baseline
+  # digests come straight from the attribution matrix, so the action reuses the
+  # checkout-free ZIP the job downloaded before calling the composite action.
+  rerun:
+    needs: attribution
+    if: ${{ always() && needs.attribution.result == 'success' && needs.attribution.outputs.rerun_matrix != '[]' }}
+    strategy:
+      matrix:
+        rerun: ${{ fromJSON(needs.attribution.outputs.rerun_matrix) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Download the matrix job's exact extension ZIP
+        uses: actions/download-artifact@4bc1171bd881987a7af24aed9899bab0927737bd # v7
+        with:
+          name: extension-validation-${{ matrix.rerun.profile }}
+          path: rerun-artifact
+      - name: Stage the exact ZIP for the rerun
+        id: zip
+        run: |
+          zip=$(find rerun-artifact/extension-artifact -name '*.shell-extension.zip' | head -1)
+          sha=$(sha256sum "$zip" | awk '{print $1}')
+          echo "zip=$zip" >> "$GITHUB_OUTPUT"
+          echo "sha256=$sha" >> "$GITHUB_OUTPUT"
+      - name: Rerun on the last passing GNOME OS build
+        uses: ./.github/actions/gnome-extension-validate
+        with:
+          profile: ${{ matrix.rerun.profile }}
+          base-digest: ${{ matrix.rerun.base_digest }}
+          devel-digest: ${{ matrix.rerun.devel_digest }}
+          extension-zip: ${{ steps.zip.outputs.zip }}
+          extension-sha256: ${{ steps.zip.outputs.sha256 }}
+          checkout: "false"
+          artifact-name: rerun-${{ matrix.rerun.profile }}
+      - name: Record the rerun outcome
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: rerun-outcomes-${{ matrix.rerun.profile }}
+          path: outcomes/*.json
+          if-no-files-found: error
+
+  # File or update one issue per failed profile, attributed to the baseline that
+  # was rerun. Each issue carries a hidden marker so later runs update it in
+  # place instead of opening a duplicate. A green week opens nothing.
+  file-issues:
+    needs: [attribution, rerun]
+    if: ${{ always() && needs.attribution.result == 'success' && needs.attribution.outputs.failed_profiles != '[]' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Download the attribution report
+        uses: actions/download-artifact@4bc1171bd881987a7af24aed9899bab0927737bd # v7
+        with:
+          name: scheduled-outcomes
+      - name: Download every rerun outcome
+        uses: actions/download-artifact@4bc1171bd881987a7af24aed9899bab0927737bd # v7
+        with:
+          path: rerun-outcomes
+          pattern: rerun-outcomes-*
+          merge: true
+      - name: Merge rerun outcomes into the report
+        run: |
+          python3 - <<'PY'
+          import json, glob, os, sys
+          from pathlib import Path
+          sys.path.insert(0, os.getcwd())
+          from scripts.extension_baseline import merge_rerun_outcomes
+          report = json.loads(Path("scheduled-outcomes.json").read_text())
+          merge_rerun_outcomes(report, "rerun-outcomes")
+          Path("scheduled-outcomes.json").write_text(json.dumps(report, indent=2) + "\n")
+          PY
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: File or update attribution issues
+        run: |
+          python3 scripts/extension_baseline.py file-issues \
+            --report scheduled-outcomes.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
