@@ -101,10 +101,15 @@ Procedure:
 
 ## Scenario-count updates
 
-When counts change, update the co-authoritative sources:
+Two places hold scenario counts:
 
-- `docs/skills/test-authoring/suite-map/SKILL.md` — per-suite table
-- `docs/qa-review.md` — totals line and stub posture
+- `docs/skills/test-authoring/suite-map/SKILL.md` — the generated per-suite table
+- `docs/qa-review.md` — the totals line
+
+A PR that adds, removes or retags scenarios changes neither. Both are refreshed
+in a separate PR that changes nothing else: run
+`python3 scripts/update_coverage_snapshot.py`, then copy its totals into the
+`docs/qa-review.md` line.
 
 ## GNOME OS provisioning canary
 

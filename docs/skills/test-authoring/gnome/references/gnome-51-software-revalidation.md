@@ -86,8 +86,8 @@ search check became `bazaar_navigation.feature`'s typed Bazaar search.
    - **obsolete** — 51 no longer needs it; keep only if Bluefin (50) still does.
 5. Row 7 is separable: it needs no GUI and no GNOME version. Schedule it as a
    dedicated CI job rather than folding it into a GUI run.
-6. When totals change, run `python3 scripts/update_coverage_snapshot.py` and
-   sync `docs/qa-review.md`.
+6. When totals change, leave the coverage snapshot and `docs/qa-review.md`
+   alone; the counts are refreshed in their own PR.
 
 ## Escalation
 

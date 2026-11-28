@@ -53,7 +53,7 @@ Don't defer. File the PR as part of your current working session.
 | Change | Files to update |
 |---|---|
 | New scenario in any suite | Feature file + steps file |
-| Scenario count changes | Run `python3 scripts/update_coverage_snapshot.py` — it regenerates the suite-map coverage snapshot. **Never hand-edit the numbers** (that is the merge-conflict root cause). Only hand-edit per-suite Notes prose in the script's `SUITE_NOTES` if a suite's purpose changed |
+| Scenario count changes | Nothing. Leave the suite-map coverage snapshot and the recount line in `docs/qa-review.md` alone; they are refreshed in their own PR (`python3 scripts/update_coverage_snapshot.py`). **Never hand-edit the numbers.** Only hand-edit per-suite Notes prose in the script's `SUITE_NOTES` if a suite's purpose changed |
 | New unit test file | `docs/qa-review.md` unit test table |
 | New suite or variant-matrix change | `docs/skills/test-authoring/suite-map/SKILL.md` variant matrix + `docs/runbook.md` suite layout table |
 | New step pattern discovered | `docs/skills/test-authoring/behave/SKILL.md` |

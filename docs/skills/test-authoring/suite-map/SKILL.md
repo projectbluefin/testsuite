@@ -24,7 +24,7 @@ Load when: deciding which suite to add a test to, checking existing coverage, or
 
 - Choosing the correct suite for new coverage
 - Determining which image variants run a suite
-- Updating scenario counts after feature-file changes
+- Refreshing the scenario counts in their own PR
 - Verifying variant-specific tag semantics such as `@bluefin` and `@dakota_only`
 
 ## When NOT to Use
@@ -38,32 +38,32 @@ Load when: deciding which suite to add a test to, checking existing coverage, or
 1. Identify the suite affected by the change.
 2. Confirm the suite/image matrix before adding variant-specific coverage.
 3. Verify the correct scenario tags for that image family.
-4. Update the coverage snapshot and per-suite counts when scenario totals change.
-5. Cross-check the same totals in `docs/qa-review.md` before opening the PR.
+4. Leave the coverage snapshot below alone, even when scenario totals change.
+5. Leave the recount line in `docs/qa-review.md` alone too; both are refreshed in their own PR.
 
 ## Common Rationalizations
 
 | Rationalization | Reality |
 |---|---|
-| "It is only one scenario, the counts can wait." | Coverage drift compounds quickly; `suite-map.md` and `docs/qa-review.md` are co-authoritative. |
+| "I will regenerate the counts while I am here." | That puts your PR on the one block every scenario PR would conflict on. The counts are refreshed in their own PR. |
 | "The tag name is obvious." | Variant gating is implemented in suite hooks; confirm the actual tag semantics before writing image-specific scenarios. |
 | "Another skill file already mentions this suite." | This file is the source for suite-to-image mapping and coverage totals. |
 
 ## Red Flags
 
-- Scenario totals changed but `suite-map.md` was not updated
+- A scenario PR that edits the coverage snapshot or the `docs/qa-review.md` recount line
 - A variant-specific scenario was added without checking whether the image actually runs that suite
 - A new tag was used without documenting its meaning here
-- `suite-map.md` and `docs/qa-review.md` disagree on counts
+- After a refresh PR, `suite-map.md` and `docs/qa-review.md` disagree on counts
 
 ## Verification
 
 - [ ] Suite/image matrix still matches the intended coverage
 - [ ] Variant tag semantics match the actual suite hook behavior
-- [ ] Scenario totals here match `docs/qa-review.md`
+- [ ] A scenario PR leaves the coverage snapshot and the `docs/qa-review.md` recount line unchanged
 - [ ] Notes describe timeless operating rules, not session history
 
-> Coverage snapshot here and in `docs/qa-review.md` are co-authoritative — update both when scenario counts or gap status change.
+> The coverage snapshot here and the recount line in `docs/qa-review.md` are refreshed together, in their own PR. Scenario PRs change neither. Gap status is still updated in both files by the PR that changes it.
 
 ## Variant matrix
 
@@ -196,7 +196,9 @@ that issue rather than file another, and close it when it no longer applies. Det
 > The numbers in this block are **generated** by `scripts/update_coverage_snapshot.py`
 > from the `.feature` files. **Do not hand-edit the counts** — run the script.
 > Only the per-suite Notes prose is hand-maintained (in the script's `SUITE_NOTES`).
-> CI (`Coverage snapshot fresh` check) fails if this block is stale.
+> Scenario PRs leave this block alone; it is refreshed in its own PR. CI
+> (`Coverage snapshot fresh` check) fails a PR that changes the block to anything
+> other than what the script writes.
 
 <!-- coverage-snapshot:start -->
 
@@ -322,7 +324,7 @@ Activate a `@future` scenario when all three conditions are met:
 2. Step implementations are complete
 3. Suite runs cleanly via the GHA action
 
-When activating: remove `@future`, update this file's coverage snapshot, update `docs/qa-review.md`.
+When activating: remove `@future`. The counts here and in `docs/qa-review.md` are picked up by the next refresh PR.
 
 ## smoke vs vanilla-gnome
 

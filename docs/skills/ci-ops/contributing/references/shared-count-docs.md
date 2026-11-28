@@ -8,20 +8,37 @@ metadata:
 ---
 # Shared Count Docs
 
-Two files are edited by **every** PR that adds or retags scenarios:
+Two files hold the repo-wide scenario counts:
 
-- `docs/qa-review.md` — the mechanical recount line and stub-posture section
-- `docs/skills/test-authoring/suite-map/SKILL.md` — the per-suite count matrix
+- `docs/qa-review.md` — the mechanical recount line near the top
+- `docs/skills/test-authoring/suite-map/SKILL.md` — the generated coverage snapshot block
 
-`AGENTS.md` makes updating both mandatory when totals change, so they are the
-repo's permanent merge-contention hotspot. Concurrent test PRs never conflict on
-code — they conflict here.
+If every scenario PR edited them, only one scenario PR could be open at a time,
+and each merge would make the next one conflict. They are the repo's permanent
+merge-contention hotspot, so scenario PRs stay out of them.
+
+## The rule
+
+- A PR that adds, removes or retags scenarios does **not** touch the generated
+  block or the recount line.
+- The counts are refreshed in a separate PR that changes nothing else, after
+  scenario PRs have merged. Run the generator, then copy its totals into the
+  `docs/qa-review.md` recount line:
+
+  ```bash
+  python3 scripts/update_coverage_snapshot.py
+  ```
+
+- Never work the numbers out by hand. Arithmetic on the previous total
+  propagates any error already on `main`.
+- Between refreshes the counts on `main` lag behind the feature files. That is
+  expected; the `Coverage snapshot fresh` check only warns about it on `main`.
 
 ## Why "MERGEABLE" is misleading
 
 GitHub computes mergeability against the **current base**, one PR at a time. Two
-PRs that each edit the recount line both report MERGEABLE while the other is
-unmerged. The conflict materialises the moment the first one lands.
+PRs that edit the same lines of either file both report MERGEABLE while the
+other is unmerged. The conflict materialises the moment the first one lands.
 
 Never treat a green mergeable badge as proof that a batch of PRs can land in any
 order. Diff the shared files across the open set before queueing:
@@ -35,25 +52,11 @@ done
 
 ## Order by blast radius, largest first
 
-A PR that **restructures** either file (adds a column, rewrites the matrix,
-replaces a section) must merge **before** PRs that only edit rows or totals.
-Reversing that order forces the restructuring PR — the larger and harder one —
-to be redone against the new content.
-
-Rank the open set by how much of the shared file each one rewrites, merge the
-biggest first, then rebase the rest. Rebasing a one-line count edit onto a new
-table shape is trivial; rebasing a full table rewrite onto three separate row
-edits is not.
-
-## Keep count edits isolated
-
-Put the `qa-review.md` + `suite-map/SKILL.md` updates in their **own commit**,
-last in the branch. A rebase then conflicts in exactly one commit that contains
-nothing but counts, instead of scattering conflicts through the code commits.
-
-Recount mechanically rather than by arithmetic on the previous total — the
-number on `main` may already be stale, and adding your delta to a wrong number
-propagates the error.
+Other PRs still edit these files outside the counts, for example the variant
+matrix or the gap list. A PR that **restructures** either file (adds a column,
+rewrites a table, replaces a section) must merge **before** PRs that only edit
+rows. Reversing that order forces the restructuring PR — the larger and harder
+one — to be redone against the new content.
 
 ## When you cannot merge
 
@@ -64,17 +67,15 @@ merges.
 
 ## Red flags
 
-- Three or more open PRs whose diffs all touch the recount line
-- A count total that no `behave --dry-run` output supports
-- A PR marked ready that edits the suite matrix while a matrix-restructuring PR
-  is open and unmerged
-- Counts updated in `suite-map/SKILL.md` but not `docs/qa-review.md`, or the
-  reverse
+- A scenario PR whose diff touches the generated block or the recount line
+- A refresh PR that also changes feature files, steps or other docs
+- A count total that no generator run supports
+- After a refresh PR, the recount line and the generated block disagree
 
 ## Verification
 
-- [ ] Both shared files updated, or neither (totals genuinely unchanged)
-- [ ] Totals derived from a fresh `behave --dry-run`, not from arithmetic
+- [ ] Scenario PR: generated block and recount line unchanged
+- [ ] Refresh PR: only the block and the recount line change, and
+      `python3 scripts/update_coverage_snapshot.py --check` passes
 - [ ] Shared-file diffs compared against every other open PR
-- [ ] Count changes isolated in their own final commit
 - [ ] Merge order noted on the PR when another PR must land first
