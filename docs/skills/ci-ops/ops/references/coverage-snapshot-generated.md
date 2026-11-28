@@ -18,20 +18,31 @@ concurrent PRs then touched the same lines → merge conflict → rebase → re-
 repeat. This was the root cause of the merge-queue "dirty" cascade. The hand-maintained
 numbers also silently drifted from reality.
 
+Generating the numbers fixed the drift but not the conflicts: every scenario PR
+still rewrote the same block. So scenario PRs now leave the block alone.
+
 ## The rule
 
 - **Never** edit the Scenarios/Active/Quarantined/Pending numbers by hand.
 - The table lives between `<!-- coverage-snapshot:start -->` and
   `<!-- coverage-snapshot:end -->` markers and is rewritten by the script.
-- When your PR changes scenario totals, regenerate:
+- A PR that adds, removes or retags scenarios does **not** touch the block, and does
+  not edit the recount line in `docs/qa-review.md`.
+- The counts are refreshed in a separate PR that changes nothing else, after scenario
+  PRs have merged. Run the script, then copy its totals into the `docs/qa-review.md`
+  recount line:
 
 ```bash
 python3 scripts/update_coverage_snapshot.py
 ```
 
-- CI enforces it: the `Coverage snapshot fresh` job in `pr-validate.yml` runs
-  `python3 scripts/update_coverage_snapshot.py --check` and fails if the committed block
-  is stale.
+- CI: the `Coverage snapshot fresh` job in `pr-validate.yml` compares the PR's block
+  with the base branch's (`--check --base-file`).
+  - Block unchanged: the job passes, even if the counts are behind the feature files.
+  - Block changed to exactly what the script writes: the job passes.
+  - Block changed to anything else: the job fails.
+- On a push to `main` the job runs plain `--check`. A stale block there is a warning
+  that the refresh PR is due, not a failure.
 
 ## Counting semantics
 
@@ -48,11 +59,15 @@ The "Pending/Future" column is the non-runnable backlog: `@pending` + `@future` 
 ## Updating the Notes prose
 
 Only the per-suite **Notes** column is hand-maintained, and it lives in the script's
-`SUITE_NOTES` dict (not in the markdown). Edit `SUITE_NOTES["<suite>"]`, then re-run the
-generator. Add a new key when introducing a new suite.
+`SUITE_NOTES` dict (not in the markdown). Edit `SUITE_NOTES["<suite>"]`; the next
+refresh PR writes it into the table. Add a new key when introducing a new suite.
 
 ## Resolving a conflict on the table
 
-If your PR conflicts with `main` on the Coverage snapshot block: delete your hand-edited
-table, take `main`'s version, apply any Notes change to `SUITE_NOTES`, and regenerate.
-Do not try to merge the numeric cells by hand — they will be wrong and CI will reject them.
+A scenario PR should never conflict here, because it does not touch the block. If yours
+does, take `main`'s version of the block and drop your change; move any Notes change to
+`SUITE_NOTES`.
+
+A refresh PR can go stale when another scenario PR merges first, and then the check
+fails. Rebase it on `main` and run the script again. Do not merge the numeric cells by
+hand; they will be wrong and CI will reject them.

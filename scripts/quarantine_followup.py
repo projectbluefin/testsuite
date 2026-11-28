@@ -392,8 +392,9 @@ def lift_followup(
         "1. In each file above, delete `@quarantine` from the tag line and delete "
         f"the `# quarantine: {citation.ref} ...` line directly above it. Keep every "
         "other tag and comment.",
-        "2. Run `python3 scripts/update_coverage_snapshot.py`; it regenerates the "
-        "quarantine counts in `docs/skills/test-authoring/suite-map/SKILL.md`.",
+        "2. Leave the coverage snapshot in "
+        "`docs/skills/test-authoring/suite-map/SKILL.md` and the recount line in "
+        "`docs/qa-review.md` alone; the counts are refreshed in their own PR.",
         "3. Open a PR whose body says `Fixes #<this issue>`. Do not dispatch "
         "workflows; the PR's own checks are the proof.",
         "4. If the VM check shows a lifted scenario still failing, do not restore "
@@ -409,8 +410,9 @@ def lift_followup(
         "",
         f"- [ ] No `# quarantine: {citation.ref}` line remains under `tests/`, and the "
         "tags it annotated no longer carry `@quarantine`.",
-        "- [ ] `python3 scripts/quarantine_citations.py` and "
-        "`python3 scripts/update_coverage_snapshot.py --check` pass.",
+        "- [ ] `python3 scripts/quarantine_citations.py` passes, and the PR does "
+        "not change `docs/skills/test-authoring/suite-map/SKILL.md` or "
+        "`docs/qa-review.md`.",
         f"- [ ] The PR VM check is green for `{','.join(suites)}`, with the lifted "
         "scenarios reported as passed rather than skipped.",
         "",
@@ -419,7 +421,7 @@ def lift_followup(
         "```",
         f"grep -rn '# quarantine: {citation.ref}' tests/   # expect no output",
         "python3 scripts/quarantine_citations.py",
-        "python3 scripts/update_coverage_snapshot.py --check",
+        "git diff --stat origin/main -- docs/skills/test-authoring/suite-map/SKILL.md docs/qa-review.md   # expect no output",
         "python3 scripts/check_quarantine_age.py --grace-days 30",
         "```",
         "",

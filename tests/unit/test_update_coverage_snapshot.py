@@ -6,7 +6,8 @@ its tag parsing or classification silently changes the suite-map numbers that
 every test PR is measured against.
 
 Covers: ``parse_scenarios``, ``classify``, ``SuiteCounts.total``,
-``count_scenarios``, ``render_snapshot``, ``update_file`` and ``main``.
+``count_scenarios``, ``render_snapshot``, ``block_bounds``, ``update_file``
+(including ``--check --base-file``) and ``main``.
 """
 
 from __future__ import annotations
@@ -379,6 +380,116 @@ class TestUpdateFile:
         assert ucs.update_file(tmp_path, check=True) == 1
 
 
+# ── update_file --check --base-file ───────────────────────────────────────────
+
+
+def write_base(root: Path, body: str) -> Path:
+    """Write a base-branch copy of the suite map, outside the repo tree."""
+    path = root / "base-suite-map.md"
+    path.write_text(f"# Suite map\n\nbase intro\n\n{body}\n", encoding="utf-8")
+    return path
+
+
+class TestBaseFile:
+    def test_block_bounds_cover_both_markers(self):
+        text = f"a\n{ucs.MARKER_START}\nx\n{ucs.MARKER_END}\nb\n"
+        start, end = ucs.block_bounds(text)
+        assert text[start:end] == f"{ucs.MARKER_START}\nx\n{ucs.MARKER_END}"
+
+    def test_block_bounds_is_none_without_markers(self):
+        assert ucs.block_bounds("no markers") is None
+
+    def test_untouched_stale_block_passes(self, tmp_path, capsys):
+        write_feature(tmp_path, "smoke/a.feature", "Feature: A\n  Scenario: one\n")
+        block = f"{ucs.MARKER_START}\nstale\n{ucs.MARKER_END}"
+        make_suite_map(tmp_path, block)
+        base = write_base(tmp_path, block)
+
+        assert ucs.update_file(tmp_path, check=True) == 1, "block really is stale"
+        capsys.readouterr()
+        assert ucs.update_file(tmp_path, check=True, base_file=base) == 0
+        assert "not changed by this pull request" in capsys.readouterr().out
+
+    def test_changed_block_that_matches_the_generator_passes(self, tmp_path, capsys):
+        write_feature(tmp_path, "smoke/a.feature", "Feature: A\n  Scenario: one\n")
+        make_suite_map(tmp_path, f"{ucs.MARKER_START}\nstale\n{ucs.MARKER_END}")
+        base = write_base(tmp_path, f"{ucs.MARKER_START}\nstale\n{ucs.MARKER_END}")
+        ucs.update_file(tmp_path, check=False)
+        capsys.readouterr()
+
+        assert ucs.update_file(tmp_path, check=True, base_file=base) == 0
+        assert "up to date" in capsys.readouterr().out
+
+    def test_changed_block_that_is_wrong_fails(self, tmp_path, capsys):
+        write_feature(tmp_path, "smoke/a.feature", "Feature: A\n  Scenario: one\n")
+        make_suite_map(tmp_path, f"{ucs.MARKER_START}\nhand edit\n{ucs.MARKER_END}")
+        base = write_base(tmp_path, f"{ucs.MARKER_START}\nstale\n{ucs.MARKER_END}")
+
+        assert ucs.update_file(tmp_path, check=True, base_file=base) == 1
+        assert "STALE" in capsys.readouterr().out
+
+    def test_missing_base_file_is_an_error(self, tmp_path, capsys):
+        write_feature(tmp_path, "smoke/a.feature", "Feature: A\n  Scenario: one\n")
+        make_suite_map(tmp_path, f"{ucs.MARKER_START}\nstale\n{ucs.MARKER_END}")
+
+        missing = tmp_path / "nope.md"
+        assert ucs.update_file(tmp_path, check=True, base_file=missing) == 2
+        assert "does not exist" in capsys.readouterr().err
+
+    def test_base_file_without_markers_is_an_error(self, tmp_path, capsys):
+        write_feature(tmp_path, "smoke/a.feature", "Feature: A\n  Scenario: one\n")
+        make_suite_map(tmp_path, f"{ucs.MARKER_START}\nstale\n{ucs.MARKER_END}")
+        base = write_base(tmp_path, "no markers here")
+
+        assert ucs.update_file(tmp_path, check=True, base_file=base) == 2
+        assert "markers not found in --base-file" in capsys.readouterr().err
+
+    def test_base_file_is_passed_through_from_the_command_line(
+        self, tmp_path, monkeypatch
+    ):
+        write_feature(tmp_path, "smoke/a.feature", "Feature: A\n  Scenario: one\n")
+        block = f"{ucs.MARKER_START}\nstale\n{ucs.MARKER_END}"
+        make_suite_map(tmp_path, block)
+        base = write_base(tmp_path, block)
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "update_coverage_snapshot.py",
+                "--check",
+                "--base-file",
+                str(base),
+                "--repo-root",
+                str(tmp_path),
+            ],
+        )
+
+        assert ucs.main() == 0
+
+    def test_base_file_without_check_is_rejected(self, tmp_path, monkeypatch, capsys):
+        write_feature(tmp_path, "smoke/a.feature", "Feature: A\n  Scenario: one\n")
+        block = f"{ucs.MARKER_START}\nstale\n{ucs.MARKER_END}"
+        path = make_suite_map(tmp_path, block)
+        base = write_base(tmp_path, block)
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "update_coverage_snapshot.py",
+                "--base-file",
+                str(base),
+                "--repo-root",
+                str(tmp_path),
+            ],
+        )
+
+        with pytest.raises(SystemExit) as exc:
+            ucs.main()
+        assert exc.value.code == 2
+        assert "only valid with --check" in capsys.readouterr().err
+        assert "stale" in path.read_text(encoding="utf-8"), "must not write"
+
+
 # ── main ──────────────────────────────────────────────────────────────────────
 
 
@@ -419,7 +530,10 @@ class TestMain:
 
 
 class TestRepositoryInvariant:
-    def test_committed_snapshot_is_current(self):
-        """The same assertion pr-validate.yml makes, run in the unit suite."""
+    def test_committed_suite_map_has_the_markers(self):
+        """The committed block may lag the feature files between refresh PRs,
+        so only its markers are a repo invariant; freshness is checked by
+        ``Coverage snapshot fresh`` in pr-validate.yml."""
         repo_root = Path(__file__).resolve().parents[2]
-        assert ucs.update_file(repo_root, check=True) == 0
+        text = (repo_root / ucs.SUITE_MAP).read_text(encoding="utf-8")
+        assert ucs.block_bounds(text) is not None

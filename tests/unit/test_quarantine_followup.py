@@ -191,6 +191,11 @@ def test_closed_citation_proposes_one_lift_issue(tmp_path):
     assert "ghcr.io/projectbluefin/dakota:testing" in body
     assert "No manual run is needed" in body
     assert "## Acceptance criteria" in body and "## Test plan" in body
+    # The lift PR leaves the coverage counts alone; they are refreshed in their
+    # own PR, so the body never asks for the snapshot generator.
+    assert "update_coverage_snapshot" not in body
+    assert "the counts are refreshed in their own PR" in body
+    assert "does not change `docs/skills/test-authoring/suite-map/SKILL.md`" in body
     # The cited issue's title is editable outside this repo, so it never
     # reaches an agent task (#1220 review).
     assert "power-status-color missing" not in body

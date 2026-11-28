@@ -17,6 +17,13 @@ Rewrites the content between the ``<!-- coverage-snapshot:start -->`` and
 ``<!-- coverage-snapshot:end -->`` markers in the suite-map skill. With
 ``--check`` it exits non-zero if the committed table is stale, so CI can
 enforce regeneration instead of manual edits.
+
+Pull requests that change scenarios leave the block alone; the counts are
+refreshed in their own pull request. ``--check --base-file PATH`` supports
+that: ``PATH`` is the suite-map file as it is on the base branch, and when the
+block is byte-for-byte the same in both, the check passes without comparing
+the block to the feature files. A pull request that does change the block
+must still leave it exactly as this script writes it.
 """
 
 from __future__ import annotations
@@ -143,18 +150,43 @@ def render_snapshot(repo_root: Path) -> str:
     return "\n".join(lines)
 
 
-def update_file(repo_root: Path, check: bool) -> int:
+def block_bounds(text: str) -> tuple[int, int] | None:
+    """Return the (start, end) offsets of the marker-wrapped block, or None."""
+    if MARKER_START not in text or MARKER_END not in text:
+        return None
+    start = text.index(MARKER_START)
+    end = text.index(MARKER_END) + len(MARKER_END)
+    return start, end
+
+
+def update_file(repo_root: Path, check: bool, base_file: Path | None = None) -> int:
     path = repo_root / SUITE_MAP
     text = path.read_text(encoding="utf-8")
 
-    if MARKER_START not in text or MARKER_END not in text:
+    bounds = block_bounds(text)
+    if bounds is None:
         print(f"error: markers not found in {SUITE_MAP}", file=sys.stderr)
         print(f"add {MARKER_START} and {MARKER_END} around the snapshot table",
               file=sys.stderr)
         return 2
 
-    start = text.index(MARKER_START)
-    end = text.index(MARKER_END) + len(MARKER_END)
+    start, end = bounds
+
+    if base_file is not None:
+        if not base_file.is_file():
+            print(f"error: --base-file {base_file} does not exist", file=sys.stderr)
+            return 2
+        base_text = base_file.read_text(encoding="utf-8")
+        base_bounds = block_bounds(base_text)
+        if base_bounds is None:
+            print(f"error: markers not found in --base-file {base_file}",
+                  file=sys.stderr)
+            return 2
+        if text[start:end] == base_text[base_bounds[0]:base_bounds[1]]:
+            print(f"OK: {SUITE_MAP} coverage snapshot was not changed by this "
+                  "pull request; the counts are refreshed in their own pull request.")
+            return 0
+
     new_block = render_snapshot(repo_root)
     new_text = text[:start] + new_block + text[end:]
 
@@ -180,8 +212,13 @@ def main() -> int:
                         help="exit non-zero if the snapshot is stale (for CI)")
     parser.add_argument("--repo-root", type=Path,
                         default=Path(__file__).resolve().parents[1])
+    parser.add_argument("--base-file", type=Path, metavar="PATH",
+                        help="with --check: the suite-map file as it is on the "
+                             "base branch; pass if this PR left the block alone")
     args = parser.parse_args()
-    return update_file(args.repo_root.resolve(), args.check)
+    if args.base_file is not None and not args.check:
+        parser.error("--base-file is only valid with --check")
+    return update_file(args.repo_root.resolve(), args.check, args.base_file)
 
 
 if __name__ == "__main__":

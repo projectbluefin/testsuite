@@ -95,6 +95,10 @@ jobs:
         if: ${{ !cancelled() }}
         run: python3 scripts/quarantine_citations.py
 
+  # Scenario PRs leave the generated coverage snapshot alone; the counts are
+  # refreshed in their own PR. So a PR passes when it did not touch the block,
+  # and a PR that does touch it must leave exactly what the generator writes.
+  # On main the block may lag between refreshes: that is a warning, not a failure.
   coverage-snapshot:
     name: Coverage snapshot fresh
     runs-on: ubuntu-latest
@@ -103,14 +107,40 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # HEAD^1 must be present for the base-branch copy below.
+          fetch-depth: 2
 
       - name: Set up Python 3.14
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: "3.15"
 
-      - name: Check coverage snapshot is regenerated
-        run: python3 scripts/update_coverage_snapshot.py --check
+      # pull_request: GitHub documents that GITHUB_SHA is the merge commit on
+      # refs/pull/<N>/merge and that actions/checkout checks it out. That
+      # commit merges the PR head into the base branch, so HEAD^1 is the base.
+      # merge_group: GitHub documents only that the group combines the latest
+      # base branch, the PRs ahead of this one and this PR; it does not state
+      # the commit's parents. HEAD^1 is taken to be what the group builds on.
+      # This repo's merge queue squashes (ruleset "Merge queue (main)"), so the
+      # group's commit for a PR has a single parent: the base plus the PRs ahead.
+      - name: Check the snapshot was left alone or regenerated exactly
+        if: github.event_name != 'push'
+        run: |
+          base_copy="$RUNNER_TEMP/suite-map-base.md"
+          git show HEAD^1:docs/skills/test-authoring/suite-map/SKILL.md > "$base_copy"
+          python3 scripts/update_coverage_snapshot.py --check --base-file "$base_copy"
+
+      - name: Report a stale snapshot on main
+        if: github.event_name == 'push'
+        run: |
+          rc=0
+          python3 scripts/update_coverage_snapshot.py --check || rc=$?
+          if [ "$rc" -eq 1 ]; then
+            echo "::warning::The coverage snapshot is stale. It needs its refresh pull request: run python3 scripts/update_coverage_snapshot.py in a PR that changes nothing else."
+            exit 0
+          fi
+          exit "$rc"
 
   dry-run:
     name: Behave dry-run
