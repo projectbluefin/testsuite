@@ -56,6 +56,7 @@ Feature: Bluefin common system scripts
     * Run SSH command: "systemctl is-enabled ublue-update.timer 2>/dev/null || systemctl list-timers ublue-update.timer --all 2>/dev/null | grep ublue-update"
     * SSH command return code is "0"
 
+  @bluefin_classic
   Scenario: ujust check-local-overrides runs without error
     * Run SSH command: "ujust check-local-overrides 2>&1"
     * SSH command return code is "0"

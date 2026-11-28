@@ -21,6 +21,7 @@ Feature: Bluefin common desktop entry validation
     * Run SSH command: "test -f /usr/share/applications/org.gnome.Settings.desktop"
     * SSH command return code is "0"
 
+  @bluefin_classic
   Scenario: HTML MIME type has a default handler registered
     * Run SSH command: "xdg-mime query default text/html 2>/dev/null || grep -r 'text/html' /usr/share/applications/*.desktop | grep -c 'MimeType' | grep -v '^0$'"
     * SSH command return code is "0"
