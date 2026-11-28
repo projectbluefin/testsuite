@@ -1,5 +1,6 @@
 """Regression checks for shared E2E workflow setup."""
 
+import subprocess
 from pathlib import Path
 
 
@@ -130,3 +131,90 @@ def test_composefs_runs_mask_uupd_and_tell_the_runner_the_backend():
     # Both behave invocations receive the backend.
     assert workflow.count('-e COMPOSEFS="${COMPOSEFS:-false}"') == 1
     assert workflow.count('-e COMPOSEFS=\\"${COMPOSEFS:-false}\\"') == 1
+
+
+def test_chairlift_guest_prep_touches_no_other_suite():
+    # #1326: Homebrew setup, a throwaway password and the Homebrew-folder
+    # drop-in, for the chairlift suite only. Every added command sits inside
+    # this guard, so every other suite's guest is prepared exactly as before.
+    workflow = _workflow("e2e.yml")
+    guard = 'if [[ "${SUITE_DIR}" == "chairlift" ]]; then'
+    assert workflow.count(guard) == 4
+    lines = workflow.splitlines()
+    guarded = set()
+    for start in (i for i, line in enumerate(lines) if line.strip() == guard):
+        indent = lines[start][: len(lines[start]) - len(lines[start].lstrip())]
+        end = next(i for i in range(start, len(lines)) if lines[i] == f"{indent}fi")
+        guarded.update(range(start, end + 1))
+    for number, line in enumerate(lines):
+        if line.lstrip().startswith("#"):
+            continue
+        if "CHAIRLIFT_PW" in line or "brew-setup.service" in line.replace("systemd.mask=brew-setup.service ", "", 1):
+            assert number in guarded, f"line {number + 1} is outside the chairlift guard: {line.strip()}"
+        if "CHAIRLIFT_PW" in line and "tee " in line:
+            assert line.rstrip().endswith("> /dev/null"), line
+    assert 'echo "::add-mask::${CHAIRLIFT_PW}"' in workflow
+    assert 'echo "::add-mask::${CHAIRLIFT_PW_HASH}"' in workflow
+    assert workflow.index('echo "::add-mask::${CHAIRLIFT_PW_HASH}"') < workflow.index('${CHAIRLIFT_PW_HASH}:|"')
+    # The plain text is for the test user alone, and the drop-in is the only
+    # unit change.
+    assert 'sudo chmod 600 "${VAR}/home/bluefin-test/.config/testsuite/chairlift-admin-password"' in workflow
+    assert workflow.count("brew-setup.service.d") == 2
+    assert "polkit-1/rules.d" not in workflow
+
+    # The kernel arguments: unchanged for another suite, one mask fewer here.
+    kernel_args = next(line.strip() for line in lines if 'KERNEL_ARGS="root=UUID=' in line)
+    unmask = 'KERNEL_ARGS="${KERNEL_ARGS/systemd.mask=brew-setup.service /}"'
+    assert workflow.index(kernel_args) < workflow.index(unmask) < workflow.index(
+        'echo "KERNEL_ARGS=${KERNEL_ARGS}" >> "$GITHUB_ENV"'
+    )
+    script = (
+        f'ROOT_UUID=u; OSTREE_PATH=/p; {kernel_args}; BEFORE="${{KERNEL_ARGS}}"; '
+        f'{guard} {unmask}; fi; printf "%s\\n%s\\n" "${{BEFORE}}" "${{KERNEL_ARGS}}"'
+    )
+
+    def args_for(suite: str) -> list[str]:
+        return subprocess.run(
+            ["bash", "-c", script], env={"SUITE_DIR": suite, "PATH": "/usr/bin:/bin"},
+            capture_output=True, text=True, check=True,
+        ).stdout.splitlines()
+
+    before, after = args_for("smoke")
+    assert after == before and "systemd.mask=brew-setup.service" in before
+    before, after = args_for("chairlift")
+    assert after.split() == [arg for arg in before.split() if arg != "systemd.mask=brew-setup.service"]
+    assert len(before.split()) - len(after.split()) == 1
+
+
+def _step_if(workflow: str, name: str) -> str:
+    lines = workflow.splitlines()
+    start = next(i for i, line in enumerate(lines) if line.strip() == f"- name: {name}")
+    body = []
+    for line in lines[start + 1:]:
+        if line.strip().startswith("- name:"):
+            break
+        body.append(line)
+    text = "\n".join(body)
+    return text[text.index("if:"):text.index("\n        run:") if "\n        run:" in text else None]
+
+
+def test_chairlift_needs_a_passing_scenario():
+    # #1326: behave exits 0 when before_all fails and every scenario is
+    # skipped. The daily run reads job success as "passed again", so the
+    # assert step must cover chairlift too.
+    condition = _step_if(_workflow("e2e.yml"), "Assert suite has passing scenarios")
+    assert "env.SUITE_DIR == 'common' || env.SUITE_DIR == 'chairlift') &&" in condition
+    assert "steps.run.outputs.behave_rc == '0'" in condition
+
+
+def test_chairlift_boots_without_the_flatpak_preload():
+    # #1326: the suite tests the image as it boots, so the three Flatpak
+    # preload steps skip it; every other suite keeps its old condition.
+    workflow = _workflow("e2e.yml")
+    image = "(contains(inputs.image, '/bluefin') || contains(inputs.image, '/utah') || contains(inputs.image, 'dakota'))"
+    suites = "steps.shard.outputs.suite_dir != 'lifecycle' && steps.shard.outputs.suite_dir != 'chairlift'"
+    for name in ("Restore Flatpak download cache", "Install cached Flatpaks in VM"):
+        assert f"if: ${{{{ {image} && {suites} }}}}" in _step_if(workflow, name)
+    prime = _step_if(workflow, "Prime Flatpak download cache")
+    assert f"if: ${{{{ {image} && {suites} && steps.flatpak-cache.outputs.cache-hit != 'true' }}}}" in prime
+    assert workflow.count("steps.shard.outputs.suite_dir != 'chairlift'") == 3

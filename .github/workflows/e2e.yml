@@ -27,7 +27,7 @@ on:
         required: false
       suites:
         description: >-
-          Comma-separated suites: smoke,developer,dx,software,vanilla-gnome,bazzite,common,lifecycle,installer,kde-smoke,hardware,nvidia,security.
+          Comma-separated suites: smoke,developer,dx,software,vanilla-gnome,bazzite,common,lifecycle,installer,kde-smoke,chairlift,hardware,nvidia,security.
           hardware, nvidia and security are hardware-oriented groups; when a
           selected suite's every scenario is @hardware_blocked (no matching VM
           hardware), the run is reported as blocked with the #706 reason and
@@ -327,8 +327,9 @@ jobs:
       # flatpak-preinstall.service is masked in KERNEL_ARGS, so Bluefin-family GUI
       # suites must preload any explicitly-tested Flatpaks after SSH comes up.
       # Cache a small user Flatpak repo on the runner, then inject and deploy it in-VM.
+      # chairlift is left out: it tests the image exactly as it boots, nothing added (#1326).
       - name: Restore Flatpak download cache
-        if: ${{ (contains(inputs.image, '/bluefin') || contains(inputs.image, '/utah') || contains(inputs.image, 'dakota')) && steps.shard.outputs.suite_dir != 'lifecycle' }}
+        if: ${{ (contains(inputs.image, '/bluefin') || contains(inputs.image, '/utah') || contains(inputs.image, 'dakota')) && steps.shard.outputs.suite_dir != 'lifecycle' && steps.shard.outputs.suite_dir != 'chairlift' }}
         id: flatpak-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
@@ -338,7 +339,7 @@ jobs:
             flatpak-home-${{ runner.os }}-
 
       - name: Prime Flatpak download cache
-        if: ${{ (contains(inputs.image, '/bluefin') || contains(inputs.image, '/utah') || contains(inputs.image, 'dakota')) && steps.shard.outputs.suite_dir != 'lifecycle' && steps.flatpak-cache.outputs.cache-hit != 'true' }}
+        if: ${{ (contains(inputs.image, '/bluefin') || contains(inputs.image, '/utah') || contains(inputs.image, 'dakota')) && steps.shard.outputs.suite_dir != 'lifecycle' && steps.shard.outputs.suite_dir != 'chairlift' && steps.flatpak-cache.outputs.cache-hit != 'true' }}
         run: |
           sudo apt-get update -q
           sudo apt-get install -y --no-install-recommends flatpak
@@ -690,6 +691,16 @@ jobs:
           if [[ "${COMPOSEFS}" == "true" ]]; then
             KERNEL_ARGS="${KERNEL_ARGS} systemd.mask=uupd.timer systemd.mask=uupd.service"
           fi
+          # chairlift suite only (#1326): Control Center (ChairLift) is a
+          # Homebrew cask that brew-preinstall.service installs at the first
+          # graphical login, and that user unit only runs once
+          # brew-setup.service has unpacked Homebrew. So this suite boots with
+          # that one mask lifted and lets the image install the app the way a
+          # real first login does. Every other suite keeps the argument list
+          # above exactly as it was.
+          if [[ "${SUITE_DIR}" == "chairlift" ]]; then
+            KERNEL_ARGS="${KERNEL_ARGS/systemd.mask=brew-setup.service /}"
+          fi
           # Enforcing mode is the default (inputs.selinux_enforcing); passing
           # false falls back to the legacy SELinux-off boot.
           if [[ "${SELINUX_ENFORCING}" != "true" ]]; then
@@ -766,6 +777,21 @@ jobs:
           # bootc may deploy with a different checksum than what `ls|head-1`
           # returns, so we iterate to ensure the booted deployment gets set up.
           BFT_UID=1001
+          # chairlift suite only (#1326): a throwaway password for the test
+          # user. Every Control Center admin action is auth_admin_keep, so
+          # its polkit prompt needs a real password. The suite answers that
+          # prompt with pkttyagent, as ChairLift's own Docker test does; no
+          # polkit rule is written and nothing is authorized without the
+          # prompt. The password is generated per run and masked in the log.
+          # Only its hash goes into the guest's shadow file, and only
+          # bluefin-test can read the plain text (written further down). No
+          # other suite gets a password: their shadow field stays '*'.
+          if [[ "${SUITE_DIR}" == "chairlift" ]]; then
+            CHAIRLIFT_PW="$(openssl rand -hex 16)"
+            echo "::add-mask::${CHAIRLIFT_PW}"
+            CHAIRLIFT_PW_HASH="$(printf '%s' "${CHAIRLIFT_PW}" | openssl passwd -6 -stdin)"
+            echo "::add-mask::${CHAIRLIFT_PW_HASH}"
+          fi
           for DEP in $(sudo find "${STATEROOT}/deploy" \
               -maxdepth 1 -mindepth 1 -type d 2>/dev/null); do
             # CI VMs are not users: opt out of the daily countme ping
@@ -795,6 +821,27 @@ jobs:
               # ublue-user-setup.service fails. Appends to the member list,
               # with a comma when wheel already has members.
               sudo sed -i -E '/^wheel:/{s/([^:])$/\1,bluefin-test/;s/:$/:bluefin-test/}' "${DEP}/etc/group"
+            fi
+
+            # chairlift suite only (#1326): see CHAIRLIFT_PW above.
+            # sed and grep -q, never tee, so the hash is not echoed to the log.
+            if [[ "${SUITE_DIR}" == "chairlift" ]]; then
+              sudo sed -i -E "s|^bluefin-test:[^:]*:|bluefin-test:${CHAIRLIFT_PW_HASH}:|" "${DEP}/etc/shadow"
+              if ! sudo grep -q '^bluefin-test:\$6\$' "${DEP}/etc/shadow"; then
+                echo "::error title=chairlift password not set::the guest shadow file has no sha512 hash for bluefin-test"
+                exit 1
+              fi
+              # This drop-in is the one place this VM differs from what a
+              # real first user gets. brew-setup.service hands the Homebrew
+              # folder to uid 1000, the first account of a real install. The
+              # test user is uid 1001, and brew-preinstall.service runs as
+              # the session user, so without this it cannot write the folder
+              # and the cask never installs. Making bluefin-test the first
+              # account instead would change every suite (#1326).
+              sudo mkdir -p "${DEP}/etc/systemd/system/brew-setup.service.d"
+              printf '[Service]\nExecStartPost=/usr/bin/chown -R %d:%d /home/linuxbrew\n' \
+                "${BFT_UID}" "${BFT_UID}" | \
+                sudo tee "${DEP}/etc/systemd/system/brew-setup.service.d/10-ci-test-user.conf" > /dev/null
             fi
 
             # sshd drop-in: named 00- so it sorts BEFORE 20-systemd-userdb.conf.
@@ -914,6 +961,17 @@ jobs:
                 }
             }
           EXTEOF
+          fi
+
+          # chairlift suite only (#1326): the plain text of the throwaway
+          # password, read inside the guest by the suite's polkit agent
+          # (tests/chairlift/polkit_tty_agent.py). The chown below gives it
+          # to bluefin-test; mode 600 keeps it to that user.
+          if [[ "${SUITE_DIR}" == "chairlift" ]]; then
+            sudo install -d -m 0700 "${VAR}/home/bluefin-test/.config/testsuite"
+            printf '%s\n' "${CHAIRLIFT_PW}" | \
+              sudo tee "${VAR}/home/bluefin-test/.config/testsuite/chairlift-admin-password" > /dev/null
+            sudo chmod 600 "${VAR}/home/bluefin-test/.config/testsuite/chairlift-admin-password"
           fi
 
           sudo chown -R "${BFT_UID}:${BFT_UID}" "${VAR}/home/bluefin-test"
@@ -1152,7 +1210,7 @@ jobs:
           echo "${BOOT_TIME}" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
       - name: Install cached Flatpaks in VM
-        if: ${{ (contains(inputs.image, '/bluefin') || contains(inputs.image, '/utah') || contains(inputs.image, 'dakota')) && steps.shard.outputs.suite_dir != 'lifecycle' }}
+        if: ${{ (contains(inputs.image, '/bluefin') || contains(inputs.image, '/utah') || contains(inputs.image, 'dakota')) && steps.shard.outputs.suite_dir != 'lifecycle' && steps.shard.outputs.suite_dir != 'chairlift' }}
         run: |
           SSH_COMMON="-i /tmp/vm_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ControlMaster=auto -o ControlPersist=600 -o ControlPath=/tmp/ssh-ctrl-%C -o ConnectTimeout=3"
           CACHE_ROOT="${GITHUB_WORKSPACE}/.flatpak-cache-home/.local/share"
@@ -2335,7 +2393,7 @@ jobs:
            env.SUITE_DIR == 'smoke' || env.SUITE_DIR == 'developer' ||
            env.SUITE_DIR == 'dx' || env.SUITE_DIR == 'software' ||
            env.SUITE_DIR == 'vanilla-gnome' || env.SUITE_DIR == 'bazzite' ||
-           env.SUITE_DIR == 'common') &&
+           env.SUITE_DIR == 'common' || env.SUITE_DIR == 'chairlift') &&
           steps.run.outputs.behave_rc == '0'
         env:
           # Through env, not inline: the reason embeds strings read from the

@@ -52,6 +52,9 @@
 
 units:
   # --- startup_contract -------------------------------------------------------
+  # The chairlift suite alone boots with this mask lifted, so the image can
+  # install Control Center at first login (e2e.yml, SUITE_DIR == chairlift,
+  # #1326). Every other suite keeps it masked.
   brew-setup.service:
     category: startup_contract
     mask_sites: [kernel_args]
