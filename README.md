@@ -49,6 +49,7 @@ For the canonical ownership boundary between this repo, [`projectbluefin/lab`](h
 | `bazzite` | GUI | Bazzite-specific extensions |
 | `flatcar` | SSH | Flatcar OS boot and lifecycle |
 | `kde-smoke` | GUI (WebDriver/AT-SPI) | KDE Plasma harness proof-of-concept; Aurora-only, all scenarios `@informational` |
+| `chairlift` | SSH+GUI | Control Center (ChairLift) as the image ships it: Homebrew install at first login, preview mode, one admin action through the real password prompt. Advisory: gates nothing, runs daily on `dakota:testing` |
 
 `smoke` and `common` are designed to work against any GNOME bootc image. `kde-smoke` targets
 KDE Plasma images and is not yet part of any promotion gate.

@@ -53,6 +53,7 @@ SUITE_NOTES: dict[str, str] = {
     "flatcar": "boot (7 active) + lifecycle (5 active); 1 `@future` (boot from installed target disk — needs KubeVirt boot-order support in `projectbluefin/lab`)",
     "kde-smoke": "Plasma session, D-Bus services, AT-SPI tree, KWin output, one KCM, Dolphin, Konsole, Kickoff; all `@informational`",
     "installer": "post-boot assertions for installer-driven installs (UEFI, Flatpak exclusion, LUKS cmdline)",
+    "chairlift": "Advisory, gates nothing; runs daily on `dakota:testing` (`chairlift-scheduled.yml`). Control Center (ChairLift) as the image ships it: Homebrew install at first login, preview-mode window, one admin action (Automatic Updates) through the real polkit password prompt, and the first-login `brew-preinstall.service` result recorded (a bad end is a known gap, not a failure; #1326)",
 }
 
 

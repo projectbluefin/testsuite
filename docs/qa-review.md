@@ -81,6 +81,10 @@ Run unit tests with `python3 -m pytest tests/unit/ -q`. The `pytest` CI check (`
 | `test_xwayland_steps.py` | `_xwayland_display_env` `pgrep` parsing, xprop/glxgears step branches |
 | `test_install_kde_webdriver.py` | `scripts/install-kde-webdriver.sh` executed in a sandbox: pinned-SHA checkout ref, loopback-only unit bind posture, skip branches short-circuit |
 | `test_validate_docs.py` | `scripts/validate_docs.py` frontmatter parsing, heading levels, and link/skill validation |
+| `test_chairlift_steps.py` | chairlift suite steps: Homebrew install wait and its failure reasons, window lookup by role and name, preview-mode check, the admin-action journal and prompt-count proof, the `uupd.timer` reading and restore, and the `brew-preinstall.service` settle-and-record steps |
+| `test_chairlift_environment.py` | chairlift hooks: qecore sandbox only for GUI scenarios, cleanup that never masks the real failure, end-of-run screenshot |
+| `test_chairlift_polkit_agent.py` | `tests/chairlift/polkit_tty_agent.py`: pkttyagent on a PTY, identity choice, password answered and redacted from the transcript, stop file and timeout |
+| `test_chairlift_scheduled_workflow.py` | `chairlift-scheduled.yml`: daily and dispatch only, never on a fork, no gate calls it, and its alert script keeps exactly one issue (run against a fake `gh`) |
 | `test_wait_for_shell.py` | `tests/shared/wait_for_shell.py` retry contract (Shell.Eval failures, missing panel, GDM-restart bus-socket churn, bus address re-resolution, stable checks, bounded deadline, autolaunch refusal, session diagnostics) |
 
 ## Current stub posture
@@ -88,4 +92,5 @@ Run unit tests with `python3 -m pytest tests/unit/ -q`. The `pytest` CI check (`
 - `flatcar/lifecycle`: 6 scenarios, 5 active — knuckle install, Ignition first-boot verification, update channel, automatic-update disable via `update.conf`, and afterburn implemented. Only the boot-order swap remains `@future`: booting the installed target disk requires KubeVirt boot-device ordering owned by `projectbluefin/lab`, and without it a reboot silently returns to the live disk. The suite is not yet reachable from `e2e.yml` (tracked in #704).
 - `security/selinux`: all scenarios active (cosign verification across image variants).
 - `nvidia`: still `@future` / `@hardware_blocked` until GPU passthrough exists in the lab.
+- `chairlift`: 4 active scenarios on a freshly booted Dakota image; advisory, gates nothing. How `brew-preinstall.service` ends is recorded, not judged, until a maintainer decides (#1326).
 - `kde-smoke`: 13 `@informational` scenarios in one feature file; Aurora-only Phase-2 harness proof. The shared KDE helpers and `e2e.yml` suite registration it depends on landed in #641-#645.

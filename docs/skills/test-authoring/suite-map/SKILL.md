@@ -86,6 +86,7 @@ Which suites run on which image. Any bootc/ostree GNOME image can run via the Gi
 | `nvidia` | — | — | ✅ | — | — | — | — | GPU driver validation; NVIDIA variant only |
 | `flatcar` | — | — | — | — | — | — | ✅ | Flatcar OS boot and lifecycle |
 | `kde-smoke` | — | — | — | — | — | — | — | KDE Plasma harness proof-of-concept; Aurora-only, all scenarios `@informational` |
+| `chairlift` | — | — | — | ✅ | — | — | — | Control Center (ChairLift) on a freshly booted image; advisory: gates nothing, runs daily on `dakota:testing` (`chairlift-scheduled.yml`), and `e2e.yml` prepares its guest alone (#1326) |
 
 **GitHub Action consumers**:
 ```yaml
@@ -96,7 +97,8 @@ with:
 ```
 Passing `suites: smoke` expands to `smoke-a` + `smoke-b`, and `suites: common` expands to `common-a` + `common-b`. Both cut wall time by ~50%. New `.feature` files in these suites are picked up automatically.
 
-GitHub Action suites (`smoke`, `vanilla-gnome`, `bazzite`, `developer`, `dx`, `software`, `common`, `lifecycle`, `installer`) run on `ubuntu-latest`.
+GitHub Action suites (`smoke`, `vanilla-gnome`, `bazzite`, `developer`, `dx`, `software`, `common`, `lifecycle`, `installer`, `chairlift`) run on `ubuntu-latest`.
+`chairlift` is advisory: no gate boots it and a change to it never holds `v1` (`ADVISORY_SUITES` in `scripts/vm_validation_plan.py`). Consumers should not gate on it.
 `security` and `hardware` (SSH-mode) are not yet in the GHA action. The original migration epics (#43, #44) are closed; the remaining gap is untracked — file a fresh issue before claiming this work.
 
 Any bootc/ostree GNOME image can plug in `smoke` and `common` as a portable health gate — no Bluefin-specific knowledge required. See `README.md` → "For other bootc image maintainers" for minimum image requirements.
@@ -105,6 +107,7 @@ Any bootc/ostree GNOME image can plug in `smoke` and `common` as a portable heal
 
 - All consumer repos should gate on the `smoke` suite only.
 - Nightly CI is gone; PR gates are now the only CI signal for promotion decisions.
+- The one scheduled `e2e.yml` run is the advisory `chairlift` suite (`chairlift-scheduled.yml`, daily on `dakota:testing`). It says nothing about promotion; a failure opens one alert issue.
 - `e2e.yml` now caches OCI layers by image digest to speed repeated runs.
 - For workflow internals, cache behavior, and troubleshooting, see [`docs/skills/ci-ops/e2e-workflow/SKILL.md`](../../ci-ops/e2e-workflow/SKILL.md).
 
@@ -156,6 +159,7 @@ Set `image` (e.g. `ghcr.io/projectbluefin/dakota:latest`), `suites: lifecycle`, 
 | `@kde_smoke` | KDE Plasma smoke-suite identifier; used by `e2e.yml` suite registration (#645) |
 | `@informational` | Bake-period tier; scenario runs and reports results but does not gate promotion until promoted to `@critical` |
 | `@requires_rpm_ostree` | Common scenario needs `rpm-ostree` on the device under test. It skips only on Dakota (not RPM-based) and Utah (bootc-only by design, utah#1329) when the binary is absent; on every other image a missing `rpm-ostree` is a defect and the scenario runs and fails |
+| `@chairlift_suite` | Feature tag of the `chairlift` suite (Control Center on a freshly booted image, #1326) |
 | `@requires_cached_image` | Scenario needs the OCI image named in its own steps to be pre-pulled on the DUT; `tests/shared/image_cache.py` probes `podman image exists` from `before_scenario` and skips while it is absent. A **runtime capability gate** like `@requires_brew`, not a non-runnable tag — never pair it with `@pending`/`@future`, which mask it (#501) |
 
 ## Quarantine citations

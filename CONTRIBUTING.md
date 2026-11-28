@@ -24,6 +24,7 @@ This repo is the test framework and suite for GNOME- and KDE-based bootc images.
 | `bazzite` | GUI | Bazzite-specific extensions |
 | `flatcar` | SSH | Flatcar OS boot and lifecycle |
 | `kde-smoke` | GUI (WebDriver/AT-SPI) | KDE Plasma harness proof-of-concept; Aurora-only, `@informational` |
+| `chairlift` | SSH+GUI | Control Center on a freshly booted image; advisory, gates nothing, runs daily on `dakota:testing` |
 
 ## Local setup
 
