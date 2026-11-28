@@ -117,16 +117,23 @@ def sandbox(tmp_path: Path):
     bin_dir.mkdir()
     call_log = tmp_path / "calls.log"
 
-    def make_podman(build_rc: int = 0, push_rc: int = 0) -> None:
+    def make_podman(build_rc: int = 0, push_rc: int = 0, emit_digest: bool = True) -> None:
         podman = bin_dir / "podman"
+        digest_cmd = 'echo "sha256:1111111111111111111111111111111111111111111111111111111111111111" > "${arg#--digestfile=}" ;;' if emit_digest else ': ;;'
         podman.write_text(
-            "#!/bin/bash\n"
+            f"#!/bin/bash\n"
             f"{_RECORD}"
-            'case "$1" in\n'
+            f'case "$1" in\n'
             f"  build) exit {build_rc} ;;\n"
-            f"  push) exit {push_rc} ;;\n"
-            "esac\n"
-            "exit 0\n",
+            f"  push)\n"
+            f'    for arg in "$@"; do\n'
+            f'      case "$arg" in\n'
+            f'        --digestfile=*) {digest_cmd}\n'
+            f'      esac\n'
+            f'    done\n'
+            f"    exit {push_rc} ;;\n"
+            f"esac\n"
+            f"exit 0\n",
             encoding="utf-8",
         )
         podman.chmod(0o755)
@@ -141,10 +148,11 @@ def sandbox(tmp_path: Path):
         with_containerfile: bool = True,
         build_rc: int = 0,
         push_rc: int = 0,
+        emit_digest: bool = True,
         podman_override: str | None = "podman",
         extra_env: dict[str, str] | None = None,
     ) -> ComposeRun:
-        make_podman(build_rc=build_rc, push_rc=push_rc)
+        make_podman(build_rc=build_rc, push_rc=push_rc, emit_digest=emit_digest)
         overlay_dir = overlay if overlay is not None else tmp_path / "overlay"
         overlay_dir.mkdir(parents=True, exist_ok=True)
         if with_containerfile:
@@ -251,8 +259,8 @@ def test_push_sends_the_composed_ref(sandbox) -> None:
     """The pushed ref is what suite jobs boot; it must match the tag built."""
     result = sandbox(BASE_REF, COMPOSED_REF)
     argv = result.call("push")
-    assert argv[2:] == [COMPOSED_REF]
-
+    assert any(arg.startswith("--digestfile=") for arg in argv)
+    assert argv[-1] == COMPOSED_REF
 
 def test_build_runs_before_push(sandbox) -> None:
     """Pushing first would publish a stale tag from a previous run."""
@@ -318,4 +326,24 @@ def test_refs_with_shell_metacharacters_are_not_expanded(sandbox) -> None:
     assert result.returncode == 0
     argv = result.call("build")
     assert argv[argv.index("-t") + 1] == weird_composed
-    assert result.call("push")[2:] == [weird_composed]
+    assert result.call("push")[-1] == weird_composed
+
+
+def test_push_fails_when_digest_is_missing(sandbox) -> None:
+    """A push that produces an invalid/missing digest must fail the script."""
+    result = sandbox(BASE_REF, COMPOSED_REF, emit_digest=False)
+    assert result.returncode != 0
+    assert "invalid or missing digest" in result.stderr
+
+
+def test_push_emits_digest_and_pinned_image_outputs(sandbox, tmp_path: Path) -> None:
+    """When GITHUB_OUTPUT is set, the script must write digest and name@digest."""
+    out_file = tmp_path / "github_output"
+    result = sandbox(BASE_REF, COMPOSED_REF, extra_env={"GITHUB_OUTPUT": str(out_file)})
+    assert result.returncode == 0
+    assert out_file.exists()
+    content = out_file.read_text(encoding="utf-8")
+    assert "digest=sha256:1111111111111111111111111111111111111111111111111111111111111111\n" in content
+    expected_pinned = f"pinned_image={COMPOSED_REF.split(':')[0]}@sha256:1111111111111111111111111111111111111111111111111111111111111111\n"
+    assert expected_pinned in content
+    assert ":run-" not in content.split("pinned_image=")[1]
