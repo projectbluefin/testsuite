@@ -84,7 +84,7 @@ jobs:
           python3 scripts/startup_lane.py plan --profile "${PROFILE}" | tee -a "$GITHUB_ENV"
 
       - name: Free disk space
-        uses: projectbluefin/actions/bootc-build/setup-runner@d8f31e9ac688e15883c4a673aa389ac7cf76beab # v1
+        uses: projectbluefin/actions/bootc-build/setup-runner@73eb71a1b99a24b984d997ed6048120be5bf8936 # v1
         with:
           update-podman: "false"
           # Installed through setup-runner's verified apt cache, so a warm
